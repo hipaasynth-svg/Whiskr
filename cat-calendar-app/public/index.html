@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Whisker &amp; Ribbon — Cat of the Month Contest &amp; Calendars</title>
+<meta name="description" content="Enter your cat's photo, get judged against 11 others over a few weeks, and see them printed on a calendar." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="site-header">
+  <a href="#top" class="brand">Whisker <span>&amp;</span> Ribbon</a>
+  <nav class="site-nav">
+    <a href="#how">How it works</a>
+    <a href="#current">This round</a>
+    <a href="#shop">Calendars</a>
+    <a href="#picks">Judge's picks</a>
+    <a href="#enter" class="nav-cta">Enter your cat</a>
+  </nav>
+</header>
+
+<section id="top" class="hero">
+  <div class="hero-slides" id="heroSlides" aria-hidden="true"></div>
+  <div class="hero-scrim"></div>
+  <div class="hero-content">
+    <p class="ribbon-tag">A new batch of 12 judged every few weeks</p>
+    <h1>Twelve cats enter.<br>One wears the cover.</h1>
+    <p class="hero-sub">Submit a photo, we group it with eleven others, the room votes, and every cat in the batch ends up printed — one of them on the front.</p>
+    <div class="hero-actions">
+      <a href="#enter" class="btn btn-primary">Enter your cat</a>
+      <a href="#current" class="btn btn-ghost">See the latest winner</a>
+    </div>
+  </div>
+  <div class="hero-controls">
+    <button id="heroPause" type="button" aria-label="Pause slideshow">Pause</button>
+    <div class="hero-dots" id="heroDots"></div>
+  </div>
+</section>
+
+<section id="how" class="section how">
+  <h2>How the contest runs</h2>
+  <ol class="steps">
+    <li>
+      <span class="step-num">1</span>
+      <h3>Submit a photo</h3>
+      <p>Give us your best shot of your cat and an email address. That's the whole entry form.</p>
+    </li>
+    <li>
+      <span class="step-num">2</span>
+      <h3>Wait with eleven others</h3>
+      <p>Once a batch of 12 fills up, voting stays open for a few weeks so every cat gets a fair look.</p>
+    </li>
+    <li>
+      <span class="step-num">3</span>
+      <h3>Everybody hears back</h3>
+      <p>We email the whole batch. One cat is Cat of the Month on the cover; all twelve are in the calendar.</p>
+    </li>
+  </ol>
+</section>
+
+<section id="current" class="section current">
+  <div class="current-card">
+    <div class="current-photo">
+      <img id="winnerPhoto" src="" alt="" />
+    </div>
+    <div class="current-copy">
+      <p class="ribbon-tag">Most recent Cat of the Month</p>
+      <h2 id="winnerName">Judging in progress</h2>
+      <p id="winnerBlurb">The current batch is still filling up or still being voted on. Check back soon — or be the twelfth cat that seals it.</p>
+      <p class="spots-left" id="spotsLeft"></p>
+    </div>
+  </div>
+</section>
+
+<section id="shop" class="section shop">
+  <h2>Calendars from past batches</h2>
+  <p class="section-sub">Every calendar holds 12 cats from the same voting round — one cover star, eleven co-stars.</p>
+  <div class="shop-grid">
+    <div class="product-card">
+      <div class="product-badge">Most popular</div>
+      <h3>The 12-Cat Wall Calendar</h3>
+      <p>13 months, thick matte stock, spiral bound. Ships flat, hangs anywhere.</p>
+      <div class="price-row">
+        <div>
+          <span class="price" id="priceOne">$24.99</span>
+          <span class="price-note">one calendar</span>
+        </div>
+        <div>
+          <span class="price price-alt" id="priceMulti">$19.99</span>
+          <span class="price-note">each, for 2+</span>
+        </div>
+      </div>
+      <form id="checkoutForm" class="checkout-form">
+        <label>
+          Group number
+          <input type="number" id="checkoutGroup" min="1" placeholder="e.g. 3" required />
+        </label>
+        <label>
+          Quantity
+          <input type="number" id="checkoutQty" min="1" max="20" value="1" required />
+        </label>
+        <label>
+          Email for the receipt
+          <input type="email" id="checkoutEmail" placeholder="you@example.com" required />
+        </label>
+        <button type="submit" class="btn btn-primary">Go to checkout</button>
+        <p class="form-note" id="checkoutNote"></p>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section id="picks" class="section picks">
+  <h2>What the judging table actually uses</h2>
+  <p class="section-sub">Products we keep buying for our own contest cats. Some of these links earn us a small commission — it doesn't change your price.</p>
+  <div class="picks-grid">
+    <a class="pick-card" href="https://www.chewy.com/" target="_blank" rel="sponsored noopener">
+      <h4>Chewy — food &amp; treats</h4>
+      <p>Where we restock the studio cats between shoots.</p>
+    </a>
+    <a class="pick-card" href="https://www.amazon.com/s?k=cat+photo+backdrop" target="_blank" rel="sponsored noopener">
+      <h4>Amazon — photo backdrops</h4>
+      <p>Cheap felt backdrops that make phone photos look studio-lit.</p>
+    </a>
+    <a class="pick-card" href="https://www.litter-robot.com/" target="_blank" rel="sponsored noopener">
+      <h4>Litter-Robot — self-cleaning litter</h4>
+      <p>Fewer chores, more time to get the shot.</p>
+    </a>
+    <a class="pick-card" href="https://www.chewy.com/s?query=cat+wand+toy" target="_blank" rel="sponsored noopener">
+      <h4>Wand toys — for that alert ear photo</h4>
+      <p>Ninety percent of good cat photos are one toy away from happening.</p>
+    </a>
+  </div>
+  <p class="affiliate-disclosure">Replace these href values with your real affiliate links before launch — see README.</p>
+</section>
+
+<section id="enter" class="section enter">
+  <div class="enter-wrap">
+    <div class="enter-copy">
+      <p class="ribbon-tag">Entry is free</p>
+      <h2>Put your cat in the next batch</h2>
+      <p>One photo, one email address. We'll email you the second voting closes on your batch — whether your cat's on the cover or one of the eleven.</p>
+    </div>
+    <form id="entryForm" class="entry-form" enctype="multipart/form-data">
+      <label>
+        Cat's name
+        <input type="text" name="catName" id="catName" maxlength="60" placeholder="Biscuit" required />
+      </label>
+      <label>
+        Your email
+        <input type="email" name="email" id="entryEmail" placeholder="you@example.com" required />
+      </label>
+      <label class="file-label">
+        Photo
+        <input type="file" name="photo" id="entryPhoto" accept="image/png, image/jpeg, image/webp, image/gif" required />
+      </label>
+      <label class="consent-label">
+        <input type="checkbox" name="photoRights" id="photoRights" required />
+        I own this photo and grant Whisker &amp; Ribbon a license to print and sell it.
+      </label>
+      <button type="submit" class="btn btn-primary">Submit entry</button>
+      <p class="form-note" id="entryNote"></p>
+    </form>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div>Whisker &amp; Ribbon — a small, honest cat calendar company.</div>
+  <div class="footer-links"><a href="#top">Back to top</a></div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

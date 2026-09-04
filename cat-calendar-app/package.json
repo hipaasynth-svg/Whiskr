@@ -1,0 +1,21 @@
+{
+  "name": "whisker-ribbon",
+  "version": "1.0.0",
+  "description": "Cat photo contest + calendar shop, with Zoho Mail notifications",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.14",
+    "stripe": "^16.8.0",
+    "uuid": "^9.0.1"
+  }
+}
