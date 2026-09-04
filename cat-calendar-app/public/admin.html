@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Judging — Whiskr</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<style>
+  .admin-wrap { max-width: 1000px; margin: 0 auto; padding: 40px 36px 100px; }
+  .key-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 36px; flex-wrap: wrap; }
+  .key-bar input { flex: 1; min-width: 220px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; font-family: var(--font-body); }
+  .key-status { font-size: 0.85rem; }
+  .key-status.ok { color: var(--forest); }
+  .key-status.err { color: #b3261e; }
+  .admin-section { margin-bottom: 48px; }
+  .admin-section h2 { font-size: 1.3rem; margin-bottom: 6px; }
+  .admin-section .sub { color: #6b6552; font-size: 0.9rem; margin-bottom: 20px; }
+  .group-card { border: 1px solid var(--line); border-radius: 6px; padding: 20px; margin-bottom: 20px; background: var(--paper-card); }
+  .group-card .group-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; flex-wrap: wrap; gap: 6px; }
+  .group-card .group-head h3 { font-size: 1.05rem; }
+  .group-card .deadline { font-size: 0.82rem; color: #6b6552; }
+  .pick-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  @media (max-width: 800px) { .pick-grid { grid-template-columns: repeat(3, 1fr); } }
+  .pick-cell { text-align: center; }
+  .pick-cell img { width: 100%; aspect-ratio: 1/1; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); margin-bottom: 6px; cursor: pointer; }
+  .pick-cell img:hover { outline: 2px solid var(--marigold); outline-offset: 1px; }
+  .pick-cell .name { font-size: 0.75rem; margin-bottom: 6px; }
+  .pick-cell button { width: 100%; font-size: 0.72rem; padding: 6px; border: 1px solid var(--ink); background: transparent; border-radius: 3px; cursor: pointer; }
+  .pick-cell button:hover { background: var(--ink); color: #fff; }
+  .pick-cell button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .empty { color: #6b6552; font-size: 0.9rem; }
+  table.orders { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  table.orders th, table.orders td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  table.orders th { color: #6b6552; font-weight: 600; }
+  .refresh-btn { font-size: 0.8rem; padding: 6px 12px; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <nav class="site-nav">
+    <a href="index.html">Site</a>
+  </nav>
+</header>
+
+<div class="admin-wrap">
+  <h1 style="font-size:1.6rem;margin-bottom:6px;">Judging &amp; orders</h1>
+  <p class="sub" style="color:#6b6552;margin-bottom:28px;">Not linked from the public site. Protected by your admin key, not by obscurity — don't rely on the URL alone.</p>
+
+  <div class="key-bar">
+    <input type="password" id="adminKey" placeholder="Admin key (from .env ADMIN_KEY)" />
+    <button class="btn btn-primary" id="loadBtn" type="button" style="padding:10px 18px;">Load</button>
+    <span class="key-status" id="keyStatus"></span>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Groups awaiting a pick</h2>
+        <p class="sub">Click a photo to make that cat the cover. Sends the winner + featured emails immediately.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshGroups" type="button">Refresh</button>
+    </div>
+    <div id="groupsList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Paid orders</h2>
+        <p class="sub">What actually needs printing and shipping.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshOrders" type="button">Refresh</button>
+    </div>
+    <div id="ordersList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+</div>
+
+<script>
+  const keyInput = document.getElementById('adminKey');
+  const keyStatus = document.getElementById('keyStatus');
+  const groupsList = document.getElementById('groupsList');
+  const ordersList = document.getElementById('ordersList');
+
+  // Convenience only, for a solo operator's own browser — not a security
+  // boundary. The server still requires the key on every request.
+  try {
+    const saved = sessionStorage.getItem('whiskr_admin_key');
+    if (saved) keyInput.value = saved;
+  } catch (_) {}
+
+  function adminFetch(path, options = {}) {
+    const key = keyInput.value.trim();
+    try { sessionStorage.setItem('whiskr_admin_key', key); } catch (_) {}
+    return fetch(path, {
+      ...options,
+      headers: { ...(options.headers || {}), 'x-admin-key': key },
+    });
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+  }
+
+  async function loadGroups() {
+    groupsList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/groups/pending');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load groups.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.groups.length === 0) {
+        groupsList.innerHTML = '<p class="empty">Nothing waiting on you right now.</p>';
+        return;
+      }
+
+      groupsList.innerHTML = data.groups.map((g) => `
+        <div class="group-card" data-group="${g.groupId}">
+          <div class="group-head">
+            <h3>Group #${g.groupId}</h3>
+            <span class="deadline">Auto-picks at random on ${new Date(g.judgingDeadline).toLocaleDateString()} if you don't decide first</span>
+          </div>
+          <div class="pick-grid">
+            ${g.cats.map((cat) => `
+              <div class="pick-cell">
+                <img src="${cat.photo_path}" alt="${escapeHtml(cat.cat_name)}" data-submission="${cat.id}" data-group="${g.groupId}" class="pick-img" />
+                <div class="name">${escapeHtml(cat.cat_name)}</div>
+                <button type="button" class="pick-btn" data-submission="${cat.id}" data-group="${g.groupId}">Make cover</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+
+      groupsList.querySelectorAll('.pick-btn, .pick-img').forEach((el) => {
+        el.addEventListener('click', () => pick(el.dataset.group, el.dataset.submission));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      groupsList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function pick(groupId, submissionId) {
+    const card = groupsList.querySelector(`.group-card[data-group="${groupId}"]`);
+    card.querySelectorAll('button').forEach((b) => (b.disabled = true));
+    try {
+      const res = await adminFetch(`/api/admin/groups/${groupId}/pick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: Number(submissionId) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Pick failed.');
+      loadGroups();
+    } catch (err) {
+      alert(err.message);
+      card.querySelectorAll('button').forEach((b) => (b.disabled = false));
+    }
+  }
+
+  async function loadOrders() {
+    ordersList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/orders?status=paid');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load orders.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.orders.length === 0) {
+        ordersList.innerHTML = '<p class="empty">No paid orders yet.</p>';
+        return;
+      }
+
+      ordersList.innerHTML = `
+        <table class="orders">
+          <thead><tr><th>Date</th><th>Group</th><th>Email</th><th>Qty</th><th>Amount</th></tr></thead>
+          <tbody>
+            ${data.orders.map((o) => `
+              <tr>
+                <td>${new Date(o.created_at).toLocaleDateString()}</td>
+                <td>#${o.group_id}</td>
+                <td>${escapeHtml(o.email)}</td>
+                <td>${o.quantity}</td>
+                <td>$${Number(o.amount_usd).toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      ordersList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  function loadAll() {
+    loadGroups();
+    loadOrders();
+  }
+
+  document.getElementById('loadBtn').addEventListener('click', loadAll);
+  document.getElementById('refreshGroups').addEventListener('click', loadGroups);
+  document.getElementById('refreshOrders').addEventListener('click', loadOrders);
+  keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadAll(); });
+
+  if (keyInput.value) loadAll();
+</script>
+</body>
+</html>

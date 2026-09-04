@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Your batch's calendar — Whiskr</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<style>
+  .cal-wrap { max-width: 900px; margin: 0 auto; padding: 60px 36px 100px; }
+  .cal-header { text-align: left; margin-bottom: 30px; }
+  .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 40px;
+  }
+  .cal-cell { position: relative; border-radius: 4px; overflow: hidden; border: 1px solid var(--line); background: #fff; }
+  .cal-cell img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
+  .cal-cell .tag {
+    position: absolute; top: 6px; left: 6px;
+    background: var(--marigold); color: var(--ink);
+    font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 2px;
+  }
+  .cal-cell .name {
+    font-size: 0.78rem; padding: 6px 8px; color: var(--ink); background: var(--paper-card);
+  }
+  #calStatus { color: #6b6552; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <nav class="site-nav">
+    <a href="index.html#shop">All calendars</a>
+    <a href="index.html#enter" class="nav-cta">Enter your cat</a>
+  </nav>
+</header>
+
+<div class="cal-wrap">
+  <div class="cal-header">
+    <p class="ribbon-tag" id="calGroupLabel">Loading batch…</p>
+    <h1 id="calTitle">This batch's calendar</h1>
+    <p id="calStatus"></p>
+  </div>
+
+  <div class="cal-grid" id="calGrid"></div>
+
+  <div class="product-card" style="max-width:460px;">
+    <h3>Order this calendar</h3>
+    <div class="price-row">
+      <div>
+        <span class="price" id="calPriceOne">$24.99</span>
+        <span class="price-note">one calendar</span>
+      </div>
+      <div>
+        <span class="price price-alt" id="calPriceMulti">$19.99</span>
+        <span class="price-note">each, for 2+</span>
+      </div>
+    </div>
+    <form id="calCheckoutForm" class="checkout-form">
+      <label>
+        Quantity
+        <input type="number" id="calQty" min="1" max="20" value="1" required />
+      </label>
+      <label>
+        Email for the receipt
+        <input type="email" id="calEmail" placeholder="you@example.com" required />
+      </label>
+      <button type="submit" class="btn btn-primary">Go to checkout</button>
+      <p class="form-note" id="calCheckoutNote"></p>
+    </form>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div>Whiskr — a small, honest cat calendar company.</div>
+  <div class="footer-links"><a href="index.html">Home</a></div>
+</footer>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const groupId = params.get('group');
+  const grid = document.getElementById('calGrid');
+  const label = document.getElementById('calGroupLabel');
+  const title = document.getElementById('calTitle');
+  const statusEl = document.getElementById('calStatus');
+
+  async function load() {
+    if (!groupId) {
+      statusEl.textContent = 'No batch specified — use a link from your result email.';
+      return;
+    }
+    label.textContent = `Batch #${groupId}`;
+    try {
+      const res = await fetch(`/api/calendar/${groupId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Batch not found');
+
+      document.getElementById('calPriceOne').textContent = `$${data.priceOne.toFixed(2)}`;
+      document.getElementById('calPriceMulti').textContent = `$${data.priceMulti.toFixed(2)}`;
+
+      if (data.status !== 'completed') {
+        statusEl.textContent = 'This batch is still being judged — check back once a cover cat is picked.';
+      } else {
+        title.textContent = 'The calendar from this round';
+        statusEl.textContent = '12 cats, one cover star, thirteen months of good mornings.';
+      }
+
+      data.cats.forEach((cat) => {
+        const cell = document.createElement('div');
+        cell.className = 'cal-cell';
+        const isWinner = cat.id === data.winnerSubmissionId;
+
+        const img = document.createElement('img');
+        img.src = cat.photo_path;
+        img.alt = cat.cat_name;
+        cell.appendChild(img);
+
+        if (isWinner) {
+          const tag = document.createElement('span');
+          tag.className = 'tag';
+          tag.textContent = 'Cover';
+          cell.appendChild(tag);
+        }
+
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = cat.cat_name;
+        cell.appendChild(name);
+
+        grid.appendChild(cell);
+      });
+    } catch (err) {
+      statusEl.textContent = err.message;
+    }
+  }
+  load();
+
+  document.getElementById('calCheckoutForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const note = document.getElementById('calCheckoutNote');
+    const btn = e.target.querySelector('button[type=submit]');
+    note.classList.remove('error');
+    note.textContent = 'Redirecting to checkout…';
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groupId,
+          quantity: document.getElementById('calQty').value,
+          email: document.getElementById('calEmail').value,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Checkout is not available yet.');
+      window.location.href = data.url;
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
