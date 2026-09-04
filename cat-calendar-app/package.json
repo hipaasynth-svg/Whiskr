@@ -1,9 +1,12 @@
 {
   "name": "whiskr",
   "version": "1.0.0",
-  "description": "Cat photo contest + calendar shop — judged, not simulated-voted, with Zoho Mail notifications",
+  "description": "Custom cat/dog print-on-demand shop, verified-purchase reviews, and a judged monthly photo contest, with Zoho Mail notifications",
   "main": "server.js",
   "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"

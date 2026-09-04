@@ -15,4 +15,4 @@ function verify(email, token) {
   return expected.length === given.length && crypto.timingSafeEqual(expected, given);
 }
 
-module.exports = { tokenFor, verify };
+module.exports = { tokenFor, verify, secret };

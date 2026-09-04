@@ -10,6 +10,9 @@ const { v4: uuid } = require('uuid');
 const db = require('./db');
 const mailer = require('./mailer');
 const unsubscribe = require('./unsubscribe');
+const reviewLink = require('./reviewLink');
+const productCatalog = require('./products');
+const printful = require('./printful');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +21,11 @@ const VOTING_PERIOD_DAYS = Number(process.env.VOTING_PERIOD_DAYS || 21);
 const BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const PRICE_ONE = Number(process.env.CALENDAR_PRICE_USD || 24.99);
 const PRICE_MULTI = Number(process.env.CALENDAR_2PLUS_PRICE_USD || 19.99);
+// Physical products (calendars, custom prints) need a real ship-to address.
+// Keep this list short by default — every country you add is one you're
+// committing to handle customs/duties questions for.
+const SHIPPING_COUNTRIES = (process.env.SHIPPING_COUNTRIES || 'US').split(',').map((c) => c.trim());
+const REVIEW_REQUEST_DELAY_DAYS = Number(process.env.REVIEW_REQUEST_DELAY_DAYS || 14);
 
 let stripe = null;
 if (process.env.STRIPE_SECRET_KEY) {
@@ -57,10 +65,58 @@ const upload = multer({
   },
 });
 
+// Submits a paid custom order to Printful for printing + shipping. Only
+// ever called from the webhook below, after Stripe confirms payment — never
+// at checkout time, and never more than once (custom_orders.status guards
+// against a duplicate webhook delivery re-submitting the same order).
+async function submitCustomOrderToPrintful(orderId) {
+  const order = db.prepare(`SELECT * FROM custom_orders WHERE id = ?`).get(orderId);
+  if (!order || order.status !== 'paid') return;
+
+  const product = productCatalog.getProduct(order.product_id);
+  const recipient = printful.recipientFromStripeShipping(
+    order.shipping_address ? JSON.parse(order.shipping_address) : null,
+    order.email
+  );
+
+  try {
+    const result = await printful.submitOrder({
+      externalId: `custom-${order.id}`,
+      variantId: product ? product.printfulVariantId : null,
+      quantity: order.quantity,
+      photoUrl: `${BASE_URL}${order.photo_path}`,
+      recipient,
+    });
+
+    if (result && result.dryRun) {
+      console.log(`[printful] custom order #${order.id} — dry run only (PRINTFUL_API_KEY not set).`);
+    } else {
+      db.prepare(`UPDATE custom_orders SET status = 'submitted_to_printful', printful_order_id = ? WHERE id = ?`).run(
+        result && result.id ? String(result.id) : null,
+        order.id
+      );
+      console.log(`[printful] custom order #${order.id} submitted (Printful order ${result && result.id}).`);
+    }
+  } catch (err) {
+    db.prepare(`UPDATE custom_orders SET status = 'failed' WHERE id = ?`).run(order.id);
+    if (process.env.ADMIN_EMAIL) {
+      await mailer
+        .sendMail({
+          to: process.env.ADMIN_EMAIL,
+          subject: `Custom order #${order.id} failed to submit to Printful`,
+          text: `Custom order #${order.id} (${order.email}) was paid but failed to submit to Printful: ${err.message}. It needs manual attention.`,
+          html: `<p>Custom order #${order.id} (${order.email}) was paid but failed to submit to Printful: ${err.message}</p><p>It needs manual attention.</p>`,
+        })
+        .catch(() => {});
+    }
+    console.error(`[printful] failed to submit custom order #${order.id}:`, err.message);
+  }
+}
+
 // Stripe webhook needs the raw request body for signature verification, so
 // it's mounted before the global express.json() parser below — otherwise
 // json() would consume/parse the body first and constructEvent would fail.
-app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), (req, res) => {
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
     return res.status(400).send('Stripe webhooks are not configured.');
   }
@@ -81,11 +137,28 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), (req
   // actually paid or what to fulfill.
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
-    const info = db.prepare(`UPDATE orders SET status = 'paid' WHERE stripe_session_id = ?`).run(session.id);
-    if (info.changes > 0) {
-      console.log(`[stripe webhook] order for session ${session.id} marked paid.`);
+    const orderType = session.metadata && session.metadata.orderType;
+    const orderId = session.metadata && Number(session.metadata.orderId);
+    const shippingJson = session.shipping_details ? JSON.stringify(session.shipping_details) : null;
+
+    if (orderType === 'calendar' && orderId) {
+      const info = db
+        .prepare(`UPDATE orders SET status = 'paid', shipping_address = ? WHERE id = ?`)
+        .run(shippingJson, orderId);
+      console.log(
+        info.changes > 0
+          ? `[stripe webhook] calendar order #${orderId} marked paid.`
+          : `[stripe webhook] checkout.session.completed for unknown calendar order #${orderId}`
+      );
+    } else if (orderType === 'custom' && orderId) {
+      db.prepare(`UPDATE custom_orders SET status = 'paid', shipping_address = ? WHERE id = ?`).run(
+        shippingJson,
+        orderId
+      );
+      console.log(`[stripe webhook] custom order #${orderId} marked paid.`);
+      await submitCustomOrderToPrintful(orderId);
     } else {
-      console.warn(`[stripe webhook] checkout.session.completed for unrecognized session ${session.id}`);
+      console.warn(`[stripe webhook] checkout.session.completed with unrecognized metadata for session ${session.id}`);
     }
   }
 
@@ -222,6 +295,49 @@ async function runDueJudging() {
   }
 }
 
+// Emails a signed review-request link to anyone whose order was paid (and,
+// for custom orders, ideally already shipped) at least REVIEW_REQUEST_DELAY_DAYS
+// ago and hasn't been asked yet. This is the only path reviews ever get
+// solicited through — there is no bulk-import or seed-data path, on purpose.
+async function sendDueReviewRequests() {
+  const cutoff = new Date(Date.now() - REVIEW_REQUEST_DELAY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const dueCalendar = db
+    .prepare(`SELECT * FROM orders WHERE status = 'paid' AND review_requested_at IS NULL AND created_at <= ?`)
+    .all(cutoff);
+  for (const o of dueCalendar) {
+    const token = reviewLink.tokenFor('calendar', o.id, o.email);
+    const reviewUrl = `${BASE_URL}/review.html?type=calendar&id=${o.id}&email=${encodeURIComponent(o.email)}&token=${token}`;
+    try {
+      await mailer.sendReviewRequest({ email: o.email, itemLabel: `Whiskr calendar (Group #${o.group_id})`, reviewUrl });
+      db.prepare(`UPDATE orders SET review_requested_at = ? WHERE id = ?`).run(new Date().toISOString(), o.id);
+    } catch (err) {
+      console.error(`[mailer] review request failed for order ${o.id}:`, err.message);
+    }
+  }
+
+  const dueCustom = db
+    .prepare(
+      `SELECT * FROM custom_orders WHERE status IN ('paid','submitted_to_printful') AND review_requested_at IS NULL AND created_at <= ?`
+    )
+    .all(cutoff);
+  for (const o of dueCustom) {
+    const product = productCatalog.getProduct(o.product_id);
+    const token = reviewLink.tokenFor('custom', o.id, o.email);
+    const reviewUrl = `${BASE_URL}/review.html?type=custom&id=${o.id}&email=${encodeURIComponent(o.email)}&token=${token}`;
+    try {
+      await mailer.sendReviewRequest({
+        email: o.email,
+        itemLabel: product ? product.name : 'Whiskr order',
+        reviewUrl,
+      });
+      db.prepare(`UPDATE custom_orders SET review_requested_at = ? WHERE id = ?`).run(new Date().toISOString(), o.id);
+    } catch (err) {
+      console.error(`[mailer] review request failed for custom order ${o.id}:`, err.message);
+    }
+  }
+}
+
 // ---------- API ----------
 
 // Submit a cat photo + email into the current open group
@@ -266,6 +382,97 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
       submissionId: info.lastInsertRowid,
       groupSealed: Boolean(sealedGroupId),
     });
+  } catch (err) {
+    console.error(err);
+    if (req.file) fs.unlink(req.file.path, () => {});
+    res.status(500).json({ error: err.message || 'Something went wrong.' });
+  }
+});
+
+// Public catalog of custom cat/dog print products (see products.js).
+app.get('/api/products', (req, res) => {
+  const species = typeof req.query.species === 'string' ? req.query.species : null;
+  const list = productCatalog.listProducts(species).map((p) => ({
+    id: p.id,
+    name: p.name,
+    species: p.species,
+    description: p.description,
+    priceUsd: p.priceUsd,
+  }));
+  res.json({ products: list });
+});
+
+// Upload a pet photo, pick a product, pay — this is the evergreen storefront
+// (as opposed to the contest, which only runs in batches of 12). Fulfilled
+// through Printful once Stripe confirms payment via the webhook above.
+app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
+  const rejectWithCleanup = (status, error) => {
+    if (req.file) fs.unlink(req.file.path, () => {});
+    return res.status(status).json({ error });
+  };
+
+  try {
+    if (!stripe) {
+      return rejectWithCleanup(400, 'Stripe is not configured on this server yet.');
+    }
+    const { email, productId, species, petName, photoRights, quantity } = req.body;
+
+    if (!isValidEmail(email)) {
+      return rejectWithCleanup(400, 'A valid email is required.');
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'A photo is required.' });
+    }
+    if (species !== 'cat' && species !== 'dog') {
+      return rejectWithCleanup(400, 'Please choose cat or dog.');
+    }
+    // Photo rights: same requirement as contest entries — before printing
+    // and selling a customer's own photo, we need their affirmative
+    // confirmation they own/have rights to it (it's usually their own pet,
+    // but the checkbox is the actual legal record either way).
+    if (photoRights !== 'on' && photoRights !== 'true') {
+      return rejectWithCleanup(400, 'You must confirm you own the rights to this photo.');
+    }
+    const product = productCatalog.getProduct(productId);
+    if (!product) {
+      return rejectWithCleanup(400, 'Unknown product.');
+    }
+
+    const qty = Math.max(1, Math.min(10, Number(quantity) || 1));
+    const petNameClean = (petName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
+    const photoPath = `/uploads/${req.file.filename}`;
+    const now = new Date().toISOString();
+    const amount = product.priceUsd * qty;
+
+    const info = db
+      .prepare(
+        `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+      )
+      .run(email, product.id, species, petNameClean, photoPath, qty, amount, now, now);
+    const orderId = info.lastInsertRowid;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer_email: email,
+      shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: { name: `Whiskr — ${product.name}` },
+            unit_amount: Math.round(product.priceUsd * 100),
+          },
+          quantity: qty,
+        },
+      ],
+      metadata: { orderType: 'custom', orderId: String(orderId) },
+      success_url: `${BASE_URL}/?order=success`,
+      cancel_url: `${BASE_URL}/shop.html`,
+    });
+
+    db.prepare(`UPDATE custom_orders SET stripe_session_id = ? WHERE id = ?`).run(session.id, orderId);
+
+    res.json({ ok: true, url: session.url });
   } catch (err) {
     console.error(err);
     if (req.file) fs.unlink(req.file.path, () => {});
@@ -333,9 +540,17 @@ app.post('/api/checkout', async (req, res) => {
     const qty = Math.max(1, Math.min(20, Number(quantity) || 1));
     const unitPrice = qty >= 2 ? PRICE_MULTI : PRICE_ONE;
 
+    const info = db
+      .prepare(
+        `INSERT INTO orders (group_id, email, quantity, amount_usd, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)`
+      )
+      .run(groupId, email || '', qty, unitPrice * qty, new Date().toISOString());
+    const orderId = info.lastInsertRowid;
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       customer_email: isValidEmail(email) ? email : undefined,
+      shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
       line_items: [
         {
           price_data: {
@@ -346,13 +561,12 @@ app.post('/api/checkout', async (req, res) => {
           quantity: qty,
         },
       ],
+      metadata: { orderType: 'calendar', orderId: String(orderId) },
       success_url: `${BASE_URL}/?order=success`,
       cancel_url: `${BASE_URL}/calendar.html?group=${groupId}`,
     });
 
-    db.prepare(
-      `INSERT INTO orders (group_id, email, quantity, amount_usd, stripe_session_id, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`
-    ).run(groupId, email || '', qty, unitPrice * qty, session.id, new Date().toISOString());
+    db.prepare(`UPDATE orders SET stripe_session_id = ? WHERE id = ?`).run(session.id, orderId);
 
     res.json({ url: session.url });
   } catch (err) {
@@ -373,6 +587,67 @@ app.get('/api/unsubscribe', (req, res) => {
     new Date().toISOString()
   );
   res.send('You have been unsubscribed from Whiskr emails.');
+});
+
+// Public reviews for the homepage. Only ever rows a human approved after
+// verifying the submission came from a real, signed order-review link —
+// see POST /api/reviews below. No seed data, ever: an empty result here
+// means the honest thing is an empty state on the page, not a fake review.
+app.get('/api/reviews', (req, res) => {
+  const rows = db
+    .prepare(`SELECT rating, body, display_name, photo_path, created_at FROM reviews WHERE approved = 1 ORDER BY created_at DESC LIMIT 50`)
+    .all();
+  res.json({ reviews: rows });
+});
+
+// Submit a review — only reachable via the signed link emailed after a real
+// order was fulfilled (see sendDueReviewRequests below). The token proves
+// this specific email actually placed this specific order; this is what
+// makes every review a verified purchase rather than an open form anyone
+// could spam or fabricate. Never relax this check.
+app.post('/api/reviews', (req, res) => {
+  try {
+    const { orderType, orderId, email, token, rating, body, displayName } = req.body;
+    const id = Number(orderId);
+
+    if (orderType !== 'calendar' && orderType !== 'custom') {
+      return res.status(400).json({ error: 'Invalid review link.' });
+    }
+    if (!reviewLink.verify(orderType, id, email, token)) {
+      return res.status(400).json({ error: 'Invalid or expired review link.' });
+    }
+
+    const order =
+      orderType === 'calendar'
+        ? db.prepare(`SELECT email, status FROM orders WHERE id = ?`).get(id)
+        : db.prepare(`SELECT email, status FROM custom_orders WHERE id = ?`).get(id);
+    const paidStatuses = ['paid', 'submitted_to_printful'];
+    if (!order || order.email.toLowerCase() !== String(email).toLowerCase() || !paidStatuses.includes(order.status)) {
+      return res.status(400).json({ error: 'This order is not eligible for a review.' });
+    }
+
+    const ratingNum = Math.round(Number(rating));
+    if (!Number.isInteger(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+      return res.status(400).json({ error: 'Rating must be 1 to 5.' });
+    }
+    const bodyClean = String(body || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 1000);
+    if (!bodyClean) {
+      return res.status(400).json({ error: 'Please write a few words about your order.' });
+    }
+    const nameClean = String(displayName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60) || null;
+
+    db.prepare(
+      `INSERT INTO reviews (order_type, order_id, email, rating, body, display_name, approved, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`
+    ).run(orderType, id, email, ratingNum, bodyClean, nameClean, new Date().toISOString());
+
+    res.json({ ok: true, message: "Thanks! Your review is in — it'll show up once we've had a look." });
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: "You've already reviewed this order." });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
 });
 
 // ---------- admin / ops ----------
@@ -438,6 +713,35 @@ app.get('/api/admin/orders', requireAdmin, (req, res) => {
   res.json({ orders: rows });
 });
 
+// Custom (print-on-demand) orders, for fulfillment visibility alongside
+// the calendar orders above.
+app.get('/api/admin/custom-orders', requireAdmin, (req, res) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : null;
+  const rows = status
+    ? db.prepare(`SELECT * FROM custom_orders WHERE status = ? ORDER BY created_at DESC`).all(status)
+    : db.prepare(`SELECT * FROM custom_orders ORDER BY created_at DESC`).all();
+  res.json({ orders: rows });
+});
+
+// Moderation queue — pending by default, since that's what needs a look.
+app.get('/api/admin/reviews', requireAdmin, (req, res) => {
+  const approved = req.query.approved === '1' ? 1 : 0;
+  const rows = db.prepare(`SELECT * FROM reviews WHERE approved = ? ORDER BY created_at ASC`).all(approved);
+  res.json({ reviews: rows });
+});
+app.post('/api/admin/reviews/:id/approve', requireAdmin, (req, res) => {
+  const info = db.prepare(`UPDATE reviews SET approved = 1 WHERE id = ?`).run(Number(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: 'Review not found.' });
+  res.json({ ok: true });
+});
+// "Reject" just removes it — there's no public-facing rejected state, and
+// keeping spam/abuse around serves no purpose.
+app.post('/api/admin/reviews/:id/reject', requireAdmin, (req, res) => {
+  const info = db.prepare(`DELETE FROM reviews WHERE id = ?`).run(Number(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: 'Review not found.' });
+  res.json({ ok: true });
+});
+
 // Manually trigger the two background jobs (handy for testing without waiting weeks)
 app.post('/api/admin/seal-group', requireAdmin, async (req, res) => {
   const id = await maybeSealGroup();
@@ -448,6 +752,12 @@ app.post('/api/admin/seal-group', requireAdmin, async (req, res) => {
 // this only ever fires for groups you didn't get to in time.
 app.post('/api/admin/run-fallback-judging', requireAdmin, async (req, res) => {
   await runDueJudging();
+  res.json({ ok: true });
+});
+// Sends any due review-request emails immediately, for testing — in normal
+// operation the daily cron below does this.
+app.post('/api/admin/run-review-requests', requireAdmin, async (req, res) => {
+  await sendDueReviewRequests();
   res.json({ ok: true });
 });
 // Force a specific group's judging deadline to right now (testing only —
@@ -464,9 +774,11 @@ app.post('/api/admin/force-close/:groupId', requireAdmin, async (req, res) => {
 app.get('/healthz', (req, res) => res.send('ok'));
 
 // ---------- background schedule ----------
-// Daily check for groups whose judging deadline passed without a manual pick.
+// Daily check for groups whose judging deadline passed without a manual pick,
+// and for paid orders old enough to ask for a review.
 cron.schedule(process.env.CRON_SCHEDULE || '0 9 * * *', () => {
   runDueJudging().catch((e) => console.error('[cron] fallback judging run failed:', e));
+  sendDueReviewRequests().catch((e) => console.error('[cron] review-request run failed:', e));
 });
 
 app.listen(PORT, () => {

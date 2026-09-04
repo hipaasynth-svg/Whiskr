@@ -63,7 +63,7 @@ async function sendMail({ to, subject, html, text }) {
 // showUnsubscribe should be true for any email containing a purchase pitch
 // (CAN-SPAM applies to commercial content even when mixed with transactional
 // content) and can stay false for purely transactional notices.
-function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '' } = {}) {
+function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = 'Cat of the Month Contest' } = {}) {
   const footerCompliance = showUnsubscribe
     ? `<p>${escapeHtml(MAILING_ADDRESS)}<br>
         Don't want these emails? <a href="${unsubscribeUrl(email)}">Unsubscribe</a>.</p>`
@@ -73,7 +73,7 @@ function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '' } = {}) {
     <div style="max-width:520px;margin:0 auto;background:#FFFDF8;border:1px solid #d8cdb5;border-radius:4px;overflow:hidden;">
       <div style="background:#1B2430;color:#EFE6D8;padding:20px 28px;font-family:Georgia,serif;">
         <div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#E8A33D;">Whiskr</div>
-        <div style="font-size:20px;margin-top:2px;">Cat of the Month Contest</div>
+        <div style="font-size:20px;margin-top:2px;">${escapeHtml(tagline)}</div>
       </div>
       <div style="padding:28px;color:#1B2430;font-size:15px;line-height:1.6;">
         ${bodyHtml}
@@ -152,10 +152,39 @@ async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, pr
   });
 }
 
+// Sent once, a set delay after an order is marked paid (see
+// sendDueReviewRequests in server.js). reviewUrl carries a signed,
+// order-specific token — this is the only way a review ever gets created,
+// so there is no seed/fake review data anywhere in this app.
+async function sendReviewRequest({ email, itemLabel, reviewUrl }) {
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p>Hope you're loving your ${escapeHtml(itemLabel)}! If you have a minute, we'd really appreciate a quick honest review — good, bad, or in between.</p>
+    <p style="text-align:center;margin:24px 0;">
+      <a href="${reviewUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
+        Leave a review
+      </a>
+    </p>
+    <p style="font-size:13px;color:#555;">This link only works for this order, so we know it's really you.</p>
+    <p>Thanks for being one of our first customers,</p>
+    <p>— The Whiskr team</p>
+  `,
+    { showUnsubscribe: true, email, tagline: 'Custom Pet Prints & Cat of the Month' }
+  );
+  return sendMail({
+    to: email,
+    subject: `How's your ${itemLabel}? Leave a quick review`,
+    html,
+    text: `Hope you're loving your ${itemLabel}! Leave a quick honest review here: ${reviewUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+  });
+}
+
 module.exports = {
   sendEntryConfirmation,
   sendWinnerEmail,
   sendFeaturedEmail,
+  sendReviewRequest,
   sendMail,
   isSuppressed,
   unsubscribeUrl,

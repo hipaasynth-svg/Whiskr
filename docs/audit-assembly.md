@@ -124,3 +124,90 @@ flood it with fake entries.
 
 *Fine for now:* photos on local disk (migrate to S3/R2 as volume grows);
 GDPR posture beyond CAN-SPAM if EU entrants show up; no CI on the repo yet.
+
+## Update — 2026-09-04: evergreen print shop, verified reviews, refused fake reviews
+
+The owner asked to turn this into an evergreen business: add print-on-demand
+custom cat/dog products, expand affiliate links, and "make our reviews the
+first thing people see." That last part needed a hard line drawn before any
+building started.
+
+**Refused, and will keep refusing: fabricated reviews.** There were zero
+real orders at the time of this request, so "reviews first" as stated would
+have meant inventing them. The FTC's 2024 rule on fake/deceptive reviews
+(16 CFR Part 465) makes that illegal outright — not a gray area, not a
+style nitpick, a specific federal rule with penalties. This is the same
+category of problem as the fake-voting issue from the first audit, except
+reviews are directly regulated where voting-copy was merely FTC-adjacent.
+Put to the owner directly; they chose the honest path (see below) rather
+than override it.
+
+**Built instead — real reviews, verified purchase only:**
+- A review can only be created by following a signed, HMAC-tokened link
+  (`reviewLink.js`) tied to one specific paid order and email — emailed
+  automatically `REVIEW_REQUEST_DELAY_DAYS` after the order is marked paid
+  (`sendDueReviewRequests` in `server.js`, `sendReviewRequest` in
+  `mailer.js`). There is no other code path that creates a review, no admin
+  "add a review" button, no seed data.
+- New reviews land unapproved (`reviews.approved = 0`); the owner moderates
+  them in `admin.html` (approve/reject) before they're public.
+- The homepage's reviews section is literally the first section after the
+  hero (satisfying "reviews first" honestly) — with an explicit empty state
+  ("we're brand new — no reviews yet") plus a defect/misprint reprint
+  guarantee as the trust substitute until real reviews exist, rather than
+  leaving the section looking broken or, worse, faking it.
+
+**Built — evergreen custom print shop (Printful, dropship, no inventory):**
+- `products.js` — a small catalog (mug, poster, canvas, phone case, tote,
+  pillow), each mapped to a `printfulVariantId` that ships as a placeholder
+  (`null`) — the owner has no live Printful account yet, so these can't be
+  real until they create one and configure their actual catalog.
+- `printful.js` — order submission only (no Mockup Generator integration;
+  that's an async, task-based API needing a live account to verify against,
+  so v1 just previews the customer's own uploaded photo instead of a real
+  on-product mockup). Follows the same dry-run-if-unconfigured pattern as
+  Stripe/Zoho elsewhere in this app.
+- New `custom_orders` table, `POST /api/custom-orders` (upload + Stripe
+  Checkout in one step), and Stripe-webhook wiring so a paid custom order
+  automatically submits to Printful — with the order's status
+  (`pending`/`paid`/`submitted_to_printful`/`failed`) visible in
+  `admin.html` either way, so a Printful failure is loud, not silent.
+- **New finding, fixed**: neither the pre-existing calendar checkout nor
+  the new custom-order checkout ever collected a shipping address — you
+  cannot ship a physical product without one. Added
+  `shipping_address_collection` to both Stripe Checkout sessions and a
+  `shipping_address` column to both `orders` and `custom_orders`, populated
+  from Stripe's `shipping_details` in the webhook.
+- Also while touching the webhook: switched both checkout flows to route by
+  Stripe session `metadata` (`{orderType, orderId}`) instead of matching on
+  `stripe_session_id` after the fact — cleaner now that the webhook has to
+  route between two different order tables.
+
+**Built — affiliate hub expansion:** added a parallel "For dogs" picks
+section next to the existing cat picks (still real, untagged URLs — same
+"add your affiliate ID before driving traffic" caveat as before).
+
+**Site restructured storefront-first:** homepage order is now hero → reviews
+→ custom-print shop → contest (how it works, current winner, calendar shop,
+entry form) → affiliate picks → footer. The contest no longer gates the
+site's usefulness — the print shop works every day, contest or not.
+
+All of the above was exercised locally end to end: product catalog
+endpoints (all/species-filtered), custom-order validation (missing
+consent, invalid species, unknown product — each rejected with cleanup of
+the uploaded file), a custom order reaching Stripe (failed only at the
+external API call, using a fake key, confirming our own validation runs
+first), manually marking that order paid and confirming a review token
+verifies, a duplicate review submission being rejected by the DB's unique
+constraint, an unapproved review being invisible on `GET /api/reviews` and
+visible after admin approval, and the due-review-request cron path (tested
+with `REVIEW_REQUEST_DELAY_DAYS=0`) sending the correct email and stamping
+`review_requested_at`. Not exercised: an actual Printful order submission
+or a real Printful mockup/variant lookup — no live Printful account exists
+yet to test against.
+
+**Still open**, in addition to the prior list: every `printfulVariantId`
+in `products.js` needs the owner's real Printful catalog IDs before custom
+orders can actually print; product pricing (`priceUsd`) needs checking
+against Printful's real per-product base cost once that catalog exists; no
+rate-limiting on `/api/custom-orders` either (same gap as `/api/submissions`).
