@@ -72,7 +72,7 @@ async function loadStatus() {
       nameEl.textContent = data.lastWinner.cat_name;
       photoEl.src = data.lastWinner.photo_path;
       photoEl.alt = `${data.lastWinner.cat_name}, Cat of the Month`;
-      if (blurbEl) blurbEl.textContent = `Voted Cat of the Month by the last batch. Their calendar — with the other 11 finalists — is in the shop below.`;
+      if (blurbEl) blurbEl.textContent = `Chosen as Cat of the Month by the last batch's judging. Their calendar — with the other 11 finalists — is in the shop below.`;
     }
   } catch (err) {
     console.error('status load failed', err);
@@ -99,8 +99,8 @@ if (entryForm) {
       if (!res.ok) throw new Error(data.error || 'Something went wrong.');
 
       note.textContent = data.groupSealed
-        ? "You're the 12th cat in — voting starts now. Check your email in a few weeks."
-        : "You're entered! We'll email you once your batch of 12 fills up and voting closes.";
+        ? "You're the 12th cat in — judging starts now. Check your email in a few weeks."
+        : "You're entered! We'll email you once your batch of 12 fills up and judging closes.";
       entryForm.reset();
       loadStatus();
     } catch (err) {

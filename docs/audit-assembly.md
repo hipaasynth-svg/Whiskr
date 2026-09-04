@@ -51,3 +51,76 @@ These were flagged in the original build's own README, and remain true after ass
 - Decouple email sending from the request path (background job/queue) so a slow SMTP provider can never again stall a user-facing response — the timeout in fix #9 bounds the damage but doesn't eliminate it.
 - Consider magic-byte content sniffing on uploads (e.g. a `file-type`-style check) in addition to the MIME-type/extension fix in #2, for defense in depth against a spoofed `Content-Type`.
 - `.env.example` ships syntactically-valid-looking placeholders (`sk_test_xxx`, `paste-the-16-char-app-password-here`, etc.) that read as "configured" to the app's own `if (process.env.X)` checks. Anyone who copies `.env.example` to `.env` without editing it will see the app *try* real Stripe/Zoho calls and fail with a confusing error instead of the intended "not configured yet" message. Not fixed here (would need placeholder-detection heuristics); worth a `README` callout at minimum.
+
+## Update — 2026-09-04: judging, order tracking, and the Whiskr rebrand
+
+The owner confirmed the public domain (**whiskr.lol**) and made the call on
+the "fake voting" finding above: **a human judges each batch, not the
+public.** Reasoning discussed and agreed: the core monetization (every one
+of 12 cats gets a purchase offer regardless of who's on the cover) doesn't
+depend on public voting; a judge avoids building anti-fraud/anti-bot
+infrastructure a real voting feature would need; and it removes the FTC
+deceptive-advertising exposure outright as long as the copy matches. The
+trade-off accepted: losing "vote for my cat" as a free-traffic/virality
+mechanic, which can be revisited later if growth needs it.
+
+**Built this round:**
+- Real judge-pick flow. `POST /api/admin/groups/:groupId/pick` lets the
+  owner choose a batch's cover cat any time after it seals — no more
+  waiting on a window. `GET /api/admin/groups/pending` lists what's waiting
+  on a decision. `public/admin.html` is the actual screen for this (photo
+  grid per batch, click to pick), gated by `ADMIN_KEY`, not linked from the
+  public site.
+- `Math.random()` demoted to a named safety net (`runDueJudging`, replacing
+  `runDueVoting`): it only fires for a group whose judging deadline passed
+  with no manual pick, so entrants are never left waiting forever. Optional
+  `ADMIN_EMAIL` gets notified whenever that fallback fires — a signal to
+  judge faster.
+- All site copy and email copy changed from "voting"/"the room votes" to
+  "judged"/"judging table" — the emails already said "judging table" before
+  this pass, so this also fixes an inconsistency between what the emails
+  implied and what the website copy claimed.
+- **New finding, fixed**: there was no Stripe webhook. `/api/checkout`
+  created an `orders` row as `'pending'` and nothing ever updated it —
+  no reliable record of who actually paid or what to fulfill, which is a
+  bigger operational gap than the voting-copy issue for actually running
+  the business. Added `POST /api/webhooks/stripe` (raw-body route mounted
+  before the global JSON parser, as Stripe's signature verification
+  requires), listening for `checkout.session.completed` and marking the
+  matching order `'paid'`. Added `GET /api/admin/orders?status=paid` (also
+  surfaced in `admin.html`) so there's an actual fulfillment queue to look
+  at. Requires `STRIPE_WEBHOOK_SECRET` to be set — the app logs a warning
+  at startup if Stripe is configured but the webhook secret isn't.
+- Rebrand from "Whisker & Ribbon" to **Whiskr** across the live app (page
+  titles, header/footer, email templates, `package.json`, `.env.example`
+  defaults) to match the domain. The `prototypes/` design reference was
+  left as-is — it's not deployed, so it wasn't touched.
+
+All of the above was exercised against a running instance: submitted
+entries to seal two batches, manually picked a cover cat on one (confirming
+the pick — not a random pick — became the winner), force-closed the second
+to confirm the random-fallback path and the `ADMIN_EMAIL` notification both
+fire correctly, confirmed a decided group can't be picked again, confirmed
+`admin.html` serves and its endpoints reject a bad admin key, and confirmed
+the webhook route responds correctly both unconfigured and with a request.
+Full signature-verified Stripe webhook delivery (via `stripe listen`) was
+not exercised in this sandbox — no live Stripe test keys available here.
+
+**Still open** — the rest of the tiered punch list given to the owner in
+chat, condensed here for the record:
+
+*Blocking before charging anyone real money:* real `BUSINESS_MAILING_ADDRESS`
+in `.env` (still a placeholder); Zoho domain verification (SPF/DKIM) on the
+sending address; a print fulfillment vendor decision (print-on-demand vs.
+bulk) — nothing here handles fulfillment yet.
+
+*Should do before real traffic:* an actual Terms of Service, Privacy
+Policy, and shipping/refund policy (none exist yet — the FTC Mail Order
+Rule requires a stated ship time or delay notice); sales tax handling
+(Stripe Tax is the easy path); affiliate links in `index.html` are live
+URLs but not tagged with real affiliate IDs, so referred traffic currently
+earns nothing; no rate-limiting on `/api/submissions`, so a script could
+flood it with fake entries.
+
+*Fine for now:* photos on local disk (migrate to S3/R2 as volume grows);
+GDPR posture beyond CAN-SPAM if EU entrants show up; no CI on the repo yet.

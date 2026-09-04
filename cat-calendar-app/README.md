@@ -1,18 +1,28 @@
-# Whisker & Ribbon — cat contest + calendar shop
+# Whiskr — cat contest + calendar shop
 
 A real, runnable Node/Express site: entry form with photo upload, groups of
-12 submissions, a multi-week voting window, simulated voting, Zoho Mail
-result emails, and a Stripe-backed calendar shop with a multi-buy discount.
+12 submissions, a judging deadline, a human (you) picking the cover cat,
+Zoho Mail result emails, and a Stripe-backed calendar shop with a multi-buy
+discount.
+
+Winners are **judged, not voted on**. There is no public voting anywhere in
+this app — you review each sealed batch of 12 in `public/admin.html` and
+pick the cover cat yourself. If you don't decide before the judging
+deadline, one is picked at random as a fallback so entrants aren't left
+waiting forever, and (if `ADMIN_EMAIL` is set) you get emailed when that
+happens, as a nudge to judge faster next time.
 
 ## What's actually here
 
-- `server.js` — Express app: submission API, group-sealing logic, the daily
-  cron job that closes voting and emails everyone, Stripe Checkout, admin
-  endpoints for testing.
+- `server.js` — Express app: submission API, group-sealing logic, the
+  judge-pick endpoints, the daily cron job (random-fallback safety net
+  only), Stripe Checkout + webhook, admin endpoints for testing.
 - `db.js` — SQLite (file-based, `data/contest.db`). No external database to
   stand up.
 - `mailer.js` — sends through **Zoho Mail's SMTP**, not a third-party ESP.
-- `public/` — the landing page, the per-batch calendar/checkout page, CSS, JS.
+- `public/` — the landing page, the per-batch calendar/checkout page,
+  `admin.html` (the judging + paid-orders screen — not linked from the
+  public site), CSS, JS.
 
 This is a stateful, always-on server (in-process cron + local SQLite + local
 file uploads). It is **not** a fit for stateless serverless hosting
@@ -64,16 +74,35 @@ error instead of a broken payment flow.
 npm start
 ```
 Visit `http://localhost:3000`. Submit 12 entries (any test email/photo) to
-watch a group seal itself, then trigger voting without waiting three weeks:
+watch a group seal itself, then go to `http://localhost:3000/admin.html`,
+enter your `ADMIN_KEY`, and pick a cover cat yourself — that sends the
+winner + "featured" emails for real (if Zoho is configured).
+
+If you want to test the random-fallback safety net instead of judging
+manually, force a group's deadline to now and let it auto-pick:
 
 ```bash
-curl -X POST http://localhost:3000/api/admin/run-voting -H "x-admin-key: <ADMIN_KEY from .env>"
+curl -X POST http://localhost:3000/api/admin/force-close/1 -H "x-admin-key: <ADMIN_KEY from .env>"
 ```
 
-That fires the same code path the daily cron job runs — it picks a winner
-and sends the winner + "featured" emails for real (if Zoho is configured).
+## 5. Stripe webhook (required for orders to ever show as paid)
 
-## 5. Deployment
+Without this, `/api/checkout` creates an order row as `pending` and nothing
+ever marks it paid — you'd have no reliable record of who actually paid.
+
+- **Local dev**: run `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
+  (Stripe CLI). It prints a `whsec_...` value — put that in `.env` as
+  `STRIPE_WEBHOOK_SECRET`.
+- **Production**: in the Stripe Dashboard, add a webhook endpoint pointing
+  at `https://whiskr.lol/api/webhooks/stripe`, subscribed to
+  `checkout.session.completed`, and put its signing secret in
+  `STRIPE_WEBHOOK_SECRET`.
+
+Check what's actually been paid for (and needs fulfilling) at
+`/admin.html`, or directly: `GET /api/admin/orders?status=paid` (with your
+`x-admin-key` header).
+
+## 6. Deployment
 
 This app needs a machine that stays running (for `node-cron`) and a
 writable disk (for SQLite and uploaded photos). Good options, cheapest to
@@ -91,10 +120,10 @@ more involved:
   for a launch.
 
 Point your real domain at whichever host you pick, and set
-`PUBLIC_BASE_URL` in `.env` to that domain — it's used to build the links
-inside result emails.
+`PUBLIC_BASE_URL` in `.env` to that domain (`https://whiskr.lol`) — it's
+used to build the links inside result emails.
 
-## 6. Before you actually launch — a few things worth fixing first
+## 7. Before you actually launch — a few things worth fixing first
 
 **[UPDATED] — CAN-SPAM basics: mechanism is wired, content isn't.** Every
 commercial email you send in the US legally needs a working unsubscribe
@@ -108,18 +137,21 @@ before you go live, especially if you'll also be emailing EU entrants
 this unsubscribe mechanism alone doesn't satisfy them).
 
 **[UPDATED] — photo rights: now enforced.** The entry form now has a
-required "I own this photo and grant Whisker & Ribbon a license to print
-and sell it" checkbox, and the server rejects submissions without it and
-stores a `photo_rights_consent_at` timestamp per submission. Still worth
-having counsel confirm the checkbox language covers what you actually need
-(e.g. minors in photos, background people/property) before scaling up.
+required "I own this photo and grant Whiskr a license to print and sell
+it" checkbox, and the server rejects submissions without it and stores a
+`photo_rights_consent_at` timestamp per submission. Still worth having
+counsel confirm the checkbox language covers what you actually need (e.g.
+minors in photos, background people/property) before scaling up.
+
+**[RESOLVED] — winners are judged, not simulated-voted.** `Math.random()`
+used to silently pick every winner while the copy claimed "the room votes"
+— a real FTC deceptive-advertising exposure. It's now a real decision: you
+pick the cover cat per batch at `/admin.html`, and the random pick only
+ever fires as a fallback if you miss the judging deadline (with an
+`ADMIN_EMAIL` notification when that happens). Site and email copy now say
+"judged"/"judging table," not "voted."
 
 **Business-model notes, not legal ones:**
-- *"Simulated voting" is currently `Math.random()`.* That's fine as a
-  placeholder, but if you ever market this as "the internet votes," make
-  sure the copy on the site matches what's actually happening — false
-  "X people voted" claims are an FTC/deceptive-advertising problem, not
-  just a copy nitpick.
 - *Every one of the 11 non-winners still gets a purchase offer.* That's the
   actual monetization engine here — 12 warm leads per batch instead of 1 —
   keep that flow intact even as you redesign anything else.
@@ -132,7 +164,7 @@ having counsel confirm the checkbox language covers what you actually need
   entries a month, move `public/uploads` to S3/R2 before it becomes a
   migration under pressure.
 
-## 7. Replacing the placeholder content
+## 8. Replacing the placeholder content
 
 - Hero photos are pulled live from `cataas.com` (a free public cat-photo
   API) in `public/script.js` — swap in your own photography whenever

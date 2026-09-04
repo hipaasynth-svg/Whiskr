@@ -1,7 +1,7 @@
 {
-  "name": "whisker-ribbon",
+  "name": "whiskr",
   "version": "1.0.0",
-  "description": "Cat photo contest + calendar shop, with Zoho Mail notifications",
+  "description": "Cat photo contest + calendar shop — judged, not simulated-voted, with Zoho Mail notifications",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

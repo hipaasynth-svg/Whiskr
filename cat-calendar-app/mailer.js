@@ -23,7 +23,7 @@ function buildTransport() {
       pass: process.env.ZOHO_APP_PASSWORD,
     },
     // Result emails are sent synchronously inside the request that seals a
-    // group (see maybeSealGroup/runDueVoting in server.js) — without these,
+    // group (see maybeSealGroup/runDueJudging in server.js) — without these,
     // a slow or unreachable SMTP host hangs that visitor's HTTP response
     // until Node's default OS-level socket timeout, which is effectively
     // "forever" from a user's perspective. Bound it instead.
@@ -44,7 +44,7 @@ function unsubscribeUrl(email) {
 }
 
 async function sendMail({ to, subject, html, text }) {
-  const fromName = process.env.ZOHO_FROM_NAME || 'Whisker & Ribbon';
+  const fromName = process.env.ZOHO_FROM_NAME || 'Whiskr';
   const from = `"${fromName}" <${process.env.ZOHO_EMAIL}>`;
 
   if (isSuppressed(to)) {
@@ -72,14 +72,14 @@ function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '' } = {}) {
   <div style="font-family:Georgia,'Times New Roman',serif;background:#EFE6D8;padding:32px 16px;">
     <div style="max-width:520px;margin:0 auto;background:#FFFDF8;border:1px solid #d8cdb5;border-radius:4px;overflow:hidden;">
       <div style="background:#1B2430;color:#EFE6D8;padding:20px 28px;font-family:Georgia,serif;">
-        <div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#E8A33D;">Whisker &amp; Ribbon</div>
+        <div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#E8A33D;">Whiskr</div>
         <div style="font-size:20px;margin-top:2px;">Cat of the Month Contest</div>
       </div>
       <div style="padding:28px;color:#1B2430;font-size:15px;line-height:1.6;">
         ${bodyHtml}
       </div>
       <div style="padding:16px 28px;background:#f3ede0;color:#7a7160;font-size:12px;">
-        You're getting this because a cat photo was submitted to Whisker &amp; Ribbon with this address.
+        You're getting this because a cat photo was submitted to Whiskr with this address.
         ${footerCompliance}
       </div>
     </div>
@@ -90,15 +90,15 @@ async function sendEntryConfirmation({ email, catName, groupId }) {
   const safeName = escapeHtml(catName);
   const html = wrapLayout(`
     <p>Hi there,</p>
-    <p><strong>${safeName}</strong> is officially entered in this month's group of 12. Voting stays open for a few weeks while ${safeName} builds a fan base.</p>
+    <p><strong>${safeName}</strong> is officially entered in this month's group of 12. Our judging table reviews the full batch over the next few weeks before picking a cover cat.</p>
     <p>We'll email you the moment results are in — win or place, your cat's photo may still make the calendar.</p>
-    <p>— The Whisker &amp; Ribbon judging table</p>
+    <p>— The Whiskr judging table</p>
   `);
   return sendMail({
     to: email,
     subject: `${catName} is entered! 🐾 (Group #${groupId})`,
     html,
-    text: `${catName} is entered in group #${groupId}. Voting stays open for a few weeks — we'll email you when results are in.`,
+    text: `${catName} is entered in group #${groupId}. Our judging table reviews the batch over the next few weeks — we'll email you when the cover cat is picked.`,
   });
 }
 
@@ -115,7 +115,7 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
       </a>
     </p>
     <p style="font-size:13px;color:#555;">Order 2 or more and each one drops to $${priceMulti} — great for gifts.</p>
-    <p>— The Whisker &amp; Ribbon judging table</p>
+    <p>— The Whiskr judging table</p>
   `,
     { showUnsubscribe: true, email }
   );
@@ -132,7 +132,7 @@ async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, pr
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p>Voting's closed for this group, and while another cat took the cover this round, <strong>${safeName} made the calendar</strong> as one of the 12 featured cats.</p>
+    <p>Judging's closed for this group, and while another cat took the cover this round, <strong>${safeName} made the calendar</strong> as one of the 12 featured cats.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Get the calendar featuring ${safeName} — $${priceOne}
@@ -140,7 +140,7 @@ async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, pr
     </p>
     <p style="font-size:13px;color:#555;">Order 2 or more and each one drops to $${priceMulti}.</p>
     <p>Thanks for entering ${safeName} — we'd love to see them in a future round too.</p>
-    <p>— The Whisker &amp; Ribbon judging table</p>
+    <p>— The Whiskr judging table</p>
   `,
     { showUnsubscribe: true, email }
   );

@@ -57,6 +57,41 @@ const upload = multer({
   },
 });
 
+// Stripe webhook needs the raw request body for signature verification, so
+// it's mounted before the global express.json() parser below — otherwise
+// json() would consume/parse the body first and constructEvent would fail.
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), (req, res) => {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+    return res.status(400).send('Stripe webhooks are not configured.');
+  }
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      req.headers['stripe-signature'],
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error('[stripe webhook] signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Without this, /api/checkout creates an order row as 'pending' and
+  // nothing ever marks it paid — there'd be no reliable record of who
+  // actually paid or what to fulfill.
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const info = db.prepare(`UPDATE orders SET status = 'paid' WHERE stripe_session_id = ?`).run(session.id);
+    if (info.changes > 0) {
+      console.log(`[stripe webhook] order for session ${session.id} marked paid.`);
+    } else {
+      console.warn(`[stripe webhook] checkout.session.completed for unrecognized session ${session.id}`);
+    }
+  }
+
+  res.json({ received: true });
+});
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -101,66 +136,89 @@ async function maybeSealGroup() {
     }
   }
 
-  console.log(`[groups] Sealed group #${groupId} with ${pending.length} cats. Voting ends ${votingEnds.toISOString()}`);
+  console.log(`[groups] Sealed group #${groupId} with ${pending.length} cats. Judging deadline ${votingEnds.toISOString()}`);
   return groupId;
 }
 
-// Simulate voting for any group whose window has closed, pick a winner, notify everyone.
-async function runDueVoting() {
+// Finalize a group with a specific cover cat: mark it completed, email every
+// entrant (the cover cat gets the "you won" email, the other 11 get the
+// "you're still in the calendar" email). Shared by the manual admin pick
+// (POST /api/admin/groups/:groupId/pick) and the random-fallback safety net
+// below — a group only ever gets finalized through one of these two paths.
+async function completeGroup(groupId, winnerId) {
+  const submissions = db.prepare(`SELECT * FROM submissions WHERE group_id = ?`).all(groupId);
+  const winner = submissions.find((s) => s.id === winnerId);
+  if (!winner) throw new Error(`Submission ${winnerId} is not in group ${groupId}`);
+
+  db.prepare(`UPDATE groups SET status = 'completed', winner_submission_id = ? WHERE id = ?`).run(
+    winnerId,
+    groupId
+  );
+
+  const buyUrl = calendarBuyUrl(groupId);
+  for (const s of submissions) {
+    try {
+      if (s.id === winner.id) {
+        await mailer.sendWinnerEmail({
+          email: s.email,
+          catName: s.cat_name,
+          groupId,
+          buyUrl,
+          priceOne: PRICE_ONE.toFixed(2),
+          priceMulti: PRICE_MULTI.toFixed(2),
+        });
+      } else {
+        await mailer.sendFeaturedEmail({
+          email: s.email,
+          catName: s.cat_name,
+          groupId,
+          buyUrl,
+          priceOne: PRICE_ONE.toFixed(2),
+          priceMulti: PRICE_MULTI.toFixed(2),
+        });
+      }
+      db.prepare(`UPDATE submissions SET notified_result = 1 WHERE id = ?`).run(s.id);
+    } catch (err) {
+      console.error(`[mailer] result email failed for submission ${s.id}:`, err.message);
+    }
+  }
+
+  console.log(`[judging] Group #${groupId} complete. Cover cat: ${winner.cat_name} (submission ${winner.id})`);
+  return winner;
+}
+
+// Safety net, not the normal path: any group whose judging window closed
+// without a human picking a cover cat (see POST /api/admin/groups/:groupId/pick)
+// gets one picked at random so entrants aren't left waiting forever. If this
+// fires often, it means batches aren't getting judged fast enough.
+async function runDueJudging() {
   const nowIso = new Date().toISOString();
   const dueGroups = db
     .prepare(`SELECT id FROM groups WHERE status = 'voting' AND voting_ends_at <= ?`)
     .all(nowIso);
 
   for (const g of dueGroups) {
-    const submissions = db.prepare(`SELECT * FROM submissions WHERE group_id = ?`).all(g.id);
+    const submissions = db.prepare(`SELECT id, cat_name FROM submissions WHERE group_id = ?`).all(g.id);
     if (submissions.length === 0) continue;
 
-    // Simulated voting: each cat gets a randomized vote tally.
-    const scored = submissions.map((s) => ({ ...s, score: Math.random() * 100 }));
-    scored.sort((a, b) => b.score - a.score);
-    const winner = scored[0];
-
-    const updateVotes = db.prepare(`UPDATE submissions SET votes = ? WHERE id = ?`);
-    const txn = db.transaction((rows) => {
-      for (const r of rows) updateVotes.run(Math.round(r.score * 10), r.id);
-    });
-    txn(scored);
-
-    db.prepare(`UPDATE groups SET status = 'completed', winner_submission_id = ? WHERE id = ?`).run(
-      winner.id,
-      g.id
+    const winner = submissions[Math.floor(Math.random() * submissions.length)];
+    console.warn(
+      `[judging] Group #${g.id} hit its deadline with no manual pick — auto-selecting "${winner.cat_name}" at random.`
     );
+    await completeGroup(g.id, winner.id);
 
-    const buyUrl = calendarBuyUrl(g.id);
-    for (const s of submissions) {
+    if (process.env.ADMIN_EMAIL) {
       try {
-        if (s.id === winner.id) {
-          await mailer.sendWinnerEmail({
-            email: s.email,
-            catName: s.cat_name,
-            groupId: g.id,
-            buyUrl,
-            priceOne: PRICE_ONE.toFixed(2),
-            priceMulti: PRICE_MULTI.toFixed(2),
-          });
-        } else {
-          await mailer.sendFeaturedEmail({
-            email: s.email,
-            catName: s.cat_name,
-            groupId: g.id,
-            buyUrl,
-            priceOne: PRICE_ONE.toFixed(2),
-            priceMulti: PRICE_MULTI.toFixed(2),
-          });
-        }
-        db.prepare(`UPDATE submissions SET notified_result = 1 WHERE id = ?`).run(s.id);
+        await mailer.sendMail({
+          to: process.env.ADMIN_EMAIL,
+          subject: `Group #${g.id} auto-picked — you didn't judge it in time`,
+          text: `Group #${g.id} hit its judging deadline before you picked a cover cat, so "${winner.cat_name}" was chosen at random. Judge the next batch sooner: ${BASE_URL}/admin.html`,
+          html: `<p>Group #${g.id} hit its judging deadline before you picked a cover cat, so <strong>${winner.cat_name}</strong> was chosen at random.</p><p>Judge the next batch sooner: <a href="${BASE_URL}/admin.html">${BASE_URL}/admin.html</a></p>`,
+        });
       } catch (err) {
-        console.error(`[mailer] result email failed for submission ${s.id}:`, err.message);
+        console.error('[mailer] admin fallback-notify failed:', err.message);
       }
     }
-
-    console.log(`[voting] Group #${g.id} complete. Winner: ${winner.cat_name} (submission ${winner.id})`);
   }
 }
 
@@ -269,7 +327,7 @@ app.post('/api/checkout', async (req, res) => {
       return res.status(404).json({ error: 'That batch does not exist.' });
     }
     if (group.status !== 'completed') {
-      return res.status(400).json({ error: 'This batch is still being voted on — check back once it closes.' });
+      return res.status(400).json({ error: 'This batch hasn\'t been judged yet — check back once a cover cat is picked.' });
     }
 
     const qty = Math.max(1, Math.min(20, Number(quantity) || 1));
@@ -282,7 +340,7 @@ app.post('/api/checkout', async (req, res) => {
         {
           price_data: {
             currency: 'usd',
-            product_data: { name: `Whisker & Ribbon Calendar — Group #${groupId}` },
+            product_data: { name: `Whiskr Calendar — Group #${groupId}` },
             unit_amount: Math.round(unitPrice * 100),
           },
           quantity: qty,
@@ -314,7 +372,7 @@ app.get('/api/unsubscribe', (req, res) => {
     String(email).toLowerCase(),
     new Date().toISOString()
   );
-  res.send('You have been unsubscribed from Whisker & Ribbon emails.');
+  res.send('You have been unsubscribed from Whiskr emails.');
 });
 
 // ---------- admin / ops ----------
@@ -331,36 +389,91 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// List sealed groups (12 cats) that are awaiting a manual pick — this is
+// your judging queue. See public/admin.html for the screen that uses this.
+app.get('/api/admin/groups/pending', requireAdmin, (req, res) => {
+  const groups = db.prepare(`SELECT * FROM groups WHERE status = 'voting' ORDER BY sealed_at ASC`).all();
+  const result = groups.map((g) => ({
+    groupId: g.id,
+    sealedAt: g.sealed_at,
+    judgingDeadline: g.voting_ends_at,
+    cats: db
+      .prepare(`SELECT id, cat_name, photo_path FROM submissions WHERE group_id = ? ORDER BY id ASC`)
+      .all(g.id),
+  }));
+  res.json({ groups: result });
+});
+
+// Manually choose the cover cat for a sealed group — this is "I am the
+// voter": the group is finalized the moment you call this, no need to wait
+// for the judging deadline (that deadline is only a fallback, see
+// runDueJudging above).
+app.post('/api/admin/groups/:groupId/pick', requireAdmin, async (req, res) => {
+  const groupId = Number(req.params.groupId);
+  const submissionId = Number(req.body.submissionId);
+
+  const group = db.prepare(`SELECT * FROM groups WHERE id = ?`).get(groupId);
+  if (!group) return res.status(404).json({ error: 'Group not found.' });
+  if (group.status !== 'voting') {
+    return res.status(400).json({ error: `Group #${groupId} was already decided.` });
+  }
+  const submission = db
+    .prepare(`SELECT id FROM submissions WHERE id = ? AND group_id = ?`)
+    .get(submissionId, groupId);
+  if (!submission) {
+    return res.status(400).json({ error: 'That cat is not in this group.' });
+  }
+
+  const winner = await completeGroup(groupId, submissionId);
+  res.json({ ok: true, groupId, winner: { id: winner.id, catName: winner.cat_name } });
+});
+
+// Orders, for fulfillment. ?status=paid to see what actually needs printing;
+// omit to see everything including still-pending checkout sessions.
+app.get('/api/admin/orders', requireAdmin, (req, res) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : null;
+  const rows = status
+    ? db.prepare(`SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC`).all(status)
+    : db.prepare(`SELECT * FROM orders ORDER BY created_at DESC`).all();
+  res.json({ orders: rows });
+});
+
 // Manually trigger the two background jobs (handy for testing without waiting weeks)
 app.post('/api/admin/seal-group', requireAdmin, async (req, res) => {
   const id = await maybeSealGroup();
   res.json({ sealed: id || null });
 });
-app.post('/api/admin/run-voting', requireAdmin, async (req, res) => {
-  await runDueVoting();
+// Runs the random-fallback safety net immediately, for testing — in normal
+// operation you judge manually via POST /api/admin/groups/:groupId/pick and
+// this only ever fires for groups you didn't get to in time.
+app.post('/api/admin/run-fallback-judging', requireAdmin, async (req, res) => {
+  await runDueJudging();
   res.json({ ok: true });
 });
-// Force a specific group's voting window to close right now (testing only —
-// in production the daily cron is what closes groups on schedule).
+// Force a specific group's judging deadline to right now (testing only —
+// in production the daily cron is what enforces the deadline).
 app.post('/api/admin/force-close/:groupId', requireAdmin, async (req, res) => {
   const groupId = Number(req.params.groupId);
   const group = db.prepare(`SELECT * FROM groups WHERE id = ?`).get(groupId);
   if (!group) return res.status(404).json({ error: 'Group not found' });
   db.prepare(`UPDATE groups SET voting_ends_at = ? WHERE id = ?`).run(new Date().toISOString(), groupId);
-  await runDueVoting();
+  await runDueJudging();
   res.json({ ok: true });
 });
 
 app.get('/healthz', (req, res) => res.send('ok'));
 
 // ---------- background schedule ----------
-// Daily check for groups whose multi-week voting window has closed.
+// Daily check for groups whose judging deadline passed without a manual pick.
 cron.schedule(process.env.CRON_SCHEDULE || '0 9 * * *', () => {
-  runDueVoting().catch((e) => console.error('[cron] voting run failed:', e));
+  runDueJudging().catch((e) => console.error('[cron] fallback judging run failed:', e));
 });
 
 app.listen(PORT, () => {
-  console.log(`Whisker & Ribbon server running on ${BASE_URL}`);
-  console.log(`Voting period: ${VOTING_PERIOD_DAYS} days | Group size: ${GROUP_SIZE}`);
+  console.log(`Whiskr server running on ${BASE_URL}`);
+  console.log(`Judging deadline: ${VOTING_PERIOD_DAYS} days | Group size: ${GROUP_SIZE}`);
   if (!stripe) console.warn('[stripe] STRIPE_SECRET_KEY not set — checkout endpoint disabled.');
+  if (stripe && !process.env.STRIPE_WEBHOOK_SECRET) {
+    console.warn('[stripe] STRIPE_WEBHOOK_SECRET not set — paid orders will never be marked paid.');
+  }
 });

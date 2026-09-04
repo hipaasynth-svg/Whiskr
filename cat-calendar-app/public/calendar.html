@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Your batch's calendar — Whisker &amp; Ribbon</title>
+<title>Your batch's calendar — Whiskr</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
@@ -32,7 +32,7 @@
 <body>
 
 <header class="site-header">
-  <a href="index.html" class="brand">Whisker <span>&amp;</span> Ribbon</a>
+  <a href="index.html" class="brand">Whiskr</a>
   <nav class="site-nav">
     <a href="index.html#shop">All calendars</a>
     <a href="index.html#enter" class="nav-cta">Enter your cat</a>
@@ -76,7 +76,7 @@
 </div>
 
 <footer class="site-footer">
-  <div>Whisker &amp; Ribbon — a small, honest cat calendar company.</div>
+  <div>Whiskr — a small, honest cat calendar company.</div>
   <div class="footer-links"><a href="index.html">Home</a></div>
 </footer>
 
@@ -103,7 +103,7 @@
       document.getElementById('calPriceMulti').textContent = `$${data.priceMulti.toFixed(2)}`;
 
       if (data.status !== 'completed') {
-        statusEl.textContent = 'Voting is still open for this batch — check back once results are in.';
+        statusEl.textContent = 'This batch is still being judged — check back once a cover cat is picked.';
       } else {
         title.textContent = 'The calendar from this round';
         statusEl.textContent = '12 cats, one cover star, thirteen months of good mornings.';
