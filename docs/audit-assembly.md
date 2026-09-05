@@ -293,3 +293,34 @@ swap. `uuid`'s flagged advisory is about the `v3`/`v5`/`v6` functions when
 called with a caller-supplied buffer; this app only calls `v4()` with no
 buffer argument, so it doesn't apply to how `uuid` is actually used here.
 Worth a real dependency-audit pass separately.
+
+## Update — 2026-09-05: Stripe Tax turned on for both checkout flows
+
+The owner asked to build out the Stripe side and named "Tax" as a needed
+Stripe product. Both `checkout.sessions.create` calls (`/api/checkout` for
+calendar orders, `/api/custom-orders` for the print shop) now pass
+`automatic_tax: { enabled: true }`, and their `price_data` line items are
+marked `tax_behavior: 'exclusive'` so Stripe Tax adds tax on top of the
+listed price rather than trying to back it out of it. `shipping_address_collection`
+was already present on both, which is what Stripe Tax needs to know where
+to calculate tax for a physical good.
+
+This only takes effect once Stripe Tax is turned on and a tax registration
+exists for at least one jurisdiction (Settings -> Tax in the Stripe
+dashboard) — until then Checkout runs exactly as before, at $0 tax. No
+code path or database migration change was needed beyond the two edits
+above; verified with `node --check server.js`.
+
+**Also attempted and blocked, worth recording**: tried to connect this
+session directly to Stripe's official MCP server (`mcp.stripe.com`) per
+Stripe's own documented Claude Code setup flow, to generate an
+implementation plan via `stripe_implementation_planner`. Two independent
+blockers, both environmental rather than something in this repo:
+this cloud session's outbound network policy returns a hard 403 for
+`mcp.stripe.com` (confirmed via the agent proxy's own status endpoint),
+and separately the OAuth login step requires an interactive browser popup
+that a non-interactive remote session can't open even if the network
+allowed it. Removed the resulting non-functional MCP config entry rather
+than leave dead configuration behind. This should work fine from a local
+Claude Code install (desktop or CLI on an actual computer, not this
+hosted session) if the owner wants the planner tool later.

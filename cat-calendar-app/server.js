@@ -476,12 +476,14 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
       mode: 'payment',
       customer_email: email,
       shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
+      automatic_tax: { enabled: true },
       line_items: [
         {
           price_data: {
             currency: 'usd',
             product_data: { name: `Whiskr — ${product.name}` },
             unit_amount: Math.round(product.priceUsd * 100),
+            tax_behavior: 'exclusive',
           },
           quantity: qty,
         },
@@ -571,12 +573,14 @@ app.post('/api/checkout', async (req, res) => {
       mode: 'payment',
       customer_email: isValidEmail(email) ? email : undefined,
       shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
+      automatic_tax: { enabled: true },
       line_items: [
         {
           price_data: {
             currency: 'usd',
             product_data: { name: `Whiskr Calendar — Group #${groupId}` },
             unit_amount: Math.round(unitPrice * 100),
+            tax_behavior: 'exclusive',
           },
           quantity: qty,
         },
