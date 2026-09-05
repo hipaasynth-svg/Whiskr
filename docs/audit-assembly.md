@@ -211,3 +211,85 @@ in `products.js` needs the owner's real Printful catalog IDs before custom
 orders can actually print; product pricing (`priceUsd`) needs checking
 against Printful's real per-product base cost once that catalog exists; no
 rate-limiting on `/api/custom-orders` either (same gap as `/api/submissions`).
+
+## Update — 2026-09-05: swapped hosting target from Railway to Vercel
+
+The go-live guide originally recommended Railway (this codebase's original
+design — SQLite on local disk, an in-process `node-cron` scheduler, local
+file uploads — runs on Railway completely unmodified, which was the whole
+point of recommending it). The owner already runs seven other projects on
+Vercel and didn't want an eighth project meaning an eighth dashboard to
+learn. Reasonable trade: rearchitect the three subsystems that assumed an
+always-on disk-backed server, so this deploys to the Vercel account they
+already use instead.
+
+**What changed:**
+- **Database**: SQLite -> Postgres. `db.js` is now a thin `get`/`all`/`run`
+  shim over the `pg` package (not the `@vercel/postgres` package, which
+  Vercel has deprecated in favor of plain Postgres access against their
+  Neon-backed offering) — this kept the rest of the app's call sites
+  almost unchanged rather than a query-by-query rewrite. `?` placeholders
+  are auto-converted to Postgres's `$1/$2` form. Every `INSERT` that
+  needed the new row's id (better-sqlite3's `lastInsertRowid`) was changed
+  to add `RETURNING id`. A `db.transaction()` helper (real
+  `BEGIN`/`COMMIT`/`ROLLBACK` on a dedicated client) replaced
+  better-sqlite3's synchronous transaction wrapper for the one place that
+  needed atomicity (sealing a group: create it, assign N submissions to
+  it). One genuine syntax difference required a manual fix, not just
+  placeholder swapping: SQLite's `INSERT OR IGNORE` became Postgres's
+  `INSERT ... ON CONFLICT (email) DO NOTHING` in the unsubscribe endpoint;
+  and the reviews endpoint's duplicate-review check switched from matching
+  on SQLite's error *message* to checking Postgres's error *code*
+  (`23505`, unique_violation) — a message-string match would have silently
+  never matched again and turned every duplicate review attempt into a
+  bare 500.
+- **File storage**: local disk -> Vercel Blob. `multer.diskStorage` became
+  `multer.memoryStorage`, and a new `storePhoto()` helper in `server.js`
+  uploads the buffer to Blob when `BLOB_READ_WRITE_TOKEN` is set. When it
+  isn't (local development without a Blob store), it falls back to writing
+  the buffer to `public/uploads` — real production deployments must set
+  the token; the fallback exists purely so local dev doesn't require a
+  Blob account just to hack on the app. This incidentally *simplified* the
+  upload-validation code: buffered-in-memory uploads mean a validation
+  failure has nothing on disk to clean up, so the old
+  reject-with-file-cleanup pattern in both submission endpoints was
+  removed rather than ported.
+- **Background jobs**: `node-cron` (in-process timer) -> Vercel Cron.
+  There is no long-lived process in a serverless deployment for a timer to
+  run inside, so the daily judging-fallback + review-request check is now
+  `GET /api/cron/daily`, invoked by the `crons` entry in the new
+  `vercel.json`. Vercel signs its own cron requests with
+  `Authorization: Bearer <CRON_SECRET>` when that env var is set, which is
+  what the route checks to reject requests that aren't the real scheduled
+  trigger.
+- **Runtime shape**: `server.js` no longer calls `app.listen()`
+  unconditionally — that's now wrapped in
+  `if (require.main === module)` so `node server.js` / `npm start` still
+  works locally, while `module.exports = app` is what Vercel actually
+  invokes per-request in production. A new `app.use(async (req,res,next) => …)`
+  middleware calls `db.initDb()` (idempotent — `CREATE TABLE IF NOT EXISTS`)
+  before every request, since a serverless deployment has no equivalent of
+  "run this once at startup before accepting traffic."
+- `data/` (the old SQLite file's directory) was removed from the repo
+  entirely — nothing writes there anymore.
+
+**Verified against a real local Postgres instance** (not just read for
+plausibility): full contest flow (seal a group inside a real transaction,
+judge-pick a winner, reject a re-pick, random-fallback path via
+force-close), custom-order validation and creation, the Stripe-failure
+path still triggering only after our own validation passes, the review
+flow end-to-end including the Postgres-specific duplicate-key error code
+path, `/api/cron/daily` correctly rejecting no-auth and wrong-token
+requests and succeeding with the right one, and `INSERT ... ON CONFLICT`
+idempotency on repeated unsubscribe calls. Not verified: real Vercel Blob
+uploads or a real Vercel Cron invocation — no live Vercel deployment exists
+yet to test against; the local-disk fallback path was exercised instead,
+which exercises the same `storePhoto()` call site.
+
+**Pre-existing, unrelated to this migration, left alone**: `npm audit`
+flags `nodemailer` (high) and `qs`/`express`'s transitive `qs` (moderate)
+— both predate this session's work and are out of scope for a hosting
+swap. `uuid`'s flagged advisory is about the `v3`/`v5`/`v6` functions when
+called with a caller-supplied buffer; this app only calls `v4()` with no
+buffer argument, so it doesn't apply to how `uuid` is actually used here.
+Worth a real dependency-audit pass separately.

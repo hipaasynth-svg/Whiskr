@@ -30,8 +30,9 @@ forever, and (if `ADMIN_EMAIL` is set) you get emailed when that happens.
   (routes both order types and submits paid custom orders to Printful),
   the daily cron job (contest random-fallback + due review-request
   emails), admin endpoints.
-- `db.js` — SQLite (file-based, `data/contest.db`). No external database to
-  stand up.
+- `db.js` — Postgres (via the `pg` package), through a thin get/all/run
+  shim so the rest of the app didn't need a query-by-query rewrite. Needs
+  `POSTGRES_URL` — see Deployment below.
 - `products.js` — the custom-print catalog. **Every `printfulVariantId` in
   here is a placeholder** — see Printful setup below.
 - `printful.js` — submits paid custom orders to Printful for printing +
@@ -45,9 +46,13 @@ forever, and (if `ADMIN_EMAIL` is set) you get emailed when that happens.
   page (`review.html`), `admin.html` (judging + fulfillment + review
   moderation — not linked from the public site), CSS, JS.
 
-This is a stateful, always-on server (in-process cron + local SQLite + local
-file uploads). It is **not** a fit for stateless serverless hosting
-(Vercel/Netlify functions) as-is — see Deployment below.
+This is built specifically to run on **Vercel** as a serverless deployment:
+`vercel.json` routes every request to `server.js` (exported as a plain
+Express app, not `app.listen()`-ed directly — see the bottom of that file),
+Postgres replaces SQLite (no writable local disk to persist to), Vercel
+Blob replaces local file uploads, and Vercel Cron replaces the in-process
+`node-cron` scheduler that an always-on server would use instead. See
+Deployment below.
 
 ## 1. Install
 
@@ -56,6 +61,20 @@ cd cat-calendar-app
 npm install
 cp .env.example .env
 ```
+
+For local development you need a Postgres database to point `POSTGRES_URL`
+at — the quickest option is a local Postgres:
+```bash
+# macOS: brew install postgresql && brew services start postgresql
+# Debian/Ubuntu: sudo apt-get install postgresql && sudo service postgresql start
+createdb whiskr_dev
+```
+Then in `.env`:
+```
+POSTGRES_URL=postgres://<your-local-user>:<password>@localhost:5432/whiskr_dev
+```
+Tables are created automatically on first request (see `initDb` in
+`db.js`) — nothing to migrate by hand.
 
 ## 2. Zoho Mail setup (required for real emails)
 
@@ -169,26 +188,35 @@ purpose. New reviews land unapproved; moderate them (approve or reject) in
 on the homepage, and the homepage shows an honest empty state (plus a
 defect/misprint guarantee) until the first one lands.
 
-## 8. Deployment
+## 8. Deployment (Vercel)
 
-This app needs a machine that stays running (for `node-cron`) and a
-writable disk (for SQLite and uploaded photos). Good options, cheapest to
-more involved:
+1. **Import the repo.** In the Vercel dashboard: Add New -> Project ->
+   import `hipaasynth-svg/Whiskr`. Set **Root Directory** to
+   `cat-calendar-app` — this repo has another folder (`prototypes/`)
+   alongside the real app, so Vercel needs to be told where to build from.
+2. **Add a Postgres database.** Project -> Storage tab -> Create Database
+   -> Postgres, then connect/link it to this project. Vercel sets
+   `POSTGRES_URL` automatically — you don't type this in yourself.
+3. **Add a Blob store.** Same Storage tab -> Create Database -> Blob, link
+   it to this project. Vercel sets `BLOB_READ_WRITE_TOKEN` automatically.
+   Without it, uploaded photos would try to write to local disk, which
+   doesn't persist (or even work reliably) on Vercel — this one is not
+   optional in production.
+4. **Set the remaining environment variables** (Project -> Settings ->
+   Environment Variables) — everything else in `.env.example` that isn't
+   Postgres/Blob: `ADMIN_KEY`, `UNSUB_SECRET`, `CRON_SECRET`,
+   `PUBLIC_BASE_URL` (your real domain, e.g. `https://whiskr.lol`),
+   `BUSINESS_MAILING_ADDRESS`, and the Zoho/Stripe/Printful values once you
+   set those up.
+5. **Deploy.** Vercel picks up `vercel.json` automatically — it defines
+   the build, routes every path to `server.js`, and registers the daily
+   cron (`/api/cron/daily`) that replaces `node-cron`.
+6. **Point your domain at it** — Project -> Settings -> Domains -> add
+   `whiskr.lol`, then add the DNS record Vercel shows you at wherever you
+   registered the domain.
 
-- **Railway or Render** — attach a persistent volume for `/data` and
-  `/public/uploads`, set the same env vars, `npm start`. Simplest path to
-  a real, always-on deployment.
-- **A small VPS** (Hetzner, DigitalOcean) — run behind `pm2` or a systemd
-  service, put nginx or Caddy in front for TLS.
-- **Vercel/Netlify functions** — would require rearchitecting: swap SQLite
-  for a hosted database (Postgres/Turso), swap local file uploads for S3 or
-  Cloudflare R2, and swap in-process cron for their scheduled-functions
-  feature. Doable later once traffic justifies it; not worth the rewrite
-  for a launch.
-
-Point your real domain at whichever host you pick, and set
-`PUBLIC_BASE_URL` in `.env` to that domain (`https://whiskr.lol`) — it's
-used to build the links inside result emails.
+No VPS, no Dockerfile, no persistent volume to configure by hand — that's
+the point of routing storage through Postgres/Blob instead of local disk.
 
 ## 9. Before you actually launch — a few things worth fixing first
 
@@ -233,9 +261,6 @@ not just a trust problem.
 - *Printful's cut plus your price needs to actually be profitable.* Check
   their current per-product base cost + shipping before finalizing
   `priceUsd` in `products.js` — it varies by product and destination.
-- *Photo storage will outgrow local disk fast.* At even a few hundred
-  entries a month, move `public/uploads` to S3/R2 before it becomes a
-  migration under pressure.
 - *No rate-limiting on `/api/submissions` or `/api/custom-orders`.* A
   script could flood either with fake entries — fine at low volume, worth
   addressing before you drive real traffic.

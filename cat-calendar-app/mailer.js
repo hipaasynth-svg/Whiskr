@@ -35,8 +35,8 @@ function buildTransport() {
 
 const transporter = buildTransport();
 
-function isSuppressed(email) {
-  return Boolean(db.prepare(`SELECT 1 FROM suppressions WHERE email = ?`).get(String(email).toLowerCase()));
+async function isSuppressed(email) {
+  return Boolean(await db.get(`SELECT 1 FROM suppressions WHERE email = ?`, [String(email).toLowerCase()]));
 }
 
 function unsubscribeUrl(email) {
@@ -47,7 +47,7 @@ async function sendMail({ to, subject, html, text }) {
   const fromName = process.env.ZOHO_FROM_NAME || 'Whiskr';
   const from = `"${fromName}" <${process.env.ZOHO_EMAIL}>`;
 
-  if (isSuppressed(to)) {
+  if (await isSuppressed(to)) {
     console.log(`[mailer] skipped send to ${to} — address has unsubscribed`);
     return { suppressed: true };
   }
