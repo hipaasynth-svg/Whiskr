@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Leave a review — Whiskr</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<style>
+  .review-wrap { max-width: 520px; margin: 0 auto; padding: 60px 36px 100px; }
+  .star-input { display: flex; flex-direction: row-reverse; justify-content: flex-end; gap: 4px; }
+  .star-input input { position: absolute; opacity: 0; pointer-events: none; }
+  .star-input label { font-size: 2rem; color: var(--line); cursor: pointer; line-height: 1; }
+  .star-input input:checked ~ label,
+  .star-input label:hover,
+  .star-input label:hover ~ label { color: var(--marigold); }
+  .review-form { display: flex; flex-direction: column; gap: 16px; margin-top: 20px; }
+  .review-form label.field { font-size: 0.85rem; font-weight: 500; display: flex; flex-direction: column; gap: 6px; }
+  .review-form textarea, .review-form input[type=text] {
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px;
+    font-family: var(--font-body); font-size: 0.95rem;
+  }
+  .review-form textarea { min-height: 120px; resize: vertical; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <nav class="site-nav">
+    <a href="index.html">Home</a>
+  </nav>
+</header>
+
+<div class="review-wrap">
+  <p class="ribbon-tag">Verified order</p>
+  <h1>How was it?</h1>
+  <p id="itemLabel" style="color:#55503f;">Loading your order…</p>
+
+  <form id="reviewForm" class="review-form">
+    <div class="field">
+      <span style="font-size:0.85rem; font-weight:500;">Rating</span>
+      <div class="star-input">
+        <input type="radio" name="rating" id="star5" value="5" /><label for="star5">★</label>
+        <input type="radio" name="rating" id="star4" value="4" /><label for="star4">★</label>
+        <input type="radio" name="rating" id="star3" value="3" /><label for="star3">★</label>
+        <input type="radio" name="rating" id="star2" value="2" /><label for="star2">★</label>
+        <input type="radio" name="rating" id="star1" value="1" /><label for="star1">★</label>
+      </div>
+    </div>
+    <label class="field">
+      Your review
+      <textarea id="reviewBody" maxlength="1000" placeholder="What did you think?" required></textarea>
+    </label>
+    <label class="field">
+      Name to show (optional)
+      <input type="text" id="displayName" maxlength="60" placeholder="Leave blank to show as “Whiskr customer”" />
+    </label>
+    <button type="submit" class="btn btn-primary" id="submitBtn">Submit review</button>
+    <p class="form-note" id="reviewNote"></p>
+  </form>
+</div>
+
+<footer class="site-footer">
+  <div>Whiskr — a small, honest cat &amp; dog print shop.</div>
+  <div class="footer-links"><a href="index.html">Home</a></div>
+</footer>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const orderType = params.get('type');
+  const orderId = params.get('id');
+  const email = params.get('email');
+  const token = params.get('token');
+
+  const itemLabelEl = document.getElementById('itemLabel');
+  const form = document.getElementById('reviewForm');
+  const note = document.getElementById('reviewNote');
+  const submitBtn = document.getElementById('submitBtn');
+
+  if (!orderType || !orderId || !email || !token) {
+    itemLabelEl.textContent = 'This review link looks incomplete — use the link from your email.';
+    form.style.display = 'none';
+  } else {
+    itemLabelEl.textContent = `Reviewing your ${orderType === 'calendar' ? 'Whiskr calendar' : 'custom Whiskr print'} order.`;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const rating = form.querySelector('input[name=rating]:checked');
+    if (!rating) {
+      note.textContent = 'Please pick a star rating.';
+      note.classList.add('error');
+      return;
+    }
+    note.classList.remove('error');
+    note.textContent = 'Submitting…';
+    submitBtn.disabled = true;
+
+    try {
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderType,
+          orderId,
+          email,
+          token,
+          rating: rating.value,
+          body: document.getElementById('reviewBody').value,
+          displayName: document.getElementById('displayName').value,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      note.textContent = data.message || 'Thanks for your review!';
+      form.querySelectorAll('input, textarea, button').forEach((el) => (el.disabled = true));
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

@@ -248,6 +248,120 @@ h1, h2, h3, h4 {
 .form-note { font-size: 0.85rem; min-height: 1.2em; color: var(--forest); }
 .form-note.error { color: var(--blush); }
 
+/* ---------- trust badges ---------- */
+.trust-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+.trust-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 8px 16px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #4a4536;
+}
+
+/* ---------- reviews ---------- */
+.reviews { background: var(--paper); }
+.reviews-grid {
+  margin-top: 30px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+.review-card {
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 22px;
+}
+.review-card .stars { color: var(--marigold); font-size: 1rem; letter-spacing: 2px; margin-bottom: 10px; }
+.review-card p.body { font-size: 0.95rem; color: #33301f; margin-bottom: 12px; }
+.review-card .who { font-size: 0.82rem; color: #6b6552; font-weight: 600; }
+.review-card .verified {
+  display: inline-block;
+  font-size: 0.7rem;
+  color: var(--forest);
+  font-weight: 700;
+  margin-left: 6px;
+}
+.reviews-empty {
+  margin-top: 30px;
+  background: var(--paper-card);
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  padding: 34px;
+  max-width: 560px;
+}
+.reviews-empty h3 { font-size: 1.1rem; }
+.reviews-empty p { color: #55503f; font-size: 0.95rem; }
+
+/* ---------- custom pet product shop ---------- */
+.species-toggle { display: flex; gap: 10px; margin: 26px 0 6px; }
+.species-toggle button {
+  padding: 10px 22px;
+  border-radius: 20px;
+  border: 1.5px solid var(--ink);
+  background: transparent;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: var(--ink);
+}
+.species-toggle button.active { background: var(--ink); color: var(--paper); }
+.custom-grid {
+  margin-top: 26px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.custom-card {
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.custom-card.selected { border-color: var(--marigold); box-shadow: 0 0 0 2px rgba(232,163,61,0.35) inset; }
+.custom-card h4 { font-size: 1.05rem; margin-bottom: 0; }
+.custom-card p { font-size: 0.88rem; color: #55503f; flex: 1; margin: 0; }
+.custom-card .price { font-family: var(--font-display); font-size: 1.3rem; }
+.custom-order-form {
+  margin-top: 34px;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 30px;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.custom-order-form label { font-size: 0.85rem; font-weight: 500; display: flex; flex-direction: column; gap: 6px; }
+.custom-order-form input[type=text],
+.custom-order-form input[type=email],
+.custom-order-form input[type=number],
+.custom-order-form select {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  background: #fff;
+}
+.upload-preview { margin-top: 8px; }
+.upload-preview img { max-height: 160px; border-radius: 4px; border: 1px solid var(--line); }
+
 /* ---------- affiliate picks ---------- */
 .picks { background: var(--ink); color: var(--paper); }
 .picks h2 { color: #fff; }

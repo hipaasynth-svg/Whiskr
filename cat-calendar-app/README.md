@@ -1,28 +1,49 @@
-# Whiskr — cat contest + calendar shop
+# Whiskr — custom cat/dog prints, verified reviews, and a judged contest
 
-A real, runnable Node/Express site: entry form with photo upload, groups of
-12 submissions, a judging deadline, a human (you) picking the cover cat,
-Zoho Mail result emails, and a Stripe-backed calendar shop with a multi-buy
-discount.
+A real, runnable Node/Express site with two things going on:
 
-Winners are **judged, not voted on**. There is no public voting anywhere in
-this app — you review each sealed batch of 12 in `public/admin.html` and
-pick the cover cat yourself. If you don't decide before the judging
-deadline, one is picked at random as a fallback so entrants aren't left
-waiting forever, and (if `ADMIN_EMAIL` is set) you get emailed when that
-happens, as a nudge to judge faster next time.
+- **Evergreen storefront**: upload a photo of your cat or dog, pick a
+  product (mug, poster, canvas, phone case, tote, pillow), pay, and it's
+  printed and shipped through **Printful** — no inventory, always open,
+  doesn't depend on the contest running.
+- **Monthly photo contest**: entries seal into batches of 12; a human (you)
+  picks the cover cat in `public/admin.html`, everyone in the batch gets a
+  calendar offer.
+
+Reviews are **real or absent, never fabricated**. There is no seed/fake
+review anywhere in this codebase — a review can only be created by
+following a signed, order-specific link emailed after a real purchase (see
+`reviewLink.js`), and even then it sits unapproved until you moderate it in
+`admin.html`. Fabricating reviews violates the FTC's rule on fake
+reviews/testimonials (16 CFR Part 465) — don't add a path around this.
+
+Contest winners are similarly **judged, not voted on**. There is no public
+voting anywhere in this app — you review each sealed batch of 12 and pick
+the cover cat yourself. If you don't decide before the judging deadline,
+one is picked at random as a fallback so entrants aren't left waiting
+forever, and (if `ADMIN_EMAIL` is set) you get emailed when that happens.
 
 ## What's actually here
 
-- `server.js` — Express app: submission API, group-sealing logic, the
-  judge-pick endpoints, the daily cron job (random-fallback safety net
-  only), Stripe Checkout + webhook, admin endpoints for testing.
+- `server.js` — Express app: the custom-product + contest submission APIs,
+  judge-pick endpoints, reviews endpoints, Stripe Checkout + webhook
+  (routes both order types and submits paid custom orders to Printful),
+  the daily cron job (contest random-fallback + due review-request
+  emails), admin endpoints.
 - `db.js` — SQLite (file-based, `data/contest.db`). No external database to
   stand up.
+- `products.js` — the custom-print catalog. **Every `printfulVariantId` in
+  here is a placeholder** — see Printful setup below.
+- `printful.js` — submits paid custom orders to Printful for printing +
+  shipping. Dry-run/logs if `PRINTFUL_API_KEY` isn't set, same pattern as
+  Stripe/Zoho elsewhere in this app.
 - `mailer.js` — sends through **Zoho Mail's SMTP**, not a third-party ESP.
-- `public/` — the landing page, the per-batch calendar/checkout page,
-  `admin.html` (the judging + paid-orders screen — not linked from the
-  public site), CSS, JS.
+- `unsubscribe.js` / `reviewLink.js` — signed-link helpers (HMAC tokens) for
+  one-click unsubscribe and verified-purchase review links, respectively.
+- `public/` — the storefront + contest landing page (`index.html`), the
+  per-batch calendar/checkout page (`calendar.html`), the review submission
+  page (`review.html`), `admin.html` (judging + fulfillment + review
+  moderation — not linked from the public site), CSS, JS.
 
 This is a stateful, always-on server (in-process cron + local SQLite + local
 file uploads). It is **not** a fit for stateless serverless hosting
@@ -68,27 +89,61 @@ STRIPE_PUBLISHABLE_KEY=pk_test_xxx
 Without a key, the shop pages still load; `/api/checkout` returns a clear
 error instead of a broken payment flow.
 
-## 4. Run it
+## 4. Printful setup (required for custom orders to actually get printed)
+
+Without this, the custom-print shop still takes payment (once Stripe is
+configured), but `printful.js` only logs what it would have submitted —
+nothing gets printed or shipped.
+
+1. Create a [Printful](https://www.printful.com/) account (it's free — you
+   only pay per order, no upfront cost or inventory).
+2. In your Printful store, add each product from `products.js` (11oz mug,
+   12x16 poster, 12x12 canvas, phone case, tote bag, 16x16 pillow) — or
+   substitute your own picks, just keep `products.js` in sync.
+3. For each one, find its **variant ID** (Printful dashboard → your product
+   → Variants tab, or `GET /store/products` on their API) and paste it into
+   the matching `printfulVariantId` in `products.js`. Every one ships as
+   `null` in this repo — orders for a product with no variant ID configured
+   will fail at the Printful-submission step (visible in `/admin.html`
+   under Custom print orders, status `failed`), not silently.
+4. Get a **Private Token** from Printful → Settings → Stores → API, and put
+   it in `.env` as `PRINTFUL_API_KEY`.
+5. Set your real prices in `products.js` (`priceUsd`) — above Printful's
+   base cost + shipping for that product/destination (check current
+   pricing in your Printful dashboard; it varies), or every sale loses
+   money.
+
+Real on-product mockups (showing the customer's photo ON the mug/poster
+before they buy) aren't built — that needs Printful's async Mockup
+Generator API, which needs a live store to test against. The order form
+instead just previews the customer's own uploaded photo. Worth adding once
+you've verified the basic order flow works end to end.
+
+## 5. Run it
 
 ```bash
 npm start
 ```
-Visit `http://localhost:3000`. Submit 12 entries (any test email/photo) to
-watch a group seal itself, then go to `http://localhost:3000/admin.html`,
-enter your `ADMIN_KEY`, and pick a cover cat yourself — that sends the
-winner + "featured" emails for real (if Zoho is configured).
+Visit `http://localhost:3000`. Try the custom-print shop (upload any photo,
+pick a product) and the contest entry form (submit 12 entries to watch a
+group seal), then go to `http://localhost:3000/admin.html`, enter your
+`ADMIN_KEY`, and pick a cover cat — that sends the winner + "featured"
+emails for real (if Zoho is configured).
 
-If you want to test the random-fallback safety net instead of judging
-manually, force a group's deadline to now and let it auto-pick:
+If you want to test the contest's random-fallback safety net instead of
+judging manually, force a group's deadline to now and let it auto-pick:
 
 ```bash
 curl -X POST http://localhost:3000/api/admin/force-close/1 -H "x-admin-key: <ADMIN_KEY from .env>"
 ```
 
-## 5. Stripe webhook (required for orders to ever show as paid)
+## 6. Stripe webhook (required for any order to ever show as paid)
 
-Without this, `/api/checkout` creates an order row as `pending` and nothing
-ever marks it paid — you'd have no reliable record of who actually paid.
+Without this, both `/api/checkout` (calendars) and `/api/custom-orders`
+(prints) create an order row as `pending` and nothing ever marks it paid —
+you'd have no reliable record of who actually paid, and custom orders would
+never get submitted to Printful (that only happens once the webhook marks
+an order paid).
 
 - **Local dev**: run `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
   (Stripe CLI). It prints a `whsec_...` value — put that in `.env` as
@@ -99,10 +154,22 @@ ever marks it paid — you'd have no reliable record of who actually paid.
   `STRIPE_WEBHOOK_SECRET`.
 
 Check what's actually been paid for (and needs fulfilling) at
-`/admin.html`, or directly: `GET /api/admin/orders?status=paid` (with your
-`x-admin-key` header).
+`/admin.html`, or directly: `GET /api/admin/orders?status=paid` and
+`GET /api/admin/custom-orders?status=paid` (with your `x-admin-key`
+header).
 
-## 6. Deployment
+## 7. Reviews
+
+The only way a review gets created is through a signed link mailed
+`REVIEW_REQUEST_DELAY_DAYS` after an order is marked paid (see
+`sendDueReviewRequests` in `server.js` and `sendReviewRequest` in
+`mailer.js`) — there's no admin "add a review" button and no seed data, on
+purpose. New reviews land unapproved; moderate them (approve or reject) in
+`/admin.html` under "Reviews awaiting approval." Only approved reviews show
+on the homepage, and the homepage shows an honest empty state (plus a
+defect/misprint guarantee) until the first one lands.
+
+## 8. Deployment
 
 This app needs a machine that stays running (for `node-cron`) and a
 writable disk (for SQLite and uploaded photos). Good options, cheapest to
@@ -123,25 +190,26 @@ Point your real domain at whichever host you pick, and set
 `PUBLIC_BASE_URL` in `.env` to that domain (`https://whiskr.lol`) — it's
 used to build the links inside result emails.
 
-## 7. Before you actually launch — a few things worth fixing first
+## 9. Before you actually launch — a few things worth fixing first
 
 **[UPDATED] — CAN-SPAM basics: mechanism is wired, content isn't.** Every
 commercial email you send in the US legally needs a working unsubscribe
 mechanism and your business's physical mailing address in the footer. Both
 now exist in `mailer.js` — a signed one-click unsubscribe link and a
 `BUSINESS_MAILING_ADDRESS` footer line — but you still need to **put your
-real mailing address in `.env`** before sending real result/offer emails.
-I'm not a lawyer; confirm this against current FTC guidance or with counsel
-before you go live, especially if you'll also be emailing EU entrants
-(GDPR marketing-consent rules are stricter and separate from CAN-SPAM, and
-this unsubscribe mechanism alone doesn't satisfy them).
+real mailing address in `.env`** before sending real result/offer/review
+emails. I'm not a lawyer; confirm this against current FTC guidance or with
+counsel before you go live, especially if you'll also be emailing EU
+entrants (GDPR marketing-consent rules are stricter and separate from
+CAN-SPAM, and this unsubscribe mechanism alone doesn't satisfy them).
 
-**[UPDATED] — photo rights: now enforced.** The entry form now has a
-required "I own this photo and grant Whiskr a license to print and sell
-it" checkbox, and the server rejects submissions without it and stores a
-`photo_rights_consent_at` timestamp per submission. Still worth having
-counsel confirm the checkbox language covers what you actually need (e.g.
-minors in photos, background people/property) before scaling up.
+**[UPDATED] — photo rights: now enforced for both flows.** The contest
+entry form and the custom-print order form both require an "I own this
+photo and grant Whiskr a license to print and sell it" checkbox, and the
+server rejects submissions without it, storing a `photo_rights_consent_at`
+timestamp either way. Still worth having counsel confirm the checkbox
+language covers what you actually need (e.g. minors in photos, background
+people/property) before scaling up.
 
 **[RESOLVED] — winners are judged, not simulated-voted.** `Math.random()`
 used to silently pick every winner while the copy claimed "the room votes"
@@ -151,26 +219,37 @@ ever fires as a fallback if you miss the judging deadline (with an
 `ADMIN_EMAIL` notification when that happens). Site and email copy now say
 "judged"/"judging table," not "voted."
 
+**[RESOLVED] — reviews are real or absent, never fabricated.** See the
+Reviews section above — every review requires a signed, order-specific
+link and owner moderation. There is no code path that creates a review any
+other way. Don't add one, even under pressure to "seed" the homepage —
+fabricated reviews are illegal under the FTC's 2024 rule (16 CFR Part 465),
+not just a trust problem.
+
 **Business-model notes, not legal ones:**
 - *Every one of the 11 non-winners still gets a purchase offer.* That's the
-  actual monetization engine here — 12 warm leads per batch instead of 1 —
+  contest's monetization engine — 12 warm leads per batch instead of 1 —
   keep that flow intact even as you redesign anything else.
-- *Print costs.* Nothing here handles fulfillment. Decide early whether
-  you're print-on-demand (Printful/Gelato API, thinner margin, zero
-  inventory risk) or bulk-printing calendars yourself (better margin,
-  upfront cash and unsold-inventory risk) — that choice changes your unit
-  economics more than anything on this page does.
+- *Printful's cut plus your price needs to actually be profitable.* Check
+  their current per-product base cost + shipping before finalizing
+  `priceUsd` in `products.js` — it varies by product and destination.
 - *Photo storage will outgrow local disk fast.* At even a few hundred
   entries a month, move `public/uploads` to S3/R2 before it becomes a
   migration under pressure.
+- *No rate-limiting on `/api/submissions` or `/api/custom-orders`.* A
+  script could flood either with fake entries — fine at low volume, worth
+  addressing before you drive real traffic.
 
-## 8. Replacing the placeholder content
+## 10. Replacing the placeholder content
 
 - Hero photos are pulled live from `cataas.com` (a free public cat-photo
   API) in `public/script.js` — swap in your own photography whenever
   you're ready.
-- Affiliate links in `index.html` under `#picks` are placeholders — swap in
-  your real affiliate URLs (Chewy, Amazon Associates, etc.) before launch.
+- Every `printfulVariantId` in `products.js` is a placeholder — see
+  Printful setup above.
+- Affiliate links in `index.html` under `#picks` are real URLs but not
+  tagged with your affiliate IDs — swap in your real, tracked affiliate
+  URLs (Chewy, Amazon Associates, etc.) before driving traffic to them.
 - Calendar pricing lives in `.env` (`CALENDAR_PRICE_USD`,
   `CALENDAR_2PLUS_PRICE_USD`) and is read by both the shop section and the
   Stripe checkout — change it in one place.

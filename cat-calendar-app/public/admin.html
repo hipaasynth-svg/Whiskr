@@ -71,12 +71,34 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
-        <h2>Paid orders</h2>
+        <h2>Paid calendar orders</h2>
         <p class="sub">What actually needs printing and shipping.</p>
       </div>
       <button class="btn btn-ghost refresh-btn" id="refreshOrders" type="button">Refresh</button>
     </div>
     <div id="ordersList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Custom print orders</h2>
+        <p class="sub">Cat/dog print-on-demand orders. "submitted_to_printful" means Printful has it; "failed" needs your attention (check PRINTFUL_API_KEY and the product's variant ID in products.js).</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshCustomOrders" type="button">Refresh</button>
+    </div>
+    <div id="customOrdersList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Reviews awaiting approval</h2>
+        <p class="sub">Every one of these came from a signed, order-specific link — no open form, no fake data. Approve to show it publicly, reject to remove it (spam/abuse).</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshReviews" type="button">Refresh</button>
+    </div>
+    <div id="reviewsList"><p class="empty">Enter your admin key and click Load.</p></div>
   </div>
 </div>
 
@@ -203,14 +225,115 @@
     }
   }
 
+  const customOrdersList = document.getElementById('customOrdersList');
+  async function loadCustomOrders() {
+    customOrdersList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/custom-orders');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load custom orders.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.orders.length === 0) {
+        customOrdersList.innerHTML = '<p class="empty">No custom orders yet.</p>';
+        return;
+      }
+
+      customOrdersList.innerHTML = `
+        <table class="orders">
+          <thead><tr><th>Date</th><th>Product</th><th>Species</th><th>Pet</th><th>Email</th><th>Qty</th><th>Amount</th><th>Status</th></tr></thead>
+          <tbody>
+            ${data.orders.map((o) => `
+              <tr>
+                <td>${new Date(o.created_at).toLocaleDateString()}</td>
+                <td>${escapeHtml(o.product_id)}</td>
+                <td>${escapeHtml(o.species)}</td>
+                <td>${escapeHtml(o.pet_name || '—')}</td>
+                <td>${escapeHtml(o.email)}</td>
+                <td>${o.quantity}</td>
+                <td>$${Number(o.amount_usd).toFixed(2)}</td>
+                <td>${escapeHtml(o.status)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      customOrdersList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  const reviewsList = document.getElementById('reviewsList');
+  async function loadPendingReviews() {
+    reviewsList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/reviews?approved=0');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load reviews.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.reviews.length === 0) {
+        reviewsList.innerHTML = '<p class="empty">Nothing pending.</p>';
+        return;
+      }
+
+      reviewsList.innerHTML = data.reviews.map((r) => `
+        <div class="group-card" data-review="${r.id}">
+          <div class="group-head">
+            <h3>${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)} — ${escapeHtml(r.display_name || 'Whiskr customer')}</h3>
+            <span class="deadline">${escapeHtml(r.order_type)} order #${r.order_id} · ${escapeHtml(r.email)}</span>
+          </div>
+          <p style="font-size:0.92rem;color:#33301f;margin-bottom:14px;">${escapeHtml(r.body)}</p>
+          <div style="display:flex;gap:10px;">
+            <button type="button" class="btn btn-primary review-approve" data-id="${r.id}" style="padding:8px 16px;font-size:0.85rem;">Approve</button>
+            <button type="button" class="btn btn-ghost review-reject" data-id="${r.id}" style="padding:8px 16px;font-size:0.85rem;border-color:var(--ink);color:var(--ink);">Reject</button>
+          </div>
+        </div>
+      `).join('');
+
+      reviewsList.querySelectorAll('.review-approve').forEach((btn) => {
+        btn.addEventListener('click', () => moderateReview(btn.dataset.id, 'approve'));
+      });
+      reviewsList.querySelectorAll('.review-reject').forEach((btn) => {
+        btn.addEventListener('click', () => moderateReview(btn.dataset.id, 'reject'));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      reviewsList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function moderateReview(id, action) {
+    const card = reviewsList.querySelector(`[data-review="${id}"]`);
+    if (card) card.querySelectorAll('button').forEach((b) => (b.disabled = true));
+    try {
+      const res = await adminFetch(`/api/admin/reviews/${id}/${action}`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Action failed.');
+      loadPendingReviews();
+    } catch (err) {
+      alert(err.message);
+      if (card) card.querySelectorAll('button').forEach((b) => (b.disabled = false));
+    }
+  }
+
   function loadAll() {
     loadGroups();
     loadOrders();
+    loadCustomOrders();
+    loadPendingReviews();
   }
 
   document.getElementById('loadBtn').addEventListener('click', loadAll);
   document.getElementById('refreshGroups').addEventListener('click', loadGroups);
   document.getElementById('refreshOrders').addEventListener('click', loadOrders);
+  document.getElementById('refreshCustomOrders').addEventListener('click', loadCustomOrders);
+  document.getElementById('refreshReviews').addEventListener('click', loadPendingReviews);
   keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadAll(); });
 
   if (keyInput.value) loadAll();

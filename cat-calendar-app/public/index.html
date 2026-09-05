@@ -3,8 +3,36 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Whiskr — Cat of the Month Contest &amp; Calendars</title>
-<meta name="description" content="Enter your cat's photo, get judged against 11 others over a few weeks, and see them printed on a calendar." />
+<title>Whiskr — Custom Cat &amp; Dog Prints, Plus a Monthly Contest</title>
+<meta name="description" content="Upload your cat or dog's photo, get it printed on a mug, poster, canvas and more — shipped direct. Plus a free monthly Cat of the Month photo contest." />
+<link rel="canonical" href="https://whiskr.lol/" />
+
+<!-- Open Graph / link previews (iMessage, Slack, Facebook, etc.) -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Whiskr" />
+<meta property="og:title" content="Whiskr — Custom Cat & Dog Prints, Plus a Monthly Contest" />
+<meta property="og:description" content="Upload your cat or dog's photo, get it printed on a mug, poster, canvas and more — shipped direct. Plus a free monthly Cat of the Month photo contest." />
+<meta property="og:url" content="https://whiskr.lol/" />
+
+<!-- Twitter/X card -->
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Whiskr — Custom Cat & Dog Prints, Plus a Monthly Contest" />
+<meta name="twitter:description" content="Upload your cat or dog's photo, get it printed on a mug, poster, canvas and more — shipped direct." />
+
+<!-- Structured data — helps Google show rich results and helps AI
+     assistants/shopping agents understand what this business is and sells
+     without having to guess from prose. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "OnlineStore",
+  "name": "Whiskr",
+  "url": "https://whiskr.lol/",
+  "description": "Custom print-on-demand cat and dog photo products, plus a free monthly judged photo contest.",
+  "sameAs": []
+}
+</script>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
@@ -14,11 +42,11 @@
 <header class="site-header">
   <a href="#top" class="brand">Whiskr</a>
   <nav class="site-nav">
-    <a href="#how">How it works</a>
-    <a href="#current">This round</a>
-    <a href="#shop">Calendars</a>
-    <a href="#picks">Judge's picks</a>
-    <a href="#enter" class="nav-cta">Enter your cat</a>
+    <a href="#shop-custom">Shop prints</a>
+    <a href="#reviews">Reviews</a>
+    <a href="#current">Contest</a>
+    <a href="#picks">Picks</a>
+    <a href="#shop-custom" class="nav-cta">Get a print</a>
   </nav>
 </header>
 
@@ -26,12 +54,12 @@
   <div class="hero-slides" id="heroSlides" aria-hidden="true"></div>
   <div class="hero-scrim"></div>
   <div class="hero-content">
-    <p class="ribbon-tag">A new batch of 12 judged every few weeks</p>
-    <h1>Twelve cats enter.<br>One wears the cover.</h1>
-    <p class="hero-sub">Submit a photo, we group it with eleven others, our judging table picks a cover, and every cat in the batch ends up printed.</p>
+    <p class="ribbon-tag">Custom prints, always open — plus a free monthly contest</p>
+    <h1>Your cat or dog, printed beautifully.</h1>
+    <p class="hero-sub">Upload one photo, pick a mug, poster, canvas or more, and we print &amp; ship it straight to you. No waiting for a batch — order any day.</p>
     <div class="hero-actions">
-      <a href="#enter" class="btn btn-primary">Enter your cat</a>
-      <a href="#current" class="btn btn-ghost">See the latest winner</a>
+      <a href="#shop-custom" class="btn btn-primary">Shop custom prints</a>
+      <a href="#current" class="btn btn-ghost">See the monthly contest</a>
     </div>
   </div>
   <div class="hero-controls">
@@ -40,8 +68,66 @@
   </div>
 </section>
 
+<section id="reviews" class="section reviews">
+  <h2>What customers say</h2>
+  <p class="section-sub">Every review here comes from a real, verified Whiskr order — we don't post reviews we didn't earn.</p>
+  <div class="reviews-grid" id="reviewsGrid" style="display:none;"></div>
+  <div class="reviews-empty" id="reviewsEmpty" style="display:none;">
+    <h3>We're brand new — no reviews yet</h3>
+    <p>Here's our promise in the meantime: if your print arrives damaged or misprinted, we'll reprint it or refund you, no questions asked. Order today and yours could be the first review here.</p>
+  </div>
+  <div class="trust-row">
+    <span class="trust-badge">🔒 Secure checkout via Stripe</span>
+    <span class="trust-badge">🖨️ Reprint guarantee on defects</span>
+    <span class="trust-badge">📬 Printed on demand, shipped direct — no inventory markup</span>
+  </div>
+</section>
+
+<section id="shop-custom" class="section shop-custom">
+  <p class="ribbon-tag">Always open — no waiting for a batch</p>
+  <h2>Custom prints of your cat or dog</h2>
+  <p class="section-sub">Upload one great photo, pick a product below, and we handle printing and shipping.</p>
+
+  <div class="species-toggle" id="speciesToggle">
+    <button type="button" data-species="cat" class="active">Cats</button>
+    <button type="button" data-species="dog">Dogs</button>
+  </div>
+
+  <div class="custom-grid" id="customGrid"></div>
+
+  <form id="customOrderForm" class="custom-order-form" enctype="multipart/form-data">
+    <input type="hidden" name="species" id="customSpecies" value="cat" />
+    <input type="hidden" name="productId" id="customProductId" />
+    <p class="form-note" id="customSelectedNote">Pick a product above to get started.</p>
+    <label>
+      Pet's name (optional)
+      <input type="text" name="petName" id="customPetName" maxlength="60" placeholder="Biscuit" />
+    </label>
+    <label>
+      Your email
+      <input type="email" name="email" id="customEmail" placeholder="you@example.com" required />
+    </label>
+    <label class="file-label">
+      Photo
+      <input type="file" name="photo" id="customPhoto" accept="image/png, image/jpeg, image/webp, image/gif" required />
+      <div class="upload-preview" id="customPreview"></div>
+    </label>
+    <label>
+      Quantity
+      <input type="number" name="quantity" id="customQty" min="1" max="10" value="1" />
+    </label>
+    <label class="consent-label">
+      <input type="checkbox" name="photoRights" id="customPhotoRights" required />
+      I own this photo and grant Whiskr a license to print and sell it.
+    </label>
+    <button type="submit" class="btn btn-primary" id="customSubmitBtn" disabled>Choose a product first</button>
+    <p class="form-note" id="customOrderNote"></p>
+  </form>
+</section>
+
 <section id="how" class="section how">
-  <h2>How the contest runs</h2>
+  <p class="ribbon-tag">The other thing we do</p>
+  <h2>Free monthly photo contest</h2>
   <ol class="steps">
     <li>
       <span class="step-num">1</span>
@@ -75,12 +161,12 @@
   </div>
 </section>
 
-<section id="shop" class="section shop">
-  <h2>Calendars from past batches</h2>
+<section id="calendars" class="section shop">
+  <h2>Calendars from past contest batches</h2>
   <p class="section-sub">Every calendar holds 12 cats from the same judged round — one cover star, eleven co-stars.</p>
   <div class="shop-grid">
     <div class="product-card">
-      <div class="product-badge">Most popular</div>
+      <div class="product-badge">Contest exclusive</div>
       <h3>The 12-Cat Wall Calendar</h3>
       <p>13 months, thick matte stock, spiral bound. Ships flat, hangs anywhere.</p>
       <div class="price-row">
@@ -113,34 +199,10 @@
   </div>
 </section>
 
-<section id="picks" class="section picks">
-  <h2>What the judging table actually uses</h2>
-  <p class="section-sub">Products we keep buying for our own contest cats. Some of these links earn us a small commission — it doesn't change your price.</p>
-  <div class="picks-grid">
-    <a class="pick-card" href="https://www.chewy.com/" target="_blank" rel="sponsored noopener">
-      <h4>Chewy — food &amp; treats</h4>
-      <p>Where we restock the studio cats between shoots.</p>
-    </a>
-    <a class="pick-card" href="https://www.amazon.com/s?k=cat+photo+backdrop" target="_blank" rel="sponsored noopener">
-      <h4>Amazon — photo backdrops</h4>
-      <p>Cheap felt backdrops that make phone photos look studio-lit.</p>
-    </a>
-    <a class="pick-card" href="https://www.litter-robot.com/" target="_blank" rel="sponsored noopener">
-      <h4>Litter-Robot — self-cleaning litter</h4>
-      <p>Fewer chores, more time to get the shot.</p>
-    </a>
-    <a class="pick-card" href="https://www.chewy.com/s?query=cat+wand+toy" target="_blank" rel="sponsored noopener">
-      <h4>Wand toys — for that alert ear photo</h4>
-      <p>Ninety percent of good cat photos are one toy away from happening.</p>
-    </a>
-  </div>
-  <p class="affiliate-disclosure">Replace these href values with your real affiliate links before launch — see README.</p>
-</section>
-
 <section id="enter" class="section enter">
   <div class="enter-wrap">
     <div class="enter-copy">
-      <p class="ribbon-tag">Entry is free</p>
+      <p class="ribbon-tag">Contest entry is free</p>
       <h2>Put your cat in the next batch</h2>
       <p>One photo, one email address. We'll email you the second judging closes on your batch — whether your cat's on the cover or one of the eleven.</p>
     </div>
@@ -167,8 +229,55 @@
   </div>
 </section>
 
+<section id="picks" class="section picks">
+  <h2>Gear we actually use</h2>
+  <p class="section-sub">Products for the pets behind Whiskr — cats and dogs both. Some of these links earn us a small commission; it doesn't change your price.</p>
+
+  <h3 style="color:#fff; margin-top:34px;">For cats</h3>
+  <div class="picks-grid">
+    <a class="pick-card" href="https://www.chewy.com/" target="_blank" rel="sponsored noopener">
+      <h4>Chewy — food &amp; treats</h4>
+      <p>Where we restock the studio cats between shoots.</p>
+    </a>
+    <a class="pick-card" href="https://www.amazon.com/s?k=cat+photo+backdrop" target="_blank" rel="sponsored noopener">
+      <h4>Amazon — photo backdrops</h4>
+      <p>Cheap felt backdrops that make phone photos look studio-lit.</p>
+    </a>
+    <a class="pick-card" href="https://www.litter-robot.com/" target="_blank" rel="sponsored noopener">
+      <h4>Litter-Robot — self-cleaning litter</h4>
+      <p>Fewer chores, more time to get the shot.</p>
+    </a>
+    <a class="pick-card" href="https://www.chewy.com/s?query=cat+wand+toy" target="_blank" rel="sponsored noopener">
+      <h4>Wand toys — for that alert ear photo</h4>
+      <p>Ninety percent of good cat photos are one toy away from happening.</p>
+    </a>
+  </div>
+
+  <h3 style="color:#fff; margin-top:44px;">For dogs</h3>
+  <div class="picks-grid">
+    <a class="pick-card" href="https://www.chewy.com/s?query=dog+treats" target="_blank" rel="sponsored noopener">
+      <h4>Chewy — training treats</h4>
+      <p>The bribe that gets a dog to sit still and look at the camera.</p>
+    </a>
+    <a class="pick-card" href="https://www.amazon.com/s?k=dog+photo+backdrop" target="_blank" rel="sponsored noopener">
+      <h4>Amazon — photo backdrops</h4>
+      <p>Same backdrop trick as the cats — works just as well for dogs.</p>
+    </a>
+    <a class="pick-card" href="https://www.amazon.com/s?k=dog+leash+no+pull" target="_blank" rel="sponsored noopener">
+      <h4>No-pull leash</h4>
+      <p>For getting the shot without a wrestling match first.</p>
+    </a>
+    <a class="pick-card" href="https://www.amazon.com/s?k=squeaky+dog+toy" target="_blank" rel="sponsored noopener">
+      <h4>Squeaky toy — for that alert-ears photo</h4>
+      <p>Hold it by the camera lens. Works almost every time.</p>
+    </a>
+  </div>
+
+  <p class="affiliate-disclosure">Replace these href values with your real, tagged affiliate URLs before launch — see README.</p>
+</section>
+
 <footer class="site-footer">
-  <div>Whiskr — a small, honest cat calendar company.</div>
+  <div>Whiskr — custom cat &amp; dog prints, plus a small, honest monthly photo contest.</div>
   <div class="footer-links"><a href="#top">Back to top</a></div>
 </footer>
 
