@@ -1,12 +1,57 @@
-const path = require('path');
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 
-const db = new Database(path.join(__dirname, 'data', 'contest.db'));
-db.pragma('journal_mode = WAL');
+// Vercel injects this automatically once a Postgres database is created and
+// linked to the project (Storage tab). DATABASE_URL is accepted too, since
+// that's the name some Postgres integrations (including Neon, which now
+// backs Vercel's own Postgres offering) use instead.
+const connectionString =
+  process.env.POSTGRES_URL || process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL;
 
-db.exec(`
+if (!connectionString) {
+  throw new Error(
+    'No Postgres connection string found. Set POSTGRES_URL (or DATABASE_URL) in your environment — ' +
+      'on Vercel this is set automatically once you create/link a Postgres database to this project ' +
+      '(Storage tab -> Create Database). For local development, run a local Postgres and set it in .env.'
+  );
+}
+
+const isLocal = /localhost|127\.0\.0\.1/.test(connectionString);
+const pool = new Pool({
+  connectionString,
+  // Serverless Postgres providers (Neon, etc.) require TLS; rejectUnauthorized:false
+  // is the standard pragmatic default for these since serverless functions don't
+  // reliably ship every intermediate CA. Skip TLS entirely for local dev.
+  ssl: isLocal ? false : { rejectUnauthorized: false },
+});
+
+// better-sqlite3 (the previous engine here) used `?` placeholders and exposed
+// synchronous .get()/.all()/.run(); this shim keeps that call shape — just
+// async now, as any real network database requires — so the rest of the app
+// didn't need a full query-by-query rewrite. `?` placeholders are converted
+// to Postgres's positional $1/$2/... form.
+function toPositional(query) {
+  let i = 0;
+  return query.replace(/\?/g, () => `$${++i}`);
+}
+
+async function run(query, params = []) {
+  const result = await pool.query(toPositional(query), params);
+  return { changes: result.rowCount, rows: result.rows };
+}
+
+async function get(query, params = []) {
+  const result = await pool.query(toPositional(query), params);
+  return result.rows[0];
+}
+
+async function all(query, params = []) {
+  const result = await pool.query(toPositional(query), params);
+  return result.rows;
+}
+
+const DDL = `
 CREATE TABLE IF NOT EXISTS groups (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   status TEXT NOT NULL DEFAULT 'voting',        -- voting | completed
   sealed_at TEXT NOT NULL,
   voting_ends_at TEXT NOT NULL,
@@ -14,7 +59,7 @@ CREATE TABLE IF NOT EXISTS groups (
 );
 
 CREATE TABLE IF NOT EXISTS submissions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   email TEXT NOT NULL,
   cat_name TEXT NOT NULL,
   photo_path TEXT NOT NULL,
@@ -28,7 +73,7 @@ CREATE TABLE IF NOT EXISTS submissions (
 );
 
 CREATE TABLE IF NOT EXISTS orders (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   group_id INTEGER NOT NULL,
   email TEXT NOT NULL,
   quantity INTEGER NOT NULL,
@@ -40,7 +85,7 @@ CREATE TABLE IF NOT EXISTS orders (
   shipping_address TEXT               -- JSON from Stripe's shipping_details; nothing to print/ship without it
 );
 
--- Emails that have opted out of Whisker & Ribbon mail (CAN-SPAM unsubscribe requests).
+-- Emails that have opted out of Whiskr mail (CAN-SPAM unsubscribe requests).
 CREATE TABLE IF NOT EXISTS suppressions (
   email TEXT PRIMARY KEY,
   created_at TEXT NOT NULL
@@ -51,7 +96,7 @@ CREATE TABLE IF NOT EXISTS suppressions (
 -- from "orders" (which is always tied to a contest calendar group) because
 -- these aren't tied to any group.
 CREATE TABLE IF NOT EXISTS custom_orders (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   email TEXT NOT NULL,
   product_id TEXT NOT NULL,
   species TEXT NOT NULL,             -- cat | dog
@@ -75,7 +120,7 @@ CREATE TABLE IF NOT EXISTS custom_orders (
 -- honest empty state until real ones land. "approved" gates public display
 -- so the owner can moderate (spam, abuse) before anything goes live.
 CREATE TABLE IF NOT EXISTS reviews (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   order_type TEXT NOT NULL,          -- calendar | custom
   order_id INTEGER NOT NULL,
   email TEXT NOT NULL,
@@ -87,6 +132,47 @@ CREATE TABLE IF NOT EXISTS reviews (
   created_at TEXT NOT NULL,
   UNIQUE(order_type, order_id)
 );
-`);
+`;
 
-module.exports = db;
+// Runs once per warm serverless instance (or once at local startup) — see
+// the ensureDbReady middleware in server.js, which awaits this before
+// handling any request. IF NOT EXISTS makes repeat calls (e.g. a second
+// cold start) safe and cheap.
+let initialized = null;
+function initDb() {
+  if (!initialized) {
+    initialized = pool.query(DDL).catch((err) => {
+      initialized = null; // allow retry on next request if this failed
+      throw err;
+    });
+  }
+  return initialized;
+}
+
+// Runs fn with a dedicated client wrapped in BEGIN/COMMIT (ROLLBACK on
+// throw). fn receives a {get,all,run} bound to that same client/transaction,
+// same shape as the module-level exports.
+async function transaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const txDb = {
+      get: async (q, p = []) => (await client.query(toPositional(q), p)).rows[0],
+      all: async (q, p = []) => (await client.query(toPositional(q), p)).rows,
+      run: async (q, p = []) => {
+        const r = await client.query(toPositional(q), p);
+        return { changes: r.rowCount, rows: r.rows };
+      },
+    };
+    const result = await fn(txDb);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { get, all, run, initDb, transaction, pool };

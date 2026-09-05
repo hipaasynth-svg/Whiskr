@@ -4,7 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
-const cron = require('node-cron');
+const { put: putBlob } = require('@vercel/blob');
 const { v4: uuid } = require('uuid');
 
 const db = require('./db');
@@ -32,14 +32,25 @@ if (process.env.STRIPE_SECRET_KEY) {
   stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 }
 
-// ---------- uploads ----------
-const uploadDir = path.join(__dirname, 'public', 'uploads');
-fs.mkdirSync(uploadDir, { recursive: true });
+// Runs on every request (see ensureDbReady below) but only does real work
+// once per warm instance — required on Vercel since there's no long-lived
+// startup phase to create tables in ahead of time the way a normal server
+// would.
+app.use(async (req, res, next) => {
+  try {
+    await db.initDb();
+    next();
+  } catch (err) {
+    console.error('[db] failed to initialize:', err.message);
+    res.status(500).send('Database is not reachable. Check POSTGRES_URL.');
+  }
+});
 
+// ---------- uploads ----------
 // Extension is derived from the validated MIME type, never from the
 // attacker-controlled original filename — otherwise someone can upload an
 // .svg/.html file with a spoofed "image/png" Content-Type and get it served
-// back by express.static with a browser-executable extension (stored XSS).
+// back with a browser-executable extension (stored XSS).
 const EXT_FOR_MIME = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
@@ -47,15 +58,12 @@ const EXT_FOR_MIME = {
   'image/gif': '.gif',
 };
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const ext = EXT_FOR_MIME[file.mimetype] || '.jpg';
-    cb(null, `${uuid()}${ext}`);
-  },
-});
+// Buffered in memory, not written to disk — Vercel's filesystem is
+// ephemeral/read-only in production, and buffering means a validation
+// failure after upload never leaves an orphaned file to clean up (there's
+// nothing on disk yet to clean up).
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
   fileFilter: (req, file, cb) => {
     if (!Object.prototype.hasOwnProperty.call(EXT_FOR_MIME, file.mimetype)) {
@@ -65,12 +73,39 @@ const upload = multer({
   },
 });
 
+const BLOB_CONFIGURED = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+
+// Stores a validated upload and returns the URL/path to save as photo_path.
+// Uses Vercel Blob when configured (BLOB_READ_WRITE_TOKEN is set automatically
+// once a Blob store is created and linked to the project); otherwise falls
+// back to local disk under public/uploads, which keeps local development
+// working without needing a Blob store just to hack on the app. On Vercel
+// itself BLOB_READ_WRITE_TOKEN must be set — the local-disk fallback would
+// silently fail there since that filesystem isn't writable/persistent.
+async function storePhoto(file) {
+  const ext = EXT_FOR_MIME[file.mimetype] || '.jpg';
+  const filename = `${uuid()}${ext}`;
+
+  if (BLOB_CONFIGURED) {
+    const blob = await putBlob(`uploads/${filename}`, file.buffer, {
+      access: 'public',
+      contentType: file.mimetype,
+    });
+    return blob.url;
+  }
+
+  const uploadDir = path.join(__dirname, 'public', 'uploads');
+  fs.mkdirSync(uploadDir, { recursive: true });
+  fs.writeFileSync(path.join(uploadDir, filename), file.buffer);
+  return `/uploads/${filename}`;
+}
+
 // Submits a paid custom order to Printful for printing + shipping. Only
 // ever called from the webhook below, after Stripe confirms payment — never
 // at checkout time, and never more than once (custom_orders.status guards
 // against a duplicate webhook delivery re-submitting the same order).
 async function submitCustomOrderToPrintful(orderId) {
-  const order = db.prepare(`SELECT * FROM custom_orders WHERE id = ?`).get(orderId);
+  const order = await db.get(`SELECT * FROM custom_orders WHERE id = ?`, [orderId]);
   if (!order || order.status !== 'paid') return;
 
   const product = productCatalog.getProduct(order.product_id);
@@ -84,21 +119,21 @@ async function submitCustomOrderToPrintful(orderId) {
       externalId: `custom-${order.id}`,
       variantId: product ? product.printfulVariantId : null,
       quantity: order.quantity,
-      photoUrl: `${BASE_URL}${order.photo_path}`,
+      photoUrl: order.photo_path.startsWith('http') ? order.photo_path : `${BASE_URL}${order.photo_path}`,
       recipient,
     });
 
     if (result && result.dryRun) {
       console.log(`[printful] custom order #${order.id} — dry run only (PRINTFUL_API_KEY not set).`);
     } else {
-      db.prepare(`UPDATE custom_orders SET status = 'submitted_to_printful', printful_order_id = ? WHERE id = ?`).run(
-        result && result.id ? String(result.id) : null,
-        order.id
+      await db.run(
+        `UPDATE custom_orders SET status = 'submitted_to_printful', printful_order_id = ? WHERE id = ?`,
+        [result && result.id ? String(result.id) : null, order.id]
       );
       console.log(`[printful] custom order #${order.id} submitted (Printful order ${result && result.id}).`);
     }
   } catch (err) {
-    db.prepare(`UPDATE custom_orders SET status = 'failed' WHERE id = ?`).run(order.id);
+    await db.run(`UPDATE custom_orders SET status = 'failed' WHERE id = ?`, [order.id]);
     if (process.env.ADMIN_EMAIL) {
       await mailer
         .sendMail({
@@ -142,19 +177,20 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
     const shippingJson = session.shipping_details ? JSON.stringify(session.shipping_details) : null;
 
     if (orderType === 'calendar' && orderId) {
-      const info = db
-        .prepare(`UPDATE orders SET status = 'paid', shipping_address = ? WHERE id = ?`)
-        .run(shippingJson, orderId);
+      const info = await db.run(`UPDATE orders SET status = 'paid', shipping_address = ? WHERE id = ?`, [
+        shippingJson,
+        orderId,
+      ]);
       console.log(
         info.changes > 0
           ? `[stripe webhook] calendar order #${orderId} marked paid.`
           : `[stripe webhook] checkout.session.completed for unknown calendar order #${orderId}`
       );
     } else if (orderType === 'custom' && orderId) {
-      db.prepare(`UPDATE custom_orders SET status = 'paid', shipping_address = ? WHERE id = ?`).run(
+      await db.run(`UPDATE custom_orders SET status = 'paid', shipping_address = ? WHERE id = ?`, [
         shippingJson,
-        orderId
-      );
+        orderId,
+      ]);
       console.log(`[stripe webhook] custom order #${orderId} marked paid.`);
       await submitCustomOrderToPrintful(orderId);
     } else {
@@ -179,31 +215,32 @@ function calendarBuyUrl(groupId) {
 
 // Seal a group once GROUP_SIZE ungrouped submissions exist, and email entrants.
 async function maybeSealGroup() {
-  const pending = db
-    .prepare(`SELECT id, email, cat_name FROM submissions WHERE group_id IS NULL ORDER BY id ASC LIMIT ?`)
-    .all(GROUP_SIZE);
+  const pending = await db.all(
+    `SELECT id, email, cat_name FROM submissions WHERE group_id IS NULL ORDER BY id ASC LIMIT ?`,
+    [GROUP_SIZE]
+  );
 
   if (pending.length < GROUP_SIZE) return null;
 
   const now = new Date();
   const votingEnds = new Date(now.getTime() + VOTING_PERIOD_DAYS * 24 * 60 * 60 * 1000);
 
-  const insertGroup = db.prepare(
-    `INSERT INTO groups (status, sealed_at, voting_ends_at) VALUES ('voting', ?, ?)`
-  );
-  const info = insertGroup.run(now.toISOString(), votingEnds.toISOString());
-  const groupId = info.lastInsertRowid;
-
-  const assign = db.prepare(`UPDATE submissions SET group_id = ? WHERE id = ?`);
-  const txn = db.transaction((rows) => {
-    for (const row of rows) assign.run(groupId, row.id);
+  const groupId = await db.transaction(async (tx) => {
+    const info = await tx.run(
+      `INSERT INTO groups (status, sealed_at, voting_ends_at) VALUES ('voting', ?, ?) RETURNING id`,
+      [now.toISOString(), votingEnds.toISOString()]
+    );
+    const gid = info.rows[0].id;
+    for (const row of pending) {
+      await tx.run(`UPDATE submissions SET group_id = ? WHERE id = ?`, [gid, row.id]);
+    }
+    return gid;
   });
-  txn(pending);
 
   for (const row of pending) {
     try {
       await mailer.sendEntryConfirmation({ email: row.email, catName: row.cat_name, groupId });
-      db.prepare(`UPDATE submissions SET notified_entry = 1 WHERE id = ?`).run(row.id);
+      await db.run(`UPDATE submissions SET notified_entry = 1 WHERE id = ?`, [row.id]);
     } catch (err) {
       console.error(`[mailer] entry confirmation failed for submission ${row.id}:`, err.message);
     }
@@ -219,14 +256,14 @@ async function maybeSealGroup() {
 // (POST /api/admin/groups/:groupId/pick) and the random-fallback safety net
 // below — a group only ever gets finalized through one of these two paths.
 async function completeGroup(groupId, winnerId) {
-  const submissions = db.prepare(`SELECT * FROM submissions WHERE group_id = ?`).all(groupId);
+  const submissions = await db.all(`SELECT * FROM submissions WHERE group_id = ?`, [groupId]);
   const winner = submissions.find((s) => s.id === winnerId);
   if (!winner) throw new Error(`Submission ${winnerId} is not in group ${groupId}`);
 
-  db.prepare(`UPDATE groups SET status = 'completed', winner_submission_id = ? WHERE id = ?`).run(
+  await db.run(`UPDATE groups SET status = 'completed', winner_submission_id = ? WHERE id = ?`, [
     winnerId,
-    groupId
-  );
+    groupId,
+  ]);
 
   const buyUrl = calendarBuyUrl(groupId);
   for (const s of submissions) {
@@ -250,7 +287,7 @@ async function completeGroup(groupId, winnerId) {
           priceMulti: PRICE_MULTI.toFixed(2),
         });
       }
-      db.prepare(`UPDATE submissions SET notified_result = 1 WHERE id = ?`).run(s.id);
+      await db.run(`UPDATE submissions SET notified_result = 1 WHERE id = ?`, [s.id]);
     } catch (err) {
       console.error(`[mailer] result email failed for submission ${s.id}:`, err.message);
     }
@@ -266,12 +303,12 @@ async function completeGroup(groupId, winnerId) {
 // fires often, it means batches aren't getting judged fast enough.
 async function runDueJudging() {
   const nowIso = new Date().toISOString();
-  const dueGroups = db
-    .prepare(`SELECT id FROM groups WHERE status = 'voting' AND voting_ends_at <= ?`)
-    .all(nowIso);
+  const dueGroups = await db.all(`SELECT id FROM groups WHERE status = 'voting' AND voting_ends_at <= ?`, [
+    nowIso,
+  ]);
 
   for (const g of dueGroups) {
-    const submissions = db.prepare(`SELECT id, cat_name FROM submissions WHERE group_id = ?`).all(g.id);
+    const submissions = await db.all(`SELECT id, cat_name FROM submissions WHERE group_id = ?`, [g.id]);
     if (submissions.length === 0) continue;
 
     const winner = submissions[Math.floor(Math.random() * submissions.length)];
@@ -302,25 +339,25 @@ async function runDueJudging() {
 async function sendDueReviewRequests() {
   const cutoff = new Date(Date.now() - REVIEW_REQUEST_DELAY_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  const dueCalendar = db
-    .prepare(`SELECT * FROM orders WHERE status = 'paid' AND review_requested_at IS NULL AND created_at <= ?`)
-    .all(cutoff);
+  const dueCalendar = await db.all(
+    `SELECT * FROM orders WHERE status = 'paid' AND review_requested_at IS NULL AND created_at <= ?`,
+    [cutoff]
+  );
   for (const o of dueCalendar) {
     const token = reviewLink.tokenFor('calendar', o.id, o.email);
     const reviewUrl = `${BASE_URL}/review.html?type=calendar&id=${o.id}&email=${encodeURIComponent(o.email)}&token=${token}`;
     try {
       await mailer.sendReviewRequest({ email: o.email, itemLabel: `Whiskr calendar (Group #${o.group_id})`, reviewUrl });
-      db.prepare(`UPDATE orders SET review_requested_at = ? WHERE id = ?`).run(new Date().toISOString(), o.id);
+      await db.run(`UPDATE orders SET review_requested_at = ? WHERE id = ?`, [new Date().toISOString(), o.id]);
     } catch (err) {
       console.error(`[mailer] review request failed for order ${o.id}:`, err.message);
     }
   }
 
-  const dueCustom = db
-    .prepare(
-      `SELECT * FROM custom_orders WHERE status IN ('paid','submitted_to_printful') AND review_requested_at IS NULL AND created_at <= ?`
-    )
-    .all(cutoff);
+  const dueCustom = await db.all(
+    `SELECT * FROM custom_orders WHERE status IN ('paid','submitted_to_printful') AND review_requested_at IS NULL AND created_at <= ?`,
+    [cutoff]
+  );
   for (const o of dueCustom) {
     const product = productCatalog.getProduct(o.product_id);
     const token = reviewLink.tokenFor('custom', o.id, o.email);
@@ -331,7 +368,7 @@ async function sendDueReviewRequests() {
         itemLabel: product ? product.name : 'Whiskr order',
         reviewUrl,
       });
-      db.prepare(`UPDATE custom_orders SET review_requested_at = ? WHERE id = ?`).run(new Date().toISOString(), o.id);
+      await db.run(`UPDATE custom_orders SET review_requested_at = ? WHERE id = ?`, [new Date().toISOString(), o.id]);
     } catch (err) {
       console.error(`[mailer] review request failed for custom order ${o.id}:`, err.message);
     }
@@ -342,18 +379,10 @@ async function sendDueReviewRequests() {
 
 // Submit a cat photo + email into the current open group
 app.post('/api/submissions', upload.single('photo'), async (req, res) => {
-  // A validation failure below can still leave an uploaded file on disk
-  // (multer saves it before this handler runs) — always clean that up so
-  // rejected submissions don't leak orphaned files.
-  const rejectWithCleanup = (status, error) => {
-    if (req.file) fs.unlink(req.file.path, () => {});
-    return res.status(status).json({ error });
-  };
-
   try {
     const { email, catName, photoRights } = req.body;
     if (!isValidEmail(email)) {
-      return rejectWithCleanup(400, 'A valid email is required.');
+      return res.status(400).json({ error: 'A valid email is required.' });
     }
     if (!req.file) {
       return res.status(400).json({ error: 'A photo is required.' });
@@ -361,30 +390,28 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     // Photo rights: before printing and selling a stranger's photo, we need
     // affirmative confirmation the submitter owns/has rights to it.
     if (photoRights !== 'on' && photoRights !== 'true') {
-      return rejectWithCleanup(400, 'You must confirm you own the rights to this photo.');
+      return res.status(400).json({ error: 'You must confirm you own the rights to this photo.' });
     }
     // Strip newlines so a crafted cat name can't inject extra lines into
     // the plaintext/subject of outgoing emails.
     const name = (catName || 'Anonymous Cat').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
-    const photoPath = `/uploads/${req.file.filename}`;
+    const photoPath = await storePhoto(req.file);
     const now = new Date().toISOString();
 
-    const info = db
-      .prepare(
-        `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at) VALUES (?, ?, ?, ?, ?)`
-      )
-      .run(email, name, photoPath, now, now);
+    const info = await db.run(
+      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+      [email, name, photoPath, now, now]
+    );
 
     const sealedGroupId = await maybeSealGroup();
 
     res.json({
       ok: true,
-      submissionId: info.lastInsertRowid,
+      submissionId: info.rows[0].id,
       groupSealed: Boolean(sealedGroupId),
     });
   } catch (err) {
     console.error(err);
-    if (req.file) fs.unlink(req.file.path, () => {});
     res.status(500).json({ error: err.message || 'Something went wrong.' });
   }
 });
@@ -406,50 +433,44 @@ app.get('/api/products', (req, res) => {
 // (as opposed to the contest, which only runs in batches of 12). Fulfilled
 // through Printful once Stripe confirms payment via the webhook above.
 app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
-  const rejectWithCleanup = (status, error) => {
-    if (req.file) fs.unlink(req.file.path, () => {});
-    return res.status(status).json({ error });
-  };
-
   try {
     if (!stripe) {
-      return rejectWithCleanup(400, 'Stripe is not configured on this server yet.');
+      return res.status(400).json({ error: 'Stripe is not configured on this server yet.' });
     }
     const { email, productId, species, petName, photoRights, quantity } = req.body;
 
     if (!isValidEmail(email)) {
-      return rejectWithCleanup(400, 'A valid email is required.');
+      return res.status(400).json({ error: 'A valid email is required.' });
     }
     if (!req.file) {
       return res.status(400).json({ error: 'A photo is required.' });
     }
     if (species !== 'cat' && species !== 'dog') {
-      return rejectWithCleanup(400, 'Please choose cat or dog.');
+      return res.status(400).json({ error: 'Please choose cat or dog.' });
     }
     // Photo rights: same requirement as contest entries — before printing
     // and selling a customer's own photo, we need their affirmative
     // confirmation they own/have rights to it (it's usually their own pet,
     // but the checkbox is the actual legal record either way).
     if (photoRights !== 'on' && photoRights !== 'true') {
-      return rejectWithCleanup(400, 'You must confirm you own the rights to this photo.');
+      return res.status(400).json({ error: 'You must confirm you own the rights to this photo.' });
     }
     const product = productCatalog.getProduct(productId);
     if (!product) {
-      return rejectWithCleanup(400, 'Unknown product.');
+      return res.status(400).json({ error: 'Unknown product.' });
     }
 
     const qty = Math.max(1, Math.min(10, Number(quantity) || 1));
     const petNameClean = (petName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
-    const photoPath = `/uploads/${req.file.filename}`;
+    const photoPath = await storePhoto(req.file);
     const now = new Date().toISOString();
     const amount = product.priceUsd * qty;
 
-    const info = db
-      .prepare(
-        `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
-      )
-      .run(email, product.id, species, petNameClean, photoPath, qty, amount, now, now);
-    const orderId = info.lastInsertRowid;
+    const info = await db.run(
+      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) RETURNING id`,
+      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now]
+    );
+    const orderId = info.rows[0].id;
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -467,30 +488,30 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
       ],
       metadata: { orderType: 'custom', orderId: String(orderId) },
       success_url: `${BASE_URL}/?order=success`,
-      cancel_url: `${BASE_URL}/shop.html`,
+      cancel_url: `${BASE_URL}/#shop-custom`,
     });
 
-    db.prepare(`UPDATE custom_orders SET stripe_session_id = ? WHERE id = ?`).run(session.id, orderId);
+    await db.run(`UPDATE custom_orders SET stripe_session_id = ? WHERE id = ?`, [session.id, orderId]);
 
     res.json({ ok: true, url: session.url });
   } catch (err) {
     console.error(err);
-    if (req.file) fs.unlink(req.file.path, () => {});
     res.status(500).json({ error: err.message || 'Something went wrong.' });
   }
 });
 
 // Public status: how full is the current open batch
-app.get('/api/status', (req, res) => {
-  const openCount = db.prepare(`SELECT COUNT(*) AS c FROM submissions WHERE group_id IS NULL`).get().c;
-  const lastCompleted = db
-    .prepare(`SELECT id, winner_submission_id FROM groups WHERE status = 'completed' ORDER BY id DESC LIMIT 1`)
-    .get();
+app.get('/api/status', async (req, res) => {
+  const openRow = await db.get(`SELECT COUNT(*) AS c FROM submissions WHERE group_id IS NULL`);
+  const openCount = Number(openRow.c);
+  const lastCompleted = await db.get(
+    `SELECT id, winner_submission_id FROM groups WHERE status = 'completed' ORDER BY id DESC LIMIT 1`
+  );
   let winnerCat = null;
   if (lastCompleted) {
-    winnerCat = db.prepare(`SELECT cat_name, photo_path FROM submissions WHERE id = ?`).get(
-      lastCompleted.winner_submission_id
-    );
+    winnerCat = await db.get(`SELECT cat_name, photo_path FROM submissions WHERE id = ?`, [
+      lastCompleted.winner_submission_id,
+    ]);
   }
   res.json({
     openCount,
@@ -501,13 +522,13 @@ app.get('/api/status', (req, res) => {
 });
 
 // Calendar landing/checkout page for a specific completed group
-app.get('/api/calendar/:groupId', (req, res) => {
+app.get('/api/calendar/:groupId', async (req, res) => {
   const groupId = Number(req.params.groupId);
-  const group = db.prepare(`SELECT * FROM groups WHERE id = ?`).get(groupId);
+  const group = await db.get(`SELECT * FROM groups WHERE id = ?`, [groupId]);
   if (!group) return res.status(404).json({ error: 'Not found' });
-  const submissions = db.prepare(`SELECT id, cat_name, photo_path FROM submissions WHERE group_id = ?`).all(
-    groupId
-  );
+  const submissions = await db.all(`SELECT id, cat_name, photo_path FROM submissions WHERE group_id = ?`, [
+    groupId,
+  ]);
   res.json({
     groupId,
     status: group.status,
@@ -529,7 +550,7 @@ app.post('/api/checkout', async (req, res) => {
 
     // Don't take payment for a calendar that doesn't exist yet, or one whose
     // voting is still open (nothing to print until a winner is picked).
-    const group = db.prepare(`SELECT id, status FROM groups WHERE id = ?`).get(groupId);
+    const group = await db.get(`SELECT id, status FROM groups WHERE id = ?`, [groupId]);
     if (!group) {
       return res.status(404).json({ error: 'That batch does not exist.' });
     }
@@ -540,12 +561,11 @@ app.post('/api/checkout', async (req, res) => {
     const qty = Math.max(1, Math.min(20, Number(quantity) || 1));
     const unitPrice = qty >= 2 ? PRICE_MULTI : PRICE_ONE;
 
-    const info = db
-      .prepare(
-        `INSERT INTO orders (group_id, email, quantity, amount_usd, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)`
-      )
-      .run(groupId, email || '', qty, unitPrice * qty, new Date().toISOString());
-    const orderId = info.lastInsertRowid;
+    const info = await db.run(
+      `INSERT INTO orders (group_id, email, quantity, amount_usd, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?) RETURNING id`,
+      [groupId, email || '', qty, unitPrice * qty, new Date().toISOString()]
+    );
+    const orderId = info.rows[0].id;
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -566,7 +586,7 @@ app.post('/api/checkout', async (req, res) => {
       cancel_url: `${BASE_URL}/calendar.html?group=${groupId}`,
     });
 
-    db.prepare(`UPDATE orders SET stripe_session_id = ? WHERE id = ?`).run(session.id, orderId);
+    await db.run(`UPDATE orders SET stripe_session_id = ? WHERE id = ?`, [session.id, orderId]);
 
     res.json({ url: session.url });
   } catch (err) {
@@ -577,15 +597,15 @@ app.post('/api/checkout', async (req, res) => {
 
 // Unsubscribe link included in commercial result emails (CAN-SPAM requires
 // a working one-click opt-out on any email carrying a purchase pitch).
-app.get('/api/unsubscribe', (req, res) => {
+app.get('/api/unsubscribe', async (req, res) => {
   const { email, token } = req.query;
   if (!unsubscribe.verify(email, token)) {
     return res.status(400).send('Invalid or expired unsubscribe link.');
   }
-  db.prepare(`INSERT OR IGNORE INTO suppressions (email, created_at) VALUES (?, ?)`).run(
+  await db.run(`INSERT INTO suppressions (email, created_at) VALUES (?, ?) ON CONFLICT (email) DO NOTHING`, [
     String(email).toLowerCase(),
-    new Date().toISOString()
-  );
+    new Date().toISOString(),
+  ]);
   res.send('You have been unsubscribed from Whiskr emails.');
 });
 
@@ -593,19 +613,19 @@ app.get('/api/unsubscribe', (req, res) => {
 // verifying the submission came from a real, signed order-review link —
 // see POST /api/reviews below. No seed data, ever: an empty result here
 // means the honest thing is an empty state on the page, not a fake review.
-app.get('/api/reviews', (req, res) => {
-  const rows = db
-    .prepare(`SELECT rating, body, display_name, photo_path, created_at FROM reviews WHERE approved = 1 ORDER BY created_at DESC LIMIT 50`)
-    .all();
+app.get('/api/reviews', async (req, res) => {
+  const rows = await db.all(
+    `SELECT rating, body, display_name, photo_path, created_at FROM reviews WHERE approved = 1 ORDER BY created_at DESC LIMIT 50`
+  );
   res.json({ reviews: rows });
 });
 
 // Submit a review — only reachable via the signed link emailed after a real
-// order was fulfilled (see sendDueReviewRequests below). The token proves
+// order was fulfilled (see sendDueReviewRequests above). The token proves
 // this specific email actually placed this specific order; this is what
 // makes every review a verified purchase rather than an open form anyone
 // could spam or fabricate. Never relax this check.
-app.post('/api/reviews', (req, res) => {
+app.post('/api/reviews', async (req, res) => {
   try {
     const { orderType, orderId, email, token, rating, body, displayName } = req.body;
     const id = Number(orderId);
@@ -619,8 +639,8 @@ app.post('/api/reviews', (req, res) => {
 
     const order =
       orderType === 'calendar'
-        ? db.prepare(`SELECT email, status FROM orders WHERE id = ?`).get(id)
-        : db.prepare(`SELECT email, status FROM custom_orders WHERE id = ?`).get(id);
+        ? await db.get(`SELECT email, status FROM orders WHERE id = ?`, [id])
+        : await db.get(`SELECT email, status FROM custom_orders WHERE id = ?`, [id]);
     const paidStatuses = ['paid', 'submitted_to_printful'];
     if (!order || order.email.toLowerCase() !== String(email).toLowerCase() || !paidStatuses.includes(order.status)) {
       return res.status(400).json({ error: 'This order is not eligible for a review.' });
@@ -636,13 +656,15 @@ app.post('/api/reviews', (req, res) => {
     }
     const nameClean = String(displayName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60) || null;
 
-    db.prepare(
-      `INSERT INTO reviews (order_type, order_id, email, rating, body, display_name, approved, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`
-    ).run(orderType, id, email, ratingNum, bodyClean, nameClean, new Date().toISOString());
+    await db.run(
+      `INSERT INTO reviews (order_type, order_id, email, rating, body, display_name, approved, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+      [orderType, id, email, ratingNum, bodyClean, nameClean, new Date().toISOString()]
+    );
 
     res.json({ ok: true, message: "Thanks! Your review is in — it'll show up once we've had a look." });
   } catch (err) {
-    if (String(err.message).includes('UNIQUE constraint failed')) {
+    if (err.code === '23505') {
+      // Postgres unique_violation — hits the UNIQUE(order_type, order_id) constraint.
       return res.status(400).json({ error: "You've already reviewed this order." });
     }
     console.error(err);
@@ -666,16 +688,15 @@ function requireAdmin(req, res, next) {
 
 // List sealed groups (12 cats) that are awaiting a manual pick — this is
 // your judging queue. See public/admin.html for the screen that uses this.
-app.get('/api/admin/groups/pending', requireAdmin, (req, res) => {
-  const groups = db.prepare(`SELECT * FROM groups WHERE status = 'voting' ORDER BY sealed_at ASC`).all();
-  const result = groups.map((g) => ({
-    groupId: g.id,
-    sealedAt: g.sealed_at,
-    judgingDeadline: g.voting_ends_at,
-    cats: db
-      .prepare(`SELECT id, cat_name, photo_path FROM submissions WHERE group_id = ? ORDER BY id ASC`)
-      .all(g.id),
-  }));
+app.get('/api/admin/groups/pending', requireAdmin, async (req, res) => {
+  const groups = await db.all(`SELECT * FROM groups WHERE status = 'voting' ORDER BY sealed_at ASC`);
+  const result = [];
+  for (const g of groups) {
+    const cats = await db.all(`SELECT id, cat_name, photo_path FROM submissions WHERE group_id = ? ORDER BY id ASC`, [
+      g.id,
+    ]);
+    result.push({ groupId: g.id, sealedAt: g.sealed_at, judgingDeadline: g.voting_ends_at, cats });
+  }
   res.json({ groups: result });
 });
 
@@ -687,14 +708,15 @@ app.post('/api/admin/groups/:groupId/pick', requireAdmin, async (req, res) => {
   const groupId = Number(req.params.groupId);
   const submissionId = Number(req.body.submissionId);
 
-  const group = db.prepare(`SELECT * FROM groups WHERE id = ?`).get(groupId);
+  const group = await db.get(`SELECT * FROM groups WHERE id = ?`, [groupId]);
   if (!group) return res.status(404).json({ error: 'Group not found.' });
   if (group.status !== 'voting') {
     return res.status(400).json({ error: `Group #${groupId} was already decided.` });
   }
-  const submission = db
-    .prepare(`SELECT id FROM submissions WHERE id = ? AND group_id = ?`)
-    .get(submissionId, groupId);
+  const submission = await db.get(`SELECT id FROM submissions WHERE id = ? AND group_id = ?`, [
+    submissionId,
+    groupId,
+  ]);
   if (!submission) {
     return res.status(400).json({ error: 'That cat is not in this group.' });
   }
@@ -705,39 +727,39 @@ app.post('/api/admin/groups/:groupId/pick', requireAdmin, async (req, res) => {
 
 // Orders, for fulfillment. ?status=paid to see what actually needs printing;
 // omit to see everything including still-pending checkout sessions.
-app.get('/api/admin/orders', requireAdmin, (req, res) => {
+app.get('/api/admin/orders', requireAdmin, async (req, res) => {
   const status = typeof req.query.status === 'string' ? req.query.status : null;
   const rows = status
-    ? db.prepare(`SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC`).all(status)
-    : db.prepare(`SELECT * FROM orders ORDER BY created_at DESC`).all();
+    ? await db.all(`SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC`, [status])
+    : await db.all(`SELECT * FROM orders ORDER BY created_at DESC`);
   res.json({ orders: rows });
 });
 
 // Custom (print-on-demand) orders, for fulfillment visibility alongside
 // the calendar orders above.
-app.get('/api/admin/custom-orders', requireAdmin, (req, res) => {
+app.get('/api/admin/custom-orders', requireAdmin, async (req, res) => {
   const status = typeof req.query.status === 'string' ? req.query.status : null;
   const rows = status
-    ? db.prepare(`SELECT * FROM custom_orders WHERE status = ? ORDER BY created_at DESC`).all(status)
-    : db.prepare(`SELECT * FROM custom_orders ORDER BY created_at DESC`).all();
+    ? await db.all(`SELECT * FROM custom_orders WHERE status = ? ORDER BY created_at DESC`, [status])
+    : await db.all(`SELECT * FROM custom_orders ORDER BY created_at DESC`);
   res.json({ orders: rows });
 });
 
 // Moderation queue — pending by default, since that's what needs a look.
-app.get('/api/admin/reviews', requireAdmin, (req, res) => {
+app.get('/api/admin/reviews', requireAdmin, async (req, res) => {
   const approved = req.query.approved === '1' ? 1 : 0;
-  const rows = db.prepare(`SELECT * FROM reviews WHERE approved = ? ORDER BY created_at ASC`).all(approved);
+  const rows = await db.all(`SELECT * FROM reviews WHERE approved = ? ORDER BY created_at ASC`, [approved]);
   res.json({ reviews: rows });
 });
-app.post('/api/admin/reviews/:id/approve', requireAdmin, (req, res) => {
-  const info = db.prepare(`UPDATE reviews SET approved = 1 WHERE id = ?`).run(Number(req.params.id));
+app.post('/api/admin/reviews/:id/approve', requireAdmin, async (req, res) => {
+  const info = await db.run(`UPDATE reviews SET approved = 1 WHERE id = ?`, [Number(req.params.id)]);
   if (info.changes === 0) return res.status(404).json({ error: 'Review not found.' });
   res.json({ ok: true });
 });
 // "Reject" just removes it — there's no public-facing rejected state, and
 // keeping spam/abuse around serves no purpose.
-app.post('/api/admin/reviews/:id/reject', requireAdmin, (req, res) => {
-  const info = db.prepare(`DELETE FROM reviews WHERE id = ?`).run(Number(req.params.id));
+app.post('/api/admin/reviews/:id/reject', requireAdmin, async (req, res) => {
+  const info = await db.run(`DELETE FROM reviews WHERE id = ?`, [Number(req.params.id)]);
   if (info.changes === 0) return res.status(404).json({ error: 'Review not found.' });
   res.json({ ok: true });
 });
@@ -755,7 +777,7 @@ app.post('/api/admin/run-fallback-judging', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 // Sends any due review-request emails immediately, for testing — in normal
-// operation the daily cron below does this.
+// operation the daily Vercel Cron hit below does this.
 app.post('/api/admin/run-review-requests', requireAdmin, async (req, res) => {
   await sendDueReviewRequests();
   res.json({ ok: true });
@@ -764,9 +786,9 @@ app.post('/api/admin/run-review-requests', requireAdmin, async (req, res) => {
 // in production the daily cron is what enforces the deadline).
 app.post('/api/admin/force-close/:groupId', requireAdmin, async (req, res) => {
   const groupId = Number(req.params.groupId);
-  const group = db.prepare(`SELECT * FROM groups WHERE id = ?`).get(groupId);
+  const group = await db.get(`SELECT * FROM groups WHERE id = ?`, [groupId]);
   if (!group) return res.status(404).json({ error: 'Group not found' });
-  db.prepare(`UPDATE groups SET voting_ends_at = ? WHERE id = ?`).run(new Date().toISOString(), groupId);
+  await db.run(`UPDATE groups SET voting_ends_at = ? WHERE id = ?`, [new Date().toISOString(), groupId]);
   await runDueJudging();
   res.json({ ok: true });
 });
@@ -774,18 +796,51 @@ app.post('/api/admin/force-close/:groupId', requireAdmin, async (req, res) => {
 app.get('/healthz', (req, res) => res.send('ok'));
 
 // ---------- background schedule ----------
-// Daily check for groups whose judging deadline passed without a manual pick,
-// and for paid orders old enough to ask for a review.
-cron.schedule(process.env.CRON_SCHEDULE || '0 9 * * *', () => {
-  runDueJudging().catch((e) => console.error('[cron] fallback judging run failed:', e));
-  sendDueReviewRequests().catch((e) => console.error('[cron] review-request run failed:', e));
-});
+// Hit once a day by Vercel Cron (see the "crons" entry in vercel.json) —
+// replaces the in-process node-cron scheduler that ran on the old always-on
+// host, since a serverless function has no long-lived process to keep a
+// timer running in. Checks groups whose judging deadline passed without a
+// manual pick, and paid orders old enough to ask for a review.
+//
+// Vercel signs cron requests with `Authorization: Bearer <CRON_SECRET>`
+// when CRON_SECRET is set as an env var, which is how this route tells a
+// real scheduled invocation apart from a random request to the same URL.
+app.get('/api/cron/daily', async (req, res) => {
+  if (process.env.CRON_SECRET) {
+    const auth = req.headers['authorization'] || '';
+    if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+      return res.status(401).send('Unauthorized');
+    }
+  } else {
+    console.warn('[cron] CRON_SECRET is not set — /api/cron/daily is unauthenticated.');
+  }
 
-app.listen(PORT, () => {
-  console.log(`Whiskr server running on ${BASE_URL}`);
-  console.log(`Judging deadline: ${VOTING_PERIOD_DAYS} days | Group size: ${GROUP_SIZE}`);
-  if (!stripe) console.warn('[stripe] STRIPE_SECRET_KEY not set — checkout endpoint disabled.');
-  if (stripe && !process.env.STRIPE_WEBHOOK_SECRET) {
-    console.warn('[stripe] STRIPE_WEBHOOK_SECRET not set — paid orders will never be marked paid.');
+  try {
+    await runDueJudging();
+    await sendDueReviewRequests();
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[cron] daily run failed:', err);
+    res.status(500).json({ error: err.message });
   }
 });
+
+if (require.main === module) {
+  // Only listens when run directly (`node server.js` / `npm start`) — on
+  // Vercel this file is required as a module and the exported app is
+  // invoked per-request instead, so app.listen() here would be both
+  // pointless and never reached.
+  app.listen(PORT, () => {
+    console.log(`Whiskr server running on ${BASE_URL}`);
+    console.log(`Judging deadline: ${VOTING_PERIOD_DAYS} days | Group size: ${GROUP_SIZE}`);
+    if (!stripe) console.warn('[stripe] STRIPE_SECRET_KEY not set — checkout endpoint disabled.');
+    if (stripe && !process.env.STRIPE_WEBHOOK_SECRET) {
+      console.warn('[stripe] STRIPE_WEBHOOK_SECRET not set — paid orders will never be marked paid.');
+    }
+    if (!BLOB_CONFIGURED) {
+      console.warn('[blob] BLOB_READ_WRITE_TOKEN not set — photos are being saved to local disk (fine for dev only).');
+    }
+  });
+}
+
+module.exports = app;

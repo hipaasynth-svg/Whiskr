@@ -1,6 +1,7 @@
 node_modules/
 .env
-data/*.db
-data/*.db-*
+# public/uploads is only ever written to as a local-dev fallback when
+# BLOB_READ_WRITE_TOKEN isn't set (see storePhoto in server.js) — real
+# uploads live in Vercel Blob, not this repo.
 public/uploads/*
 !public/uploads/.gitkeep
