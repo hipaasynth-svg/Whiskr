@@ -1,0 +1,32 @@
+User-agent: *
+Allow: /
+Disallow: /admin.html
+
+# AI crawlers/assistants explicitly welcome — this site wants to be found
+# and cited by AI search and shopping assistants, not just traditional
+# search engines.
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://whiskr.lol/sitemap.xml
