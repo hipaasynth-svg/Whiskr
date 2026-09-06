@@ -324,3 +324,23 @@ allowed it. Removed the resulting non-functional MCP config entry rather
 than leave dead configuration behind. This should work fine from a local
 Claude Code install (desktop or CLI on an actual computer, not this
 hosted session) if the owner wants the planner tool later.
+
+## Update — 2026-09-05: Statement descriptor for shared-account branding
+
+While setting up Stripe locally, the owner confirmed Whiskr doesn't have
+its own Stripe account — it, along with several other brands
+(Codycarlson.art, DrinkMinot.com, EatMinot.com, Tessomancy), runs under
+one umbrella entity (HipAAsynth LLC). Sharing one Stripe account across
+unrelated brands is fine, but without any per-brand distinction, a Whiskr
+customer's card statement would show the account's generic descriptor
+with no indication the charge came from a pet-products purchase — a
+real driver of "is this a scam?" chargebacks and disputes for a
+brand-new storefront with no purchase history yet to reassure anyone.
+
+Both `checkout.sessions.create` calls now pass
+`payment_intent_data: { statement_descriptor_suffix: 'WHISKR' }`, so the
+customer's statement reads `<account descriptor>* WHISKR` regardless of
+which brand's default descriptor the shared account has configured.
+This required no account changes and doesn't conflict with the
+`automatic_tax`/`tax_behavior` fields added in the previous update.
+Verified with `node --check server.js`.

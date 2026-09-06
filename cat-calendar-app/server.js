@@ -477,6 +477,7 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
       customer_email: email,
       shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
       automatic_tax: { enabled: true },
+      payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
       line_items: [
         {
           price_data: {
@@ -574,6 +575,7 @@ app.post('/api/checkout', async (req, res) => {
       customer_email: isValidEmail(email) ? email : undefined,
       shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
       automatic_tax: { enabled: true },
+      payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
       line_items: [
         {
           price_data: {
