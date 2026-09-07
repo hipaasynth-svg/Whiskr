@@ -344,3 +344,24 @@ which brand's default descriptor the shared account has configured.
 This required no account changes and doesn't conflict with the
 `automatic_tax`/`tax_behavior` fields added in the previous update.
 Verified with `node --check server.js`.
+
+## Update — 2026-09-07: affiliate picks swapped for real current bestsellers
+
+The original affiliate hub (`index.html` "Gear we actually use") linked
+generic category searches (e.g. "cat litter") with no real basis for
+which product to actually name. Researched current Amazon best-seller
+data (litter, treats, waste bags, harnesses, scratching posts) and
+replaced the generic entries with named, currently-popular products:
+Dr. Elsey's Unscented Clumping Litter, INABA Churu treats, a cat
+scratching post, Earth Rated poop bags, and a no-pull dog harness —
+kept as `/s?k=` search links (not single ASIN product pages) so a
+specific listing going out of stock doesn't break the link or the
+copy's honesty.
+
+Also dropped the standalone Litter-Robot link (a third affiliate
+program on top of Amazon Associates and Chewy) in favor of an
+Amazon-native scratching-post pick — one fewer affiliate program to
+sign up for and manage before launch, consistent with keeping the
+owner's account/dashboard surface area small. **Still needs real
+tagged affiliate URLs before launch** — these are plain, untagged
+search links, same caveat as before.
