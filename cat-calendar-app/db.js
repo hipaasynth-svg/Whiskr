@@ -113,6 +113,16 @@ CREATE TABLE IF NOT EXISTS custom_orders (
   shipping_address TEXT               -- JSON from Stripe's shipping_details; required before Printful can ship
 );
 
+-- Admin-managed hero background photos. Empty table = no slideshow, just
+-- the plain dark hero background — never a placeholder/stock-photo
+-- slideshow. Add photos in admin.html to turn it on.
+CREATE TABLE IF NOT EXISTS background_slides (
+  id SERIAL PRIMARY KEY,
+  image_path TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
 -- Reviews are only ever created against a real, paid order (calendar or
 -- custom-product) via a signed link emailed after fulfillment — see
 -- reviewLink.js and mailer.sendReviewRequest. There is no seed/fake data:

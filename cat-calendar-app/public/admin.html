@@ -60,6 +60,22 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
+        <h2>Background slideshow</h2>
+        <p class="sub">Homepage hero background. Empty = no slideshow, just the plain dark background — never a stock-photo fallback. Add a few of your own photos to turn it on.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshBackground" type="button">Refresh</button>
+    </div>
+    <form id="backgroundUploadForm" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+      <input type="file" id="backgroundPhoto" accept="image/png, image/jpeg, image/webp, image/gif" required />
+      <button class="btn btn-primary" type="submit" style="padding:8px 16px;font-size:0.85rem;">Add photo</button>
+      <span class="form-note" id="backgroundUploadNote"></span>
+    </form>
+    <div id="backgroundList" class="pick-grid"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
         <h2>Groups awaiting a pick</h2>
         <p class="sub">Click a photo to make that cat the cover. Sends the winner + featured emails immediately.</p>
       </div>
@@ -322,7 +338,74 @@
     }
   }
 
+  const backgroundList = document.getElementById('backgroundList');
+  async function loadBackground() {
+    backgroundList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/background');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load background photos.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.slides.length === 0) {
+        backgroundList.innerHTML = '<p class="empty">No background photos yet — the homepage hero is just the plain dark background.</p>';
+        return;
+      }
+
+      backgroundList.innerHTML = data.slides.map((s) => `
+        <div class="pick-cell" data-slide="${s.id}">
+          <img src="${s.image_path}" alt="" />
+          <button type="button" class="bg-delete" data-id="${s.id}">Remove</button>
+        </div>
+      `).join('');
+
+      backgroundList.querySelectorAll('.bg-delete').forEach((btn) => {
+        btn.addEventListener('click', () => deleteBackgroundSlide(btn.dataset.id));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      backgroundList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function deleteBackgroundSlide(id) {
+    try {
+      const res = await adminFetch(`/api/admin/background/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Remove failed.');
+      loadBackground();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  document.getElementById('backgroundUploadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById('backgroundPhoto');
+    const note = document.getElementById('backgroundUploadNote');
+    const file = fileInput.files[0];
+    if (!file) return;
+    note.classList.remove('error');
+    note.textContent = 'Uploading…';
+    const formData = new FormData();
+    formData.append('photo', file);
+    try {
+      const res = await adminFetch('/api/admin/background', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed.');
+      note.textContent = 'Added.';
+      fileInput.value = '';
+      loadBackground();
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+    }
+  });
+
   function loadAll() {
+    loadBackground();
     loadGroups();
     loadOrders();
     loadCustomOrders();
@@ -330,6 +413,7 @@
   }
 
   document.getElementById('loadBtn').addEventListener('click', loadAll);
+  document.getElementById('refreshBackground').addEventListener('click', loadBackground);
   document.getElementById('refreshGroups').addEventListener('click', loadGroups);
   document.getElementById('refreshOrders').addEventListener('click', loadOrders);
   document.getElementById('refreshCustomOrders').addEventListener('click', loadCustomOrders);

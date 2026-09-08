@@ -365,3 +365,114 @@ sign up for and manage before launch, consistent with keeping the
 owner's account/dashboard surface area small. **Still needs real
 tagged affiliate URLs before launch** — these are plain, untagged
 search links, same caveat as before.
+
+## Update — 2026-09-08: stopped leaking the live entry count publicly
+
+`GET /api/status` ran a raw `COUNT(*)` on real submissions and shipped it
+straight to the public homepage as "X of 12 spots left." For a new,
+low-traffic business, that's a permanent public sign reading "almost
+nobody has entered" until 12 strangers actually show up — and it sat in
+the raw JSON response even where the UI didn't render the number. Fixed:
+`/api/status` now returns a coarse `fillStatus` enum
+(`empty`/`filling`/`almost_full`/`sealed`) computed server-side; no exact
+count leaves the server anymore. Shipped as
+[PR #6](https://github.com/hipaasynth-svg/Whiskr/pull/6), merged.
+
+## Update — 2026-09-08: contest-first redesign, real background slideshow, server-rendered indexing
+
+The owner's read on the site as it stood: apologetic copy ("We're brand
+new — no reviews yet"), decorative emoji in trust badges and transactional
+email subjects, a print-shop-first homepage when the contest is the actual
+funnel, a hero background pulling random placeholder cats from a third-party
+service (cataas.com) with no way to swap in real photography, and a
+product/contest catalog that only existed inside client-side JavaScript —
+invisible to a crawler or AI assistant that doesn't execute it. All fixed
+this pass, no code left half-done:
+
+- **Copy**: removed every decorative emoji from the site (trust-row: 🔒 🖨️
+  📬) and transactional emails (`mailer.js`: 🐾 🏆 📅 across entry
+  confirmation, winner, and featured-cat emails). Rewrote the "brand new"
+  reviews empty-state to state the reprint guarantee directly instead of
+  apologizing for having no reviews yet. Rating stars (★/☆) and the
+  verified-purchase checkmark (✓) were left alone — those are real UI
+  glyphs, not decoration, confirmed by checking each match individually
+  rather than blanket-stripping anything non-ASCII.
+- **Homepage reordered contest-first**: hero → how it works → current
+  winner → entry form → calendar shop → reviews → custom print shop →
+  affiliate picks → footer (was: hero → reviews → print shop → how it
+  works → current winner → calendar shop → entry form → picks). Nav and
+  hero copy/CTAs reprioritized to match (primary CTA is now "Enter the
+  free contest," not "Shop custom prints"). The print shop and its Stripe
+  checkout are untouched — still evergreen, still works every day — just
+  no longer first in the scroll.
+- **Real, admin-controlled background slideshow**: new `background_slides`
+  table (`db.js`), `GET /api/background` (public), `POST`/`DELETE
+  /api/admin/background` (admin — reuses the existing `storePhoto()`/Blob
+  pattern from contest/print-order uploads). Empty table = plain dark hero
+  background, never a placeholder; the owner's own photos are what shows,
+  and the slideshow only appears once at least one is uploaded. New
+  "Background slideshow" section in `admin.html` (upload, thumbnail grid,
+  remove). This follows the same shape as the background-slideshow feature
+  in the owner's other site, `codycarlson.art` (`README.md`'s "Background
+  slideshow" section, admin-managed photo slots, empty = fallback), cloned
+  read-only into this session to confirm the pattern before building it here.
+- **Server-side rendering for indexing** (`seo.js`, new): `/` and
+  `/index.html` now run through a prerender step before `express.static`
+  ever sees them — real contest status, the last winner's name/photo, the
+  full product catalog (as both visible HTML cards and `Product`/`ItemList`
+  JSON-LD), and any uploaded background photos are baked into the HTML
+  response. `script.js` still runs and rebuilds the same containers from
+  its own `fetch()` calls — same idempotent-rebuild pattern the reviews
+  and product grids already used — so a real visitor sees no behavior
+  change; a crawler that never runs JavaScript (or runs it badly) now sees
+  the actual site instead of empty containers. `/calendar.html` gets the
+  same treatment for per-batch `<title>`/OG/JSON-LD (`Product` schema,
+  price, availability) keyed off `?group=N`. `/sitemap.xml` changed from a
+  static one-URL file to a live route listing every *completed* contest
+  batch, regenerated per request from the `groups` table — a new batch is
+  discoverable the moment judging finishes, no redeploy needed. The static
+  `public/sitemap.xml` file was deleted (the route now owns that path
+  entirely; leaving the file would've been dead, confusing weight).
+  `llms.txt` updated to match the contest-first framing and point AI
+  agents at the JSON-LD instead of only the raw JSON endpoints. This
+  mirrors `codycarlson.art`'s `api/home.js`/`api/sitemap.js` pattern
+  (prerender the template, keep client JS as the same idempotent rebuild),
+  adapted from that site's per-route Vercel functions to this app's single
+  Express process.
+
+**Bug caught and fixed during verification, not left for later**: the
+first version of the prerender helper (`fillEmpty` in `seo.js`) only
+injected content into elements that were already empty. `winnerName` and
+`winnerBlurb` ship with non-empty placeholder text for the pre-judging
+state ("Judging in progress" / "The current batch is still filling up...")
+— so the regex silently no-opped on exactly the two fields most likely to
+matter to a crawler. Caught by running a real end-to-end test, not by
+inspection: fixed the regex to replace existing content generally, re-ran
+the same test, confirmed the winner's real name/photo/blurb now appear in
+the raw HTML response.
+
+**Verified against a real local Postgres instance** (started locally in
+this sandbox for the purpose, not left to "should work"): submitted 12
+real entries via `POST /api/submissions` to seal a batch, confirmed
+`fillStatus` transitions, judged the batch via
+`POST /api/admin/groups/:id/pick`, confirmed the completed batch appeared
+in `/sitemap.xml` and its `/calendar.html?group=N` carried the right
+prerendered title/OG/JSON-LD, uploaded and deleted a real photo via the
+new background-slide admin endpoints and confirmed the homepage hero
+picked it up and dropped it, confirmed static assets (`style.css`,
+`script.js`, `robots.txt`, `admin.html`) still serve correctly alongside
+the new routes intercepting `/`, `/index.html`, `/calendar.html`, and
+`/sitemap.xml`, and confirmed `node --check` passes on every changed file.
+
+**Left open, not done here**: `calendar.html`'s photo grid itself is still
+client-rendered only (the per-batch *meta tags* are server-rendered; the
+visible 12-photo grid is not) — lower priority than the catalog/contest
+content since individual contest photos are less likely to be a search or
+shopping-agent target than the product catalog was. Background-slide
+deletion removes the database row but doesn't delete the underlying Blob/
+disk file — matches the precedent already set elsewhere in this codebase
+(nothing else here does storage cleanup on delete either), but worth a
+real cleanup job once slide churn is common enough to matter. No manual
+reordering of background slides beyond upload order (oldest first) — fine
+for a handful of photos, would want a drag-to-reorder control if the
+owner uploads many.

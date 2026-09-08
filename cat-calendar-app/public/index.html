@@ -3,32 +3,34 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Whiskr — Custom Cat &amp; Dog Prints, Plus a Monthly Contest</title>
-<meta name="description" content="Upload your cat or dog's photo, get it printed on a mug, poster, canvas and more — shipped direct. Plus a free monthly Cat of the Month photo contest." />
+<title>Whiskr — Free Monthly Cat &amp; Dog Photo Contest, Plus Custom Prints</title>
+<meta name="description" content="Enter your cat free in Whiskr's monthly photo contest — judged by a human, not a vote. Every batch of 12 gets a calendar. Plus custom cat and dog prints, always open." />
 <link rel="canonical" href="https://whiskr.lol/" />
 
 <!-- Open Graph / link previews (iMessage, Slack, Facebook, etc.) -->
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Whiskr" />
-<meta property="og:title" content="Whiskr — Custom Cat & Dog Prints, Plus a Monthly Contest" />
-<meta property="og:description" content="Upload your cat or dog's photo, get it printed on a mug, poster, canvas and more — shipped direct. Plus a free monthly Cat of the Month photo contest." />
+<meta property="og:title" content="Whiskr — Free Monthly Cat & Dog Photo Contest, Plus Custom Prints" />
+<meta property="og:description" content="Enter your cat free in Whiskr's monthly photo contest — judged by a human, not a vote. Every batch of 12 gets a calendar. Plus custom cat and dog prints, always open." />
 <meta property="og:url" content="https://whiskr.lol/" />
 
 <!-- Twitter/X card -->
 <meta name="twitter:card" content="summary" />
-<meta name="twitter:title" content="Whiskr — Custom Cat & Dog Prints, Plus a Monthly Contest" />
-<meta name="twitter:description" content="Upload your cat or dog's photo, get it printed on a mug, poster, canvas and more — shipped direct." />
+<meta name="twitter:title" content="Whiskr — Free Monthly Cat & Dog Photo Contest, Plus Custom Prints" />
+<meta name="twitter:description" content="Enter your cat free in Whiskr's monthly photo contest — judged by a human, not a vote. Plus custom prints, always open." />
 
 <!-- Structured data — helps Google show rich results and helps AI
      assistants/shopping agents understand what this business is and sells
-     without having to guess from prose. -->
+     without having to guess from prose. The product catalog gets its own
+     ItemList/Product JSON-LD, injected server-side per request — see
+     seo.js and the "/" route in server.js. -->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "OnlineStore",
   "name": "Whiskr",
   "url": "https://whiskr.lol/",
-  "description": "Custom print-on-demand cat and dog photo products, plus a free monthly judged photo contest.",
+  "description": "A free monthly judged cat and dog photo contest, plus custom print-on-demand cat and dog photo products.",
   "sameAs": []
 }
 </script>
@@ -42,11 +44,11 @@
 <header class="site-header">
   <a href="#top" class="brand">Whiskr</a>
   <nav class="site-nav">
-    <a href="#shop-custom">Shop prints</a>
+    <a href="#how">Contest</a>
+    <a href="#calendars">Calendars</a>
+    <a href="#shop-custom">Prints</a>
     <a href="#reviews">Reviews</a>
-    <a href="#current">Contest</a>
-    <a href="#picks">Picks</a>
-    <a href="#shop-custom" class="nav-cta">Get a print</a>
+    <a href="#enter" class="nav-cta">Enter free</a>
   </nav>
 </header>
 
@@ -54,12 +56,12 @@
   <div class="hero-slides" id="heroSlides" aria-hidden="true"></div>
   <div class="hero-scrim"></div>
   <div class="hero-content">
-    <p class="ribbon-tag">Custom prints, always open — plus a free monthly contest</p>
-    <h1>Your cat or dog, printed beautifully.</h1>
-    <p class="hero-sub">Upload one photo, pick a mug, poster, canvas or more, and we print &amp; ship it straight to you. No waiting for a batch — order any day.</p>
+    <p class="ribbon-tag">Free monthly photo contest — plus custom prints, always open</p>
+    <h1>Your cat could be Cat of the Month.</h1>
+    <p class="hero-sub">One photo, one email address. Every batch of 12 gets a real human judge, a calendar, and a shot at the cover — free to enter.</p>
     <div class="hero-actions">
-      <a href="#shop-custom" class="btn btn-primary">Shop custom prints</a>
-      <a href="#current" class="btn btn-ghost">See the monthly contest</a>
+      <a href="#enter" class="btn btn-primary">Enter the free contest</a>
+      <a href="#shop-custom" class="btn btn-ghost">Shop custom prints</a>
     </div>
   </div>
   <div class="hero-controls">
@@ -68,18 +70,122 @@
   </div>
 </section>
 
+<section id="how" class="section how">
+  <p class="ribbon-tag">This is Whiskr</p>
+  <h2>Free monthly photo contest</h2>
+  <ol class="steps">
+    <li>
+      <span class="step-num">1</span>
+      <h3>Submit a photo</h3>
+      <p>Give us your best shot of your cat and an email address. That's the whole entry form.</p>
+    </li>
+    <li>
+      <span class="step-num">2</span>
+      <h3>Wait with eleven others</h3>
+      <p>Once a batch of 12 fills up, our judging table reviews it over a few weeks so every cat gets a fair look.</p>
+    </li>
+    <li>
+      <span class="step-num">3</span>
+      <h3>Everybody hears back</h3>
+      <p>We email the whole batch. One cat is Cat of the Month on the cover; all twelve are in the calendar.</p>
+    </li>
+  </ol>
+</section>
+
+<section id="current" class="section current">
+  <div class="current-card">
+    <div class="current-photo">
+      <img id="winnerPhoto" src="" alt="" />
+    </div>
+    <div class="current-copy">
+      <p class="ribbon-tag">Most recent Cat of the Month</p>
+      <h2 id="winnerName">Judging in progress</h2>
+      <p id="winnerBlurb">The current batch is still filling up or still being judged. Check back soon — or be the twelfth cat that seals it.</p>
+      <p class="spots-left" id="spotsLeft"></p>
+    </div>
+  </div>
+</section>
+
+<section id="enter" class="section enter">
+  <div class="enter-wrap">
+    <div class="enter-copy">
+      <p class="ribbon-tag">Contest entry is free</p>
+      <h2>Put your cat in the next batch</h2>
+      <p>One photo, one email address. We'll email you the second judging closes on your batch — whether your cat's on the cover or one of the eleven.</p>
+    </div>
+    <form id="entryForm" class="entry-form" enctype="multipart/form-data">
+      <label>
+        Cat's name
+        <input type="text" name="catName" id="catName" maxlength="60" placeholder="Biscuit" required />
+      </label>
+      <label>
+        Your email
+        <input type="email" name="email" id="entryEmail" placeholder="you@example.com" required />
+      </label>
+      <label class="file-label">
+        Photo
+        <input type="file" name="photo" id="entryPhoto" accept="image/png, image/jpeg, image/webp, image/gif" required />
+      </label>
+      <label class="consent-label">
+        <input type="checkbox" name="photoRights" id="photoRights" required />
+        I own this photo and grant Whiskr a license to print and sell it.
+      </label>
+      <button type="submit" class="btn btn-primary">Submit entry</button>
+      <p class="form-note" id="entryNote"></p>
+    </form>
+  </div>
+</section>
+
+<section id="calendars" class="section shop">
+  <h2>Calendars from past contest batches</h2>
+  <p class="section-sub">Every calendar holds 12 cats from the same judged round — one cover star, eleven co-stars.</p>
+  <div class="shop-grid">
+    <div class="product-card">
+      <div class="product-badge">Contest exclusive</div>
+      <h3>The 12-Cat Wall Calendar</h3>
+      <p>13 months, thick matte stock, spiral bound. Ships flat, hangs anywhere.</p>
+      <div class="price-row">
+        <div>
+          <span class="price" id="priceOne">$24.99</span>
+          <span class="price-note">one calendar</span>
+        </div>
+        <div>
+          <span class="price price-alt" id="priceMulti">$19.99</span>
+          <span class="price-note">each, for 2+</span>
+        </div>
+      </div>
+      <form id="checkoutForm" class="checkout-form">
+        <label>
+          Group number
+          <input type="number" id="checkoutGroup" min="1" placeholder="e.g. 3" required />
+        </label>
+        <label>
+          Quantity
+          <input type="number" id="checkoutQty" min="1" max="20" value="1" required />
+        </label>
+        <label>
+          Email for the receipt
+          <input type="email" id="checkoutEmail" placeholder="you@example.com" required />
+        </label>
+        <button type="submit" class="btn btn-primary">Go to checkout</button>
+        <p class="form-note" id="checkoutNote"></p>
+      </form>
+    </div>
+  </div>
+</section>
+
 <section id="reviews" class="section reviews">
   <h2>What customers say</h2>
-  <p class="section-sub">Every review here comes from a real, verified Whiskr order — we don't post reviews we didn't earn.</p>
+  <p class="section-sub">Every review here comes from a real, verified order — nothing seeded, nothing bought.</p>
   <div class="reviews-grid" id="reviewsGrid" style="display:none;"></div>
   <div class="reviews-empty" id="reviewsEmpty" style="display:none;">
-    <h3>We're brand new — no reviews yet</h3>
-    <p>Here's our promise in the meantime: if your print arrives damaged or misprinted, we'll reprint it or refund you, no questions asked. Order today and yours could be the first review here.</p>
+    <h3>No reviews yet.</h3>
+    <p>Damaged or misprinted, we reprint or refund — no questions asked. Be the first to order and the first to review it.</p>
   </div>
   <div class="trust-row">
-    <span class="trust-badge">🔒 Secure checkout via Stripe</span>
-    <span class="trust-badge">🖨️ Reprint guarantee on defects</span>
-    <span class="trust-badge">📬 Printed on demand, shipped direct — no inventory markup</span>
+    <span class="trust-badge">Secure checkout via Stripe</span>
+    <span class="trust-badge">Reprint guarantee on defects</span>
+    <span class="trust-badge">Printed on demand, shipped direct</span>
   </div>
 </section>
 
@@ -123,110 +229,6 @@
     <button type="submit" class="btn btn-primary" id="customSubmitBtn" disabled>Choose a product first</button>
     <p class="form-note" id="customOrderNote"></p>
   </form>
-</section>
-
-<section id="how" class="section how">
-  <p class="ribbon-tag">The other thing we do</p>
-  <h2>Free monthly photo contest</h2>
-  <ol class="steps">
-    <li>
-      <span class="step-num">1</span>
-      <h3>Submit a photo</h3>
-      <p>Give us your best shot of your cat and an email address. That's the whole entry form.</p>
-    </li>
-    <li>
-      <span class="step-num">2</span>
-      <h3>Wait with eleven others</h3>
-      <p>Once a batch of 12 fills up, our judging table reviews it over a few weeks so every cat gets a fair look.</p>
-    </li>
-    <li>
-      <span class="step-num">3</span>
-      <h3>Everybody hears back</h3>
-      <p>We email the whole batch. One cat is Cat of the Month on the cover; all twelve are in the calendar.</p>
-    </li>
-  </ol>
-</section>
-
-<section id="current" class="section current">
-  <div class="current-card">
-    <div class="current-photo">
-      <img id="winnerPhoto" src="" alt="" />
-    </div>
-    <div class="current-copy">
-      <p class="ribbon-tag">Most recent Cat of the Month</p>
-      <h2 id="winnerName">Judging in progress</h2>
-      <p id="winnerBlurb">The current batch is still filling up or still being judged. Check back soon — or be the twelfth cat that seals it.</p>
-      <p class="spots-left" id="spotsLeft"></p>
-    </div>
-  </div>
-</section>
-
-<section id="calendars" class="section shop">
-  <h2>Calendars from past contest batches</h2>
-  <p class="section-sub">Every calendar holds 12 cats from the same judged round — one cover star, eleven co-stars.</p>
-  <div class="shop-grid">
-    <div class="product-card">
-      <div class="product-badge">Contest exclusive</div>
-      <h3>The 12-Cat Wall Calendar</h3>
-      <p>13 months, thick matte stock, spiral bound. Ships flat, hangs anywhere.</p>
-      <div class="price-row">
-        <div>
-          <span class="price" id="priceOne">$24.99</span>
-          <span class="price-note">one calendar</span>
-        </div>
-        <div>
-          <span class="price price-alt" id="priceMulti">$19.99</span>
-          <span class="price-note">each, for 2+</span>
-        </div>
-      </div>
-      <form id="checkoutForm" class="checkout-form">
-        <label>
-          Group number
-          <input type="number" id="checkoutGroup" min="1" placeholder="e.g. 3" required />
-        </label>
-        <label>
-          Quantity
-          <input type="number" id="checkoutQty" min="1" max="20" value="1" required />
-        </label>
-        <label>
-          Email for the receipt
-          <input type="email" id="checkoutEmail" placeholder="you@example.com" required />
-        </label>
-        <button type="submit" class="btn btn-primary">Go to checkout</button>
-        <p class="form-note" id="checkoutNote"></p>
-      </form>
-    </div>
-  </div>
-</section>
-
-<section id="enter" class="section enter">
-  <div class="enter-wrap">
-    <div class="enter-copy">
-      <p class="ribbon-tag">Contest entry is free</p>
-      <h2>Put your cat in the next batch</h2>
-      <p>One photo, one email address. We'll email you the second judging closes on your batch — whether your cat's on the cover or one of the eleven.</p>
-    </div>
-    <form id="entryForm" class="entry-form" enctype="multipart/form-data">
-      <label>
-        Cat's name
-        <input type="text" name="catName" id="catName" maxlength="60" placeholder="Biscuit" required />
-      </label>
-      <label>
-        Your email
-        <input type="email" name="email" id="entryEmail" placeholder="you@example.com" required />
-      </label>
-      <label class="file-label">
-        Photo
-        <input type="file" name="photo" id="entryPhoto" accept="image/png, image/jpeg, image/webp, image/gif" required />
-      </label>
-      <label class="consent-label">
-        <input type="checkbox" name="photoRights" id="photoRights" required />
-        I own this photo and grant Whiskr a license to print and sell it.
-      </label>
-      <button type="submit" class="btn btn-primary">Submit entry</button>
-      <p class="form-note" id="entryNote"></p>
-    </form>
-  </div>
 </section>
 
 <section id="picks" class="section picks">
@@ -285,7 +287,7 @@
 </section>
 
 <footer class="site-footer">
-  <div>Whiskr — custom cat &amp; dog prints, plus a small, honest monthly photo contest.</div>
+  <div>Whiskr — a monthly cat photo contest, plus custom cat &amp; dog prints.</div>
   <div class="footer-links"><a href="#top">Back to top</a></div>
 </footer>
 

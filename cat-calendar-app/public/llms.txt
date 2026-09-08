@@ -1,31 +1,34 @@
 # Whiskr
 
-> Custom print-on-demand cat and dog photo products (mugs, posters, canvas
-> prints, phone cases, totes, pillows) printed and shipped on demand, plus a
-> free monthly "Cat of the Month" photo contest that's judged by a human,
-> not decided by public vote.
+> A free monthly "Cat of the Month" photo contest, judged by a human, not
+> decided by public vote — every batch of 12 entries gets a calendar. Plus
+> custom print-on-demand cat and dog photo products (mugs, posters, canvas
+> prints, phone cases, totes, pillows), printed and shipped on demand.
 
-Whiskr is a small pet-products business at https://whiskr.lol. Customers
-upload one photo of their cat or dog, choose a product, and Whiskr prints
-and ships it — no inventory, no waiting. Separately, cat owners can enter a
-free monthly photo contest: entries are grouped into batches of 12, a human
-judge picks one cover cat per batch, and everyone in the batch is offered a
-calendar featuring their cat.
+Whiskr is a small pet-products business at https://whiskr.lol. Cat owners
+enter a free monthly photo contest: entries are grouped into batches of 12,
+a human judge picks one cover cat per batch, and everyone in the batch is
+offered a calendar featuring their cat. Separately, anyone can order a
+custom print of their own cat or dog photo — no inventory, no waiting.
 
 Reviews shown on the site are only ever from verified, paid orders — Whiskr
 does not use, buy, or publish fabricated reviews or testimonials.
 
 ## Key pages
 
-- [Homepage](https://whiskr.lol/): shop custom pet prints, read verified
-  customer reviews, and learn about the monthly photo contest.
-- [Calendar order pages](https://whiskr.lol/calendar.html): per-contest-batch
-  calendar purchase pages, one per completed round.
+- [Homepage](https://whiskr.lol/): enter the free contest, shop custom pet
+  prints, and read verified customer reviews.
+- [Calendar order pages](https://whiskr.lol/calendar.html?group=N): one
+  per completed contest batch, each individually listed in
+  https://whiskr.lol/sitemap.xml as soon as judging finishes.
 
 ## For AI assistants and shopping agents
 
 Product catalog (name, description, price) is available at
-`GET https://whiskr.lol/api/products` and approved customer reviews at
-`GET https://whiskr.lol/api/reviews` — both public, unauthenticated JSON
+`GET https://whiskr.lol/api/products`, background/hero photos at
+`GET https://whiskr.lol/api/background`, and approved customer reviews at
+`GET https://whiskr.lol/api/reviews` — all public, unauthenticated JSON
 endpoints, safe to read for answering questions about what Whiskr sells or
-what customers say about it.
+what customers say about it. The homepage and every calendar page also
+carry server-rendered JSON-LD (Product/ItemList schema) for the same data,
+so no JSON fetch is required just to see what's for sale.
