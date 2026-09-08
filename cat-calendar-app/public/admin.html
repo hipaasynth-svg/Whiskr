@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
-<title>Judging — Whiskr</title>
+<title>Admin — Whiskr</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
@@ -48,7 +48,7 @@
 </header>
 
 <div class="admin-wrap">
-  <h1 style="font-size:1.6rem;margin-bottom:6px;">Judging &amp; orders</h1>
+  <h1 style="font-size:1.6rem;margin-bottom:6px;">Contest &amp; orders</h1>
   <p class="sub" style="color:#6b6552;margin-bottom:28px;">Not linked from the public site. Protected by your admin key, not by obscurity — don't rely on the URL alone.</p>
 
   <div class="key-bar">
@@ -76,12 +76,15 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
-        <h2>Groups awaiting a pick</h2>
-        <p class="sub">Click a photo to make that cat the cover. Sends the winner + featured emails immediately.</p>
+        <h2>Current contest — fraud review</h2>
+        <p class="sub">Winners are decided by public vote automatically when the round closes — nothing to pick here. This is for spotting and disqualifying obviously fraudulent entries (bought/bot votes) before that happens. "Votes/hr" is votes in the last 60 minutes; a sudden spike on one entry is the signal to look closer.</p>
       </div>
-      <button class="btn btn-ghost refresh-btn" id="refreshGroups" type="button">Refresh</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost refresh-btn" id="forceCloseContest" type="button" style="border-color:#b3261e;color:#b3261e;">Force-close now</button>
+        <button class="btn btn-ghost refresh-btn" id="refreshContest" type="button">Refresh</button>
+      </div>
     </div>
-    <div id="groupsList"><p class="empty">Enter your admin key and click Load.</p></div>
+    <div id="contestList"><p class="empty">Enter your admin key and click Load.</p></div>
   </div>
 
   <div class="admin-section">
@@ -121,7 +124,7 @@
 <script>
   const keyInput = document.getElementById('adminKey');
   const keyStatus = document.getElementById('keyStatus');
-  const groupsList = document.getElementById('groupsList');
+  const contestList = document.getElementById('contestList');
   const ordersList = document.getElementById('ordersList');
 
   // Convenience only, for a solo operator's own browser — not a security
@@ -144,65 +147,101 @@
     return String(str).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
   }
 
-  async function loadGroups() {
-    groupsList.innerHTML = '<p class="empty">Loading…</p>';
+  async function loadContest() {
+    contestList.innerHTML = '<p class="empty">Loading…</p>';
     try {
-      const res = await adminFetch('/api/admin/groups/pending');
+      const res = await adminFetch('/api/admin/contest/current');
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load groups.');
+      if (!res.ok) throw new Error(data.error || 'Failed to load contest.');
       keyStatus.textContent = 'Key OK';
       keyStatus.className = 'key-status ok';
 
-      if (data.groups.length === 0) {
-        groupsList.innerHTML = '<p class="empty">Nothing waiting on you right now.</p>';
+      if (!data.contest) {
+        contestList.innerHTML = '<p class="empty">No contest is currently open.</p>';
         return;
       }
 
-      groupsList.innerHTML = data.groups.map((g) => `
-        <div class="group-card" data-group="${g.groupId}">
+      const closes = new Date(data.contest.closesAt).toLocaleString();
+      contestList.innerHTML = `
+        <div class="group-card">
           <div class="group-head">
-            <h3>Group #${g.groupId}</h3>
-            <span class="deadline">Auto-picks at random on ${new Date(g.judgingDeadline).toLocaleDateString()} if you don't decide first</span>
+            <h3>${escapeHtml(data.contest.label)} (#${data.contest.id})</h3>
+            <span class="deadline">${data.entries.length} entries · closes ${closes}</span>
           </div>
-          <div class="pick-grid">
-            ${g.cats.map((cat) => `
-              <div class="pick-cell">
-                <img src="${cat.photo_path}" alt="${escapeHtml(cat.cat_name)}" data-submission="${cat.id}" data-group="${g.groupId}" class="pick-img" />
-                <div class="name">${escapeHtml(cat.cat_name)}</div>
-                <button type="button" class="pick-btn" data-submission="${cat.id}" data-group="${g.groupId}">Make cover</button>
-              </div>
-            `).join('')}
-          </div>
+          <table class="orders">
+            <thead><tr><th>Cat</th><th>Votes</th><th>Votes/hr</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              ${data.entries.map((e) => `
+                <tr data-submission="${e.id}">
+                  <td>${escapeHtml(e.cat_name)}</td>
+                  <td>${e.vote_count}</td>
+                  <td style="${e.votes_last_hour >= 20 ? 'color:#b3261e;font-weight:700;' : ''}">${e.votes_last_hour}</td>
+                  <td>${e.disqualified ? `Disqualified: ${escapeHtml(e.disqualified_reason || '')}` : 'Eligible'}</td>
+                  <td>
+                    ${e.disqualified
+                      ? `<button type="button" class="requalify-btn" data-id="${e.id}" style="font-size:0.75rem;padding:4px 10px;">Requalify</button>`
+                      : `<button type="button" class="disqualify-btn" data-id="${e.id}" style="font-size:0.75rem;padding:4px 10px;border-color:#b3261e;color:#b3261e;">Disqualify</button>`}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
         </div>
-      `).join('');
+      `;
 
-      groupsList.querySelectorAll('.pick-btn, .pick-img').forEach((el) => {
-        el.addEventListener('click', () => pick(el.dataset.group, el.dataset.submission));
+      contestList.querySelectorAll('.disqualify-btn').forEach((btn) => {
+        btn.addEventListener('click', () => disqualify(btn.dataset.id));
+      });
+      contestList.querySelectorAll('.requalify-btn').forEach((btn) => {
+        btn.addEventListener('click', () => requalify(btn.dataset.id));
       });
     } catch (err) {
       keyStatus.textContent = err.message;
       keyStatus.className = 'key-status err';
-      groupsList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+      contestList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
     }
   }
 
-  async function pick(groupId, submissionId) {
-    const card = groupsList.querySelector(`.group-card[data-group="${groupId}"]`);
-    card.querySelectorAll('button').forEach((b) => (b.disabled = true));
+  async function disqualify(id) {
+    const reason = window.prompt('Reason for disqualifying this entry (shown to no one but you):');
+    if (reason === null) return;
     try {
-      const res = await adminFetch(`/api/admin/groups/${groupId}/pick`, {
+      const res = await adminFetch(`/api/admin/submissions/${id}/disqualify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ submissionId: Number(submissionId) }),
+        body: JSON.stringify({ reason }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Pick failed.');
-      loadGroups();
+      if (!res.ok) throw new Error(data.error || 'Disqualify failed.');
+      loadContest();
     } catch (err) {
       alert(err.message);
-      card.querySelectorAll('button').forEach((b) => (b.disabled = false));
     }
   }
+
+  async function requalify(id) {
+    try {
+      const res = await adminFetch(`/api/admin/submissions/${id}/requalify`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Requalify failed.');
+      loadContest();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  document.getElementById('forceCloseContest').addEventListener('click', async () => {
+    if (!window.confirm('Close the current contest right now and tally votes? This cannot be undone.')) return;
+    try {
+      const res = await adminFetch('/api/admin/contest/force-close', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Force-close failed.');
+      alert(`Contest #${data.contestId} closed. Calendar group #${data.groupId} created.`);
+      loadContest();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   async function loadOrders() {
     ordersList.innerHTML = '<p class="empty">Loading…</p>';
@@ -406,7 +445,7 @@
 
   function loadAll() {
     loadBackground();
-    loadGroups();
+    loadContest();
     loadOrders();
     loadCustomOrders();
     loadPendingReviews();
@@ -414,7 +453,7 @@
 
   document.getElementById('loadBtn').addEventListener('click', loadAll);
   document.getElementById('refreshBackground').addEventListener('click', loadBackground);
-  document.getElementById('refreshGroups').addEventListener('click', loadGroups);
+  document.getElementById('refreshContest').addEventListener('click', loadContest);
   document.getElementById('refreshOrders').addEventListener('click', loadOrders);
   document.getElementById('refreshCustomOrders').addEventListener('click', loadCustomOrders);
   document.getElementById('refreshReviews').addEventListener('click', loadPendingReviews);

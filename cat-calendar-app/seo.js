@@ -13,20 +13,6 @@ function escapeHtml(str) {
   }[m]));
 }
 
-// Keep in sync with the messages map in public/script.js — both describe
-// the same four fillStatus values, one for the server-rendered first paint,
-// one for the client's live re-check.
-const FILL_STATUS_COPY = {
-  empty: 'A new batch just opened — be the first one in.',
-  filling: 'This batch is filling up — enter before it seals.',
-  almost_full: 'Almost full — last chance to make this batch.',
-  sealed: 'This batch just sealed — the next one is now open.',
-};
-
-function fillStatusText(fillStatus) {
-  return FILL_STATUS_COPY[fillStatus] || '';
-}
-
 // JSON-LD for the whole custom-print catalog, plus a visible (server-
 // rendered) fallback grid matching public/script.js's renderGrid() markup
 // closely enough that client JS replacing it is a no-op for a real visitor.
@@ -97,7 +83,6 @@ function injectIntoHead(html, scriptTag) {
 
 module.exports = {
   escapeHtml,
-  fillStatusText,
   productsJsonLd,
   renderProductCards,
   renderHeroSlides,

@@ -69,22 +69,14 @@
   init();
 })();
 
-// ---------- live batch status ----------
+// ---------- live contest status ----------
 async function loadStatus() {
   try {
     const res = await fetch('/api/status');
     const data = await res.json();
 
-    const spotsLeftEl = document.getElementById('spotsLeft');
-    if (spotsLeftEl) {
-      const messages = {
-        empty: 'A new batch just opened — be the first one in.',
-        filling: 'This batch is filling up — enter before it seals.',
-        almost_full: 'Almost full — last chance to make this batch.',
-        sealed: 'This batch just sealed — the next one is now open.',
-      };
-      spotsLeftEl.textContent = messages[data.fillStatus] || '';
-    }
+    const statusEl = document.getElementById('contestStatus');
+    if (statusEl) statusEl.textContent = data.statusText || '';
 
     const nameEl = document.getElementById('winnerName');
     const photoEl = document.getElementById('winnerPhoto');
@@ -93,7 +85,7 @@ async function loadStatus() {
       nameEl.textContent = data.lastWinner.cat_name;
       photoEl.src = data.lastWinner.photo_path;
       photoEl.alt = `${data.lastWinner.cat_name}, Cat of the Month`;
-      if (blurbEl) blurbEl.textContent = `Chosen as Cat of the Month by the last batch's judging. Their calendar — with the other 11 finalists — is in the shop below.`;
+      if (blurbEl) blurbEl.textContent = 'Chosen as Cat of the Month by real public vote. Their calendar is in the shop below.';
     }
   } catch (err) {
     console.error('status load failed', err);
@@ -119,9 +111,7 @@ if (entryForm) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Something went wrong.');
 
-      note.textContent = data.groupSealed
-        ? "You're the 12th cat in — judging starts now. Check your email in a few weeks."
-        : "You're entered! We'll email you once your batch of 12 fills up and judging closes.";
+      note.innerHTML = `You're entered! Check your email for your vote link, or <a href="${data.voteUrl}">go vote for your own cat now</a> and start sharing.`;
       entryForm.reset();
       loadStatus();
     } catch (err) {

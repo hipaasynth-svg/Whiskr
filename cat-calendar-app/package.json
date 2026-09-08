@@ -1,7 +1,7 @@
 {
   "name": "whiskr",
   "version": "1.0.0",
-  "description": "Custom cat/dog print-on-demand shop, verified-purchase reviews, and a judged monthly photo contest, with Zoho Mail notifications",
+  "description": "Custom cat/dog print-on-demand shop, verified-purchase reviews, and a free public-vote monthly photo contest, with Zoho Mail notifications",
   "main": "server.js",
   "type": "commonjs",
   "engines": {
