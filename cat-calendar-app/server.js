@@ -16,9 +16,28 @@ const printful = require('./printful');
 const seo = require('./seo');
 
 const app = express();
+// Vercel (and most PaaS hosts) sit in front of this app as a reverse proxy —
+// without trust proxy, req.ip is the proxy's own address for every request,
+// which would make the vote rate-limiter below useless (every visitor looks
+// like the same "IP").
+app.set('trust proxy', true);
+
 const PORT = process.env.PORT || 3000;
-const GROUP_SIZE = Number(process.env.GROUP_SIZE || 12);
-const VOTING_PERIOD_DAYS = Number(process.env.VOTING_PERIOD_DAYS || 21);
+// Real public-voting contest sizing. CONTEST_LENGTH_DAYS is how long entry +
+// voting stays open before a contest closes and promotes its top vote-getters
+// into a calendar; CONTEST_WINNERS_COUNT is how many of them do.
+const CONTEST_LENGTH_DAYS = Number(process.env.CONTEST_LENGTH_DAYS || 30);
+const CONTEST_WINNERS_COUNT = Number(process.env.CONTEST_WINNERS_COUNT || 12);
+// Anti-fraud vote rate limits — generous enough for a real family sharing a
+// link, tight enough to slow down a script or a bought-votes farm. Neither
+// of these stops determined abuse alone; see requireCaptcha below and the
+// admin fraud-review view for the rest of the defense.
+const VOTE_LIMIT_PER_VOTER_PER_DAY = Number(process.env.VOTE_LIMIT_PER_VOTER_PER_DAY || 30);
+const VOTE_LIMIT_PER_IP_PER_DAY = Number(process.env.VOTE_LIMIT_PER_IP_PER_DAY || 60);
+// Salts the IP hash stored in the votes table so raw IPs are never persisted.
+// Set a real random value in production — the default is fine for local dev
+// only, since anyone who knows it could pre-compute hashes for known IPs.
+const IP_HASH_SALT = process.env.IP_HASH_SALT || 'dev-only-insecure-salt';
 const BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const PRICE_ONE = Number(process.env.CALENDAR_PRICE_USD || 24.99);
 const PRICE_MULTI = Number(process.env.CALENDAR_2PLUS_PRICE_USD || 19.99);
@@ -211,8 +230,7 @@ app.use(express.json());
 // Same query the /api/status JSON endpoint answers, shared so the
 // server-rendered homepage and the client's live re-check never disagree.
 async function getContestStatus() {
-  const openRow = await db.get(`SELECT COUNT(*) AS c FROM submissions WHERE group_id IS NULL`);
-  const openCount = Number(openRow.c);
+  const contest = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
   const lastCompleted = await db.get(
     `SELECT id, winner_submission_id FROM groups WHERE status = 'completed' ORDER BY id DESC LIMIT 1`
   );
@@ -222,12 +240,43 @@ async function getContestStatus() {
       lastCompleted.winner_submission_id,
     ]);
   }
-  let fillStatus;
-  if (openCount <= 0) fillStatus = 'empty';
-  else if (openCount >= GROUP_SIZE) fillStatus = 'sealed';
-  else if (openCount >= GROUP_SIZE - 2) fillStatus = 'almost_full';
-  else fillStatus = 'filling';
-  return { fillStatus, lastWinner: winnerCat };
+
+  let entryCount = 0;
+  let daysLeft = null;
+  if (contest) {
+    const row = await db.get(
+      `SELECT COUNT(*) AS c FROM submissions WHERE contest_id = ? AND disqualified = 0`,
+      [contest.id]
+    );
+    entryCount = Number(row.c);
+    daysLeft = Math.max(0, Math.ceil((new Date(contest.closes_at) - Date.now()) / (24 * 60 * 60 * 1000)));
+  }
+
+  // Same principle as the old fillStatus fix: never surface a raw, possibly
+  // embarrassingly-low entry count. Only show the number once it's actually
+  // an impressive social-proof signal; otherwise say entries are open
+  // without a number attached.
+  const ENTRY_COUNT_DISPLAY_THRESHOLD = 25;
+  let statusText;
+  if (!contest) {
+    statusText = 'A new contest opens soon — check back shortly.';
+  } else if (entryCount < ENTRY_COUNT_DISPLAY_THRESHOLD) {
+    statusText = `Entries are open — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left to enter and get votes.`;
+  } else {
+    statusText = `${entryCount} cats entered this round — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left to vote.`;
+  }
+
+  return {
+    statusText,
+    contestId: contest ? contest.id : null,
+    contestLabel: contest ? contest.label : null,
+    // Only leaves the server once it's actually a flattering number — same
+    // rule statusText follows, applied to the raw JSON too, not just the
+    // rendered copy (a low real count is nobody's business either way).
+    entryCount: entryCount >= ENTRY_COUNT_DISPLAY_THRESHOLD ? entryCount : null,
+    daysLeft,
+    lastWinner: winnerCat,
+  };
 }
 
 const INDEX_PATH = path.join(__dirname, 'public', 'index.html');
@@ -241,8 +290,8 @@ const CALENDAR_PATH = path.join(__dirname, 'public', 'calendar.html');
 async function renderIndexHtml() {
   let html = fs.readFileSync(INDEX_PATH, 'utf8');
 
-  const { fillStatus, lastWinner } = await getContestStatus();
-  html = seo.fillEmpty(html, 'spotsLeft', seo.escapeHtml(seo.fillStatusText(fillStatus)));
+  const { statusText, lastWinner } = await getContestStatus();
+  html = seo.fillEmpty(html, 'contestStatus', seo.escapeHtml(statusText));
   if (lastWinner) {
     html = seo.fillEmpty(html, 'winnerName', seo.escapeHtml(lastWinner.cat_name));
     html = seo.setAttr(html, 'winnerPhoto', 'src', lastWinner.photo_path);
@@ -250,7 +299,7 @@ async function renderIndexHtml() {
     html = seo.fillEmpty(
       html,
       'winnerBlurb',
-      seo.escapeHtml("Chosen as Cat of the Month by the last batch's judging. Their calendar — with the other 11 finalists — is in the shop below.")
+      seo.escapeHtml('Chosen as Cat of the Month by real public vote. Their calendar is in the shop below.')
     );
   }
 
@@ -277,10 +326,10 @@ async function renderCalendarHtml(groupIdRaw) {
   const group = await db.get(`SELECT * FROM groups WHERE id = ?`, [groupId]);
   if (!group) return html;
 
-  const title = `Batch #${groupId} calendar — Whiskr`;
+  const title = `Round #${groupId} calendar — Whiskr`;
   const description = group.status === 'completed'
-    ? `12 cats from Whiskr contest batch #${groupId}, one cover star chosen by our judging table. Order this calendar as a print.`
-    : `Whiskr contest batch #${groupId} — still being judged. Check back once a cover cat is picked.`;
+    ? `This round's top vote-getters from Whiskr's free cat photo contest, decided by real public vote. Order this calendar as a print.`
+    : `Whiskr contest round #${groupId} — voting still open. Check back once it closes.`;
   html = html.replace(/<title>.*?<\/title>/, `<title>${seo.escapeHtml(title)}</title>`);
   html = seo.injectIntoHead(html, `<meta name="description" content="${seo.escapeHtml(description)}" />
 <meta property="og:title" content="${seo.escapeHtml(title)}" />
@@ -336,6 +385,8 @@ app.get('/sitemap.xml', async (req, res) => {
   const completed = await db.all(`SELECT id FROM groups WHERE status = 'completed' ORDER BY id ASC`);
   const urls = [
     { loc: `${BASE_URL}/`, changefreq: 'daily', priority: '1.0' },
+    { loc: `${BASE_URL}/vote.html`, changefreq: 'hourly', priority: '0.9' },
+    { loc: `${BASE_URL}/rules.html`, changefreq: 'monthly', priority: '0.3' },
     ...completed.map((g) => ({
       loc: `${BASE_URL}/calendar.html?group=${g.id}`,
       changefreq: 'weekly',
@@ -365,122 +416,140 @@ function calendarBuyUrl(groupId) {
   return `${BASE_URL}/calendar.html?group=${groupId}`;
 }
 
-// Seal a group once GROUP_SIZE ungrouped submissions exist, and email entrants.
-async function maybeSealGroup() {
-  const pending = await db.all(
-    `SELECT id, email, cat_name FROM submissions WHERE group_id IS NULL ORDER BY id ASC LIMIT ?`,
-    [GROUP_SIZE]
-  );
+// ---------- contest lifecycle (open entry, real public voting) ----------
 
-  if (pending.length < GROUP_SIZE) return null;
+// Anonymous voter identity: a random token in a long-lived first-party
+// cookie. This is the primary key the UNIQUE(submission_id, voter_token)
+// constraint on `votes` enforces one-vote-per-cat against — not bulletproof
+// (clearing cookies gets a fresh identity), but combined with the per-IP
+// rate limit below it's the same baseline real small contest operators use
+// without standing up full device fingerprinting.
+function getOrSetVoterToken(req, res) {
+  const existing = (req.headers.cookie || '')
+    .split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith('whiskr_voter='));
+  if (existing) return decodeURIComponent(existing.split('=')[1]);
+
+  const token = crypto.randomBytes(24).toString('hex');
+  res.append(
+    'Set-Cookie',
+    `whiskr_voter=${encodeURIComponent(token)}; Max-Age=${365 * 24 * 60 * 60}; Path=/; HttpOnly; SameSite=Lax`
+  );
+  return token;
+}
+
+// Never persist a raw IP — only a salted hash, just enough to rate-limit and
+// detect a single source hammering the vote endpoint.
+function hashIp(ip) {
+  return crypto.createHash('sha256').update(`${IP_HASH_SALT}:${ip}`).digest('hex');
+}
+
+function calendarBuyUrl(groupId) {
+  return `${BASE_URL}/calendar.html?group=${groupId}`;
+}
+
+// The one contest entries/votes currently attach to. Lazily opens the next
+// one the moment the previous closes (or on first-ever request) — entry
+// should never hit a dead end, same "always open" spirit as the print shop.
+async function getOrOpenCurrentContest() {
+  const open = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  if (open) return open;
 
   const now = new Date();
-  const votingEnds = new Date(now.getTime() + VOTING_PERIOD_DAYS * 24 * 60 * 60 * 1000);
+  const closes = new Date(now.getTime() + CONTEST_LENGTH_DAYS * 24 * 60 * 60 * 1000);
+  const label = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const info = await db.run(
+    `INSERT INTO contests (label, opens_at, closes_at, status, created_at) VALUES (?, ?, ?, 'open', ?) RETURNING id`,
+    [label, now.toISOString(), closes.toISOString(), now.toISOString()]
+  );
+  console.log(`[contest] Opened "${label}" (#${info.rows[0].id}), closes ${closes.toISOString()}`);
+  return db.get(`SELECT * FROM contests WHERE id = ?`, [info.rows[0].id]);
+}
+
+// Tally every non-disqualified entry by vote count (ties broken by earliest
+// entry — deterministic, no coin flips to dispute), rank all of them 1..N,
+// promote the top CONTEST_WINNERS_COUNT into a `groups` row so the existing
+// calendar/checkout/Stripe/PDF pipeline handles that part completely
+// unchanged, and email every entrant their outcome: winners get the
+// existing win/featured emails, everyone else gets their final placement
+// and a nudge toward a solo print of their own cat.
+async function tallyAndCloseContest(contestId) {
+  const contest = await db.get(`SELECT * FROM contests WHERE id = ?`, [contestId]);
+  if (!contest || contest.status !== 'open') return null;
+
+  const ranked = await db.all(
+    `SELECT * FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY vote_count DESC, created_at ASC`,
+    [contestId]
+  );
+
+  if (ranked.length === 0) {
+    await db.run(`UPDATE contests SET status = 'completed' WHERE id = ?`, [contestId]);
+    console.warn(`[contest] #${contestId} closed with zero eligible entries — nothing to rank.`);
+    await getOrOpenCurrentContest();
+    return null;
+  }
+
+  const winnersCount = Math.min(CONTEST_WINNERS_COUNT, ranked.length);
+  const winners = ranked.slice(0, winnersCount);
+  const now = new Date().toISOString();
 
   const groupId = await db.transaction(async (tx) => {
+    for (let i = 0; i < ranked.length; i++) {
+      await tx.run(`UPDATE submissions SET final_rank = ? WHERE id = ?`, [i + 1, ranked[i].id]);
+    }
     const info = await tx.run(
-      `INSERT INTO groups (status, sealed_at, voting_ends_at) VALUES ('voting', ?, ?) RETURNING id`,
-      [now.toISOString(), votingEnds.toISOString()]
+      `INSERT INTO groups (status, sealed_at, voting_ends_at, winner_submission_id) VALUES ('completed', ?, ?, ?) RETURNING id`,
+      [contest.opens_at, contest.closes_at, winners[0].id]
     );
     const gid = info.rows[0].id;
-    for (const row of pending) {
-      await tx.run(`UPDATE submissions SET group_id = ? WHERE id = ?`, [gid, row.id]);
+    for (const w of winners) {
+      await tx.run(`UPDATE submissions SET group_id = ? WHERE id = ?`, [gid, w.id]);
     }
+    await tx.run(`UPDATE contests SET status = 'completed', group_id = ? WHERE id = ?`, [gid, contestId]);
     return gid;
   });
 
-  for (const row of pending) {
-    try {
-      await mailer.sendEntryConfirmation({ email: row.email, catName: row.cat_name, groupId });
-      await db.run(`UPDATE submissions SET notified_entry = 1 WHERE id = ?`, [row.id]);
-    } catch (err) {
-      console.error(`[mailer] entry confirmation failed for submission ${row.id}:`, err.message);
-    }
-  }
-
-  console.log(`[groups] Sealed group #${groupId} with ${pending.length} cats. Judging deadline ${votingEnds.toISOString()}`);
-  return groupId;
-}
-
-// Finalize a group with a specific cover cat: mark it completed, email every
-// entrant (the cover cat gets the "you won" email, the other 11 get the
-// "you're still in the calendar" email). Shared by the manual admin pick
-// (POST /api/admin/groups/:groupId/pick) and the random-fallback safety net
-// below — a group only ever gets finalized through one of these two paths.
-async function completeGroup(groupId, winnerId) {
-  const submissions = await db.all(`SELECT * FROM submissions WHERE group_id = ?`, [groupId]);
-  const winner = submissions.find((s) => s.id === winnerId);
-  if (!winner) throw new Error(`Submission ${winnerId} is not in group ${groupId}`);
-
-  await db.run(`UPDATE groups SET status = 'completed', winner_submission_id = ? WHERE id = ?`, [
-    winnerId,
-    groupId,
-  ]);
-
   const buyUrl = calendarBuyUrl(groupId);
-  for (const s of submissions) {
+  for (let i = 0; i < ranked.length; i++) {
+    const s = ranked[i];
+    const rank = i + 1;
     try {
-      if (s.id === winner.id) {
+      if (rank === 1) {
         await mailer.sendWinnerEmail({
-          email: s.email,
-          catName: s.cat_name,
-          groupId,
-          buyUrl,
-          priceOne: PRICE_ONE.toFixed(2),
-          priceMulti: PRICE_MULTI.toFixed(2),
+          email: s.email, catName: s.cat_name, groupId, buyUrl,
+          priceOne: PRICE_ONE.toFixed(2), priceMulti: PRICE_MULTI.toFixed(2),
+        });
+      } else if (rank <= winnersCount) {
+        await mailer.sendFeaturedEmail({
+          email: s.email, catName: s.cat_name, groupId, buyUrl,
+          priceOne: PRICE_ONE.toFixed(2), priceMulti: PRICE_MULTI.toFixed(2),
         });
       } else {
-        await mailer.sendFeaturedEmail({
-          email: s.email,
-          catName: s.cat_name,
-          groupId,
-          buyUrl,
-          priceOne: PRICE_ONE.toFixed(2),
-          priceMulti: PRICE_MULTI.toFixed(2),
+        await mailer.sendFinalRankEmail({
+          email: s.email, catName: s.cat_name, rank, totalEntries: ranked.length,
+          shopUrl: `${BASE_URL}/#shop-custom`,
         });
       }
-      await db.run(`UPDATE submissions SET notified_result = 1 WHERE id = ?`, [s.id]);
+      await db.run(`UPDATE submissions SET notified_result = 1, notified_rank = 1 WHERE id = ?`, [s.id]);
     } catch (err) {
       console.error(`[mailer] result email failed for submission ${s.id}:`, err.message);
     }
   }
 
-  console.log(`[judging] Group #${groupId} complete. Cover cat: ${winner.cat_name} (submission ${winner.id})`);
-  return winner;
+  console.log(`[contest] #${contestId} closed. ${ranked.length} entries, winner: ${winners[0].cat_name} (submission ${winners[0].id}), calendar group #${groupId}.`);
+  await getOrOpenCurrentContest();
+  return groupId;
 }
 
-// Safety net, not the normal path: any group whose judging window closed
-// without a human picking a cover cat (see POST /api/admin/groups/:groupId/pick)
-// gets one picked at random so entrants aren't left waiting forever. If this
-// fires often, it means batches aren't getting judged fast enough.
-async function runDueJudging() {
+// Daily cron entry point — closes any contest whose closes_at has passed.
+// Normally there's at most one (contests don't overlap), but this handles
+// more than one due safely if the cron was down for a while.
+async function runDueContestClose() {
   const nowIso = new Date().toISOString();
-  const dueGroups = await db.all(`SELECT id FROM groups WHERE status = 'voting' AND voting_ends_at <= ?`, [
-    nowIso,
-  ]);
-
-  for (const g of dueGroups) {
-    const submissions = await db.all(`SELECT id, cat_name FROM submissions WHERE group_id = ?`, [g.id]);
-    if (submissions.length === 0) continue;
-
-    const winner = submissions[Math.floor(Math.random() * submissions.length)];
-    console.warn(
-      `[judging] Group #${g.id} hit its deadline with no manual pick — auto-selecting "${winner.cat_name}" at random.`
-    );
-    await completeGroup(g.id, winner.id);
-
-    if (process.env.ADMIN_EMAIL) {
-      try {
-        await mailer.sendMail({
-          to: process.env.ADMIN_EMAIL,
-          subject: `Group #${g.id} auto-picked — you didn't judge it in time`,
-          text: `Group #${g.id} hit its judging deadline before you picked a cover cat, so "${winner.cat_name}" was chosen at random. Judge the next batch sooner: ${BASE_URL}/admin.html`,
-          html: `<p>Group #${g.id} hit its judging deadline before you picked a cover cat, so <strong>${winner.cat_name}</strong> was chosen at random.</p><p>Judge the next batch sooner: <a href="${BASE_URL}/admin.html">${BASE_URL}/admin.html</a></p>`,
-        });
-      } catch (err) {
-        console.error('[mailer] admin fallback-notify failed:', err.message);
-      }
-    }
+  const due = await db.all(`SELECT id FROM contests WHERE status = 'open' AND closes_at <= ?`, [nowIso]);
+  for (const c of due) {
+    await tallyAndCloseContest(c.id);
   }
 }
 
@@ -529,7 +598,9 @@ async function sendDueReviewRequests() {
 
 // ---------- API ----------
 
-// Submit a cat photo + email into the current open group
+// Submit a cat photo + email into the current open contest — free, always
+// open, no batch to wait for. Making the calendar now depends entirely on
+// votes from the public, not a queue position.
 app.post('/api/submissions', upload.single('photo'), async (req, res) => {
   try {
     const { email, catName, photoRights } = req.body;
@@ -549,24 +620,129 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     const name = (catName || 'Anonymous Cat').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
     const photoPath = await storePhoto(req.file);
     const now = new Date().toISOString();
+    const contest = await getOrOpenCurrentContest();
 
     const info = await db.run(
-      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
-      [email, name, photoPath, now, now]
+      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, name, photoPath, now, now, contest.id]
     );
+    const submissionId = info.rows[0].id;
+    const voteUrl = `${BASE_URL}/vote.html?cat=${submissionId}`;
 
-    const sealedGroupId = await maybeSealGroup();
+    try {
+      await mailer.sendEntryConfirmation({ email, catName: name, voteUrl, closesAt: contest.closes_at });
+      await db.run(`UPDATE submissions SET notified_entry = 1 WHERE id = ?`, [submissionId]);
+    } catch (err) {
+      console.error(`[mailer] entry confirmation failed for submission ${submissionId}:`, err.message);
+    }
 
-    res.json({
-      ok: true,
-      submissionId: info.rows[0].id,
-      groupSealed: Boolean(sealedGroupId),
-    });
+    res.json({ ok: true, submissionId, voteUrl });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong.' });
   }
 });
+
+// Public: the currently open contest and its entrants (no vote counts —
+// see the vote endpoint below for why tallies stay hidden until close).
+// Random order per request so late entrants get equal shelf space instead
+// of always scrolling to the bottom.
+app.get('/api/contest/current', async (req, res) => {
+  const contest = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  if (!contest) return res.json({ contest: null, entries: [] });
+  const entries = await db.all(
+    `SELECT id, cat_name, photo_path FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY RANDOM()`,
+    [contest.id]
+  );
+  res.json({
+    contest: { id: contest.id, label: contest.label, opensAt: contest.opens_at, closesAt: contest.closes_at },
+    entries,
+  });
+});
+
+// Cast one vote for one cat. Anti-fraud layers, in order: contest must
+// actually be open and the cat not disqualified; optional Turnstile CAPTCHA
+// (only enforced once TURNSTILE_SECRET_KEY is configured — see README);
+// a voter-cookie identity that can never vote for the same cat twice
+// (UNIQUE constraint, not just an application check); and two independent
+// rate limits (per voter identity, per IP) so neither alone is a single
+// point of failure. None of this makes vote-buying impossible — nothing
+// free does — it's what keeps a casual bot or script from being trivial.
+app.post('/api/vote', async (req, res) => {
+  try {
+    const submissionId = Number(req.body.submissionId);
+    if (!submissionId) return res.status(400).json({ error: 'Missing submissionId.' });
+
+    const submission = await db.get(
+      `SELECT s.*, c.status AS contest_status FROM submissions s
+       JOIN contests c ON c.id = s.contest_id WHERE s.id = ?`,
+      [submissionId]
+    );
+    if (!submission) return res.status(404).json({ error: 'Cat not found.' });
+    if (submission.disqualified) return res.status(400).json({ error: 'This entry is no longer eligible.' });
+    if (submission.contest_status !== 'open') {
+      return res.status(400).json({ error: 'Voting has closed for this contest.' });
+    }
+
+    if (process.env.TURNSTILE_SECRET_KEY) {
+      const captchaOk = await verifyTurnstile(req.body.turnstileToken, req.ip);
+      if (!captchaOk) return res.status(400).json({ error: 'Captcha verification failed — please try again.' });
+    }
+
+    const voterToken = getOrSetVoterToken(req, res);
+    const ipHash = hashIp(req.ip);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    const voterCount = await db.get(`SELECT COUNT(*) AS c FROM votes WHERE voter_token = ? AND created_at >= ?`, [
+      voterToken, dayAgo,
+    ]);
+    if (Number(voterCount.c) >= VOTE_LIMIT_PER_VOTER_PER_DAY) {
+      return res.status(429).json({ error: "You've hit today's voting limit — try again tomorrow." });
+    }
+    const ipCount = await db.get(`SELECT COUNT(*) AS c FROM votes WHERE ip_hash = ? AND created_at >= ?`, [
+      ipHash, dayAgo,
+    ]);
+    if (Number(ipCount.c) >= VOTE_LIMIT_PER_IP_PER_DAY) {
+      return res.status(429).json({ error: "Too many votes from this connection today — try again tomorrow." });
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.run(`INSERT INTO votes (submission_id, voter_token, ip_hash, created_at) VALUES (?, ?, ?, ?)`, [
+        submissionId, voterToken, ipHash, new Date().toISOString(),
+      ]);
+      await tx.run(`UPDATE submissions SET vote_count = vote_count + 1 WHERE id = ?`, [submissionId]);
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: "You've already voted for this cat." });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
+});
+
+async function verifyTurnstile(token, remoteIp) {
+  if (!token) return false;
+  try {
+    const params = new URLSearchParams({
+      secret: process.env.TURNSTILE_SECRET_KEY,
+      response: token,
+      remoteip: remoteIp,
+    });
+    const resp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
+    const data = await resp.json();
+    return Boolean(data.success);
+  } catch (err) {
+    console.error('[turnstile] verification request failed:', err.message);
+    return false;
+  }
+}
 
 // Public catalog of custom cat/dog print products (see products.js).
 app.get('/api/products', (req, res) => {
@@ -579,6 +755,13 @@ app.get('/api/products', (req, res) => {
     priceUsd: p.priceUsd,
   }));
   res.json({ products: list });
+});
+
+// Public, non-secret config the client needs — currently just whether
+// Turnstile CAPTCHA is enabled and, if so, its public site key (the secret
+// key never leaves the server; see verifyTurnstile).
+app.get('/api/config', (req, res) => {
+  res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || null });
 });
 
 // Admin-managed hero background photos — empty means no slideshow at all
@@ -838,43 +1021,55 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// List sealed groups (12 cats) that are awaiting a manual pick — this is
-// your judging queue. See public/admin.html for the screen that uses this.
-app.get('/api/admin/groups/pending', requireAdmin, async (req, res) => {
-  const groups = await db.all(`SELECT * FROM groups WHERE status = 'voting' ORDER BY sealed_at ASC`);
-  const result = [];
-  for (const g of groups) {
-    const cats = await db.all(`SELECT id, cat_name, photo_path FROM submissions WHERE group_id = ? ORDER BY id ASC`, [
-      g.id,
-    ]);
-    result.push({ groupId: g.id, sealedAt: g.sealed_at, judgingDeadline: g.voting_ends_at, cats });
-  }
-  res.json({ groups: result });
+// Current contest, its entry count, and its highest vote-velocity entries
+// (most votes in the last hour) — the fraud-review view. There's no ML
+// fraud model here, just the number a human operator needs to eyeball
+// "did this cat really get 400 votes in an hour, or did someone buy them."
+app.get('/api/admin/contest/current', requireAdmin, async (req, res) => {
+  const contest = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  if (!contest) return res.json({ contest: null, entries: [] });
+
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const entries = await db.all(
+    `SELECT s.id, s.cat_name, s.photo_path, s.vote_count, s.disqualified, s.disqualified_reason,
+            (SELECT COUNT(*) FROM votes v WHERE v.submission_id = s.id AND v.created_at >= ?) AS votes_last_hour
+     FROM submissions s WHERE s.contest_id = ? ORDER BY s.vote_count DESC`,
+    [hourAgo, contest.id]
+  );
+  res.json({
+    contest: { id: contest.id, label: contest.label, opensAt: contest.opens_at, closesAt: contest.closes_at },
+    entries,
+  });
 });
 
-// Manually choose the cover cat for a sealed group — this is "I am the
-// voter": the group is finalized the moment you call this, no need to wait
-// for the judging deadline (that deadline is only a fallback, see
-// runDueJudging above).
-app.post('/api/admin/groups/:groupId/pick', requireAdmin, async (req, res) => {
-  const groupId = Number(req.params.groupId);
-  const submissionId = Number(req.body.submissionId);
-
-  const group = await db.get(`SELECT * FROM groups WHERE id = ?`, [groupId]);
-  if (!group) return res.status(404).json({ error: 'Group not found.' });
-  if (group.status !== 'voting') {
-    return res.status(400).json({ error: `Group #${groupId} was already decided.` });
-  }
-  const submission = await db.get(`SELECT id FROM submissions WHERE id = ? AND group_id = ?`, [
-    submissionId,
-    groupId,
+// Pull a fraudulent/abusive entry out of contention. Its votes stay in the
+// table (so an investigation can look at them) but it's excluded from
+// tallying and no longer votable — see the eligibility checks in
+// tallyAndCloseContest and POST /api/vote.
+app.post('/api/admin/submissions/:id/disqualify', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const reason = String(req.body.reason || '').slice(0, 500) || 'No reason given';
+  const info = await db.run(`UPDATE submissions SET disqualified = 1, disqualified_reason = ? WHERE id = ?`, [
+    reason, id,
   ]);
-  if (!submission) {
-    return res.status(400).json({ error: 'That cat is not in this group.' });
-  }
-
-  const winner = await completeGroup(groupId, submissionId);
-  res.json({ ok: true, groupId, winner: { id: winner.id, catName: winner.cat_name } });
+  if (info.changes === 0) return res.status(404).json({ error: 'Submission not found.' });
+  res.json({ ok: true });
+});
+app.post('/api/admin/submissions/:id/requalify', requireAdmin, async (req, res) => {
+  const info = await db.run(`UPDATE submissions SET disqualified = 0, disqualified_reason = NULL WHERE id = ?`, [
+    Number(req.params.id),
+  ]);
+  if (info.changes === 0) return res.status(404).json({ error: 'Submission not found.' });
+  res.json({ ok: true });
+});
+// Testing/manual override — force the current contest to close and tally
+// right now instead of waiting for its closes_at date. In normal operation
+// the daily cron (runDueContestClose) is what closes a contest on time.
+app.post('/api/admin/contest/force-close', requireAdmin, async (req, res) => {
+  const contest = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  if (!contest) return res.status(404).json({ error: 'No open contest.' });
+  const groupId = await tallyAndCloseContest(contest.id);
+  res.json({ ok: true, contestId: contest.id, groupId });
 });
 
 // Orders, for fulfillment. ?status=paid to see what actually needs printing;
@@ -940,32 +1135,10 @@ app.post('/api/admin/reviews/:id/reject', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Manually trigger the two background jobs (handy for testing without waiting weeks)
-app.post('/api/admin/seal-group', requireAdmin, async (req, res) => {
-  const id = await maybeSealGroup();
-  res.json({ sealed: id || null });
-});
-// Runs the random-fallback safety net immediately, for testing — in normal
-// operation you judge manually via POST /api/admin/groups/:groupId/pick and
-// this only ever fires for groups you didn't get to in time.
-app.post('/api/admin/run-fallback-judging', requireAdmin, async (req, res) => {
-  await runDueJudging();
-  res.json({ ok: true });
-});
 // Sends any due review-request emails immediately, for testing — in normal
 // operation the daily Vercel Cron hit below does this.
 app.post('/api/admin/run-review-requests', requireAdmin, async (req, res) => {
   await sendDueReviewRequests();
-  res.json({ ok: true });
-});
-// Force a specific group's judging deadline to right now (testing only —
-// in production the daily cron is what enforces the deadline).
-app.post('/api/admin/force-close/:groupId', requireAdmin, async (req, res) => {
-  const groupId = Number(req.params.groupId);
-  const group = await db.get(`SELECT * FROM groups WHERE id = ?`, [groupId]);
-  if (!group) return res.status(404).json({ error: 'Group not found' });
-  await db.run(`UPDATE groups SET voting_ends_at = ? WHERE id = ?`, [new Date().toISOString(), groupId]);
-  await runDueJudging();
   res.json({ ok: true });
 });
 
@@ -975,8 +1148,10 @@ app.get('/healthz', (req, res) => res.send('ok'));
 // Hit once a day by Vercel Cron (see the "crons" entry in vercel.json) —
 // replaces the in-process node-cron scheduler that ran on the old always-on
 // host, since a serverless function has no long-lived process to keep a
-// timer running in. Checks groups whose judging deadline passed without a
-// manual pick, and paid orders old enough to ask for a review.
+// timer running in. Closes any contest whose closes_at has passed (tallying
+// votes and promoting the top CONTEST_WINNERS_COUNT into a calendar — see
+// runDueContestClose/tallyAndCloseContest), and sends paid orders' review
+// requests once they're old enough.
 //
 // Vercel signs cron requests with `Authorization: Bearer <CRON_SECRET>`
 // when CRON_SECRET is set as an env var, which is how this route tells a
@@ -992,7 +1167,7 @@ app.get('/api/cron/daily', async (req, res) => {
   }
 
   try {
-    await runDueJudging();
+    await runDueContestClose();
     await sendDueReviewRequests();
     res.json({ ok: true });
   } catch (err) {
@@ -1008,7 +1183,7 @@ if (require.main === module) {
   // pointless and never reached.
   app.listen(PORT, () => {
     console.log(`Whiskr server running on ${BASE_URL}`);
-    console.log(`Judging deadline: ${VOTING_PERIOD_DAYS} days | Group size: ${GROUP_SIZE}`);
+    console.log(`Contest length: ${CONTEST_LENGTH_DAYS} days | Winners per contest: ${CONTEST_WINNERS_COUNT}`);
     if (!stripe) console.warn('[stripe] STRIPE_SECRET_KEY not set — checkout endpoint disabled.');
     if (stripe && !process.env.STRIPE_WEBHOOK_SECRET) {
       console.warn('[stripe] STRIPE_WEBHOOK_SECRET not set — paid orders will never be marked paid.');

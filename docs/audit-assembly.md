@@ -476,3 +476,118 @@ real cleanup job once slide churn is common enough to matter. No manual
 reordering of background slides beyond upload order (oldest first) — fine
 for a handful of photos, would want a drag-to-reorder control if the
 owner uploads many.
+
+## Update — 2026-09-08: reversed the judging decision — real public voting, built properly this time
+
+The owner made a deliberate business call to reverse the "human judges, not
+the public" decision from earlier in this document: open entry to hundreds
+of cats per month, let the public actually vote, and use both the viral
+reach of "share your link for votes" and a per-entrant final-placement
+upsell ("you placed #47 — get a solo print") as the growth engine. This is
+not the same mistake the app avoided last time: last time the problem was
+`Math.random()` silently picking winners while the copy claimed "the room
+votes" — a fabrication. **Real public voting, built with real anti-fraud
+infrastructure and described honestly, was never the problem** — the two
+things flagged then (FTC exposure from fake voting, and not wanting to
+build anti-fraud/anti-bot infrastructure) are addressed here by building
+the mechanism for real instead of avoiding it.
+
+**Built:**
+- **Open, continuous entry** replaces the seal-at-12 batch model.
+  `contests` table: one open-entry period at a time (`CONTEST_LENGTH_DAYS`,
+  default 30), auto-opens the next round the instant one closes so entry
+  never hits a dead end. `submissions` gained `contest_id`, `vote_count`,
+  `final_rank` (1..N for *every* entrant, not just winners — what makes
+  "you placed #47" possible), `disqualified`/`disqualified_reason`.
+- **Real voting** (`POST /api/vote`): a `votes` table with
+  `UNIQUE(submission_id, voter_token)` is the actual enforcement of
+  one-vote-per-cat, not just an application-level check. `voter_token` is a
+  random value in a long-lived first-party cookie; IPs are never stored raw,
+  only `sha256(salt + ip)`. Two independent rate limits (per voter identity,
+  per IP hash, both configurable, default 30/day and 60/day) so clearing
+  cookies alone doesn't bypass the IP limit and vice versa. Optional
+  Cloudflare Turnstile CAPTCHA — skipped entirely (same
+  dry-run-if-unconfigured pattern as Stripe/Printful/Zoho elsewhere in this
+  app) until `TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY` are set, so voting
+  works today without requiring the owner to set up a CAPTCHA account
+  first. None of this makes vote-buying impossible — nothing free does —
+  it's what keeps a casual bot or script from being trivial, same baseline
+  real small contest operators run without full device fingerprinting.
+- **Vote tallies are deliberately hidden from the public** while a round is
+  open (`GET /api/contest/current` never includes vote counts) — this
+  removes the "verify my paid votes worked" feedback loop vote-sellers rely
+  on, and prevents early leaders from snowballing purely from visibility
+  rather than real support. The share-driven virality mechanic the owner
+  wants is fully intact: entrants get a personal share link
+  (`vote.html?cat=ID`) the moment they enter, with Web Share API / clipboard
+  fallback built in.
+- **Contest close & tally** (`tallyAndCloseContest` in `server.js`): ranks
+  every non-disqualified entrant by vote count (ties broken by earliest
+  entry — deterministic, no coin flips to dispute), promotes the top
+  `CONTEST_WINNERS_COUNT` (default 12) into a `groups` row so the *entire
+  existing calendar/Stripe/checkout/PDF/email pipeline runs completely
+  unchanged* for the shared-calendar product — only entry, voting, and
+  per-entrant ranking are new subsystems. Every entrant gets emailed: #1
+  gets the existing "Cat of the Month" email, #2-12 get the existing
+  "featured" email, everyone else gets a new `sendFinalRankEmail` stating
+  their real placement out of the real entry count, with a link to the
+  existing custom print shop as the non-winner upsell (a bespoke
+  rank-badge POD product template is future work, not built here — the
+  upsell today is real and functional, just not custom-designed yet).
+- **Admin fraud review** replaces the old manual judge-pick screen (there's
+  nothing to manually pick anymore — the vote count decides): the current
+  contest's entrants with vote-count and votes-in-the-last-hour side by
+  side (a sudden spike is the signal a human should look at), and
+  disqualify/requalify actions. This is explicitly *not* an ML fraud model
+  — it's the number an operator needs to eyeball obvious abuse, same as any
+  small real contest runs.
+- **Official rules page** (`public/rules.html`, new): no-purchase-necessary
+  language, eligibility, exactly how votes and winners are determined,
+  disqualification policy, sponsor identification. This didn't exist before
+  because there was no real contest requiring one; real public voting with
+  an implied competitive outcome is a materially different legal shape than
+  a business owner picking a favorite, and needed the paperwork to match.
+- Retired the now-obsolete "spots left" homepage mechanic from the previous
+  session (`fillStatus`: empty/filling/almost_full/sealed made sense for a
+  batch that seals at exactly 12; it doesn't mean anything under continuous
+  open entry) and replaced it with contest countdown copy. Applied the same
+  principle as that session's original fix: at low entry counts, show
+  "entries are open" with no number; only show the real entry count once it
+  clears a threshold (25) where it reads as a real number, not a confession
+  of low traffic — same reasoning, recalibrated to the new scale.
+- Homepage, `llms.txt`, and both READMEs rewritten to describe the current
+  mechanic accurately rather than left describing the retired one. The
+  README's original "[RESOLVED] — winners are judged, not simulated-voted"
+  note was kept, not deleted, with a note appended explaining the reversal
+  — the historical record of why judging was chosen stays accurate for
+  what it was at the time; deleting it would have made a real audit look
+  like it never happened.
+
+**Verified against a real local Postgres instance** (not just read for
+plausibility): submitted multiple real entries into a fresh open contest,
+cast real votes against them (including confirming the `UNIQUE` constraint
+rejects a duplicate vote from the same voter-token, and that the per-voter
+and per-IP daily rate limits correctly return 429 once exceeded), disabled
+entries via the admin disqualify endpoint and confirmed a disqualified
+entry can no longer be voted for or tallied, forced a contest close and
+confirmed: every entrant received a `final_rank` (not just the winners), a
+new `groups` row was created containing exactly the top
+`CONTEST_WINNERS_COUNT` submissions with the #1 vote-getter as
+`winner_submission_id`, the resulting calendar's existing
+`/calendar.html?group=N` page rendered correctly unmodified, a new contest
+auto-opened immediately after close, and the right email type (winner /
+featured / final-rank) was dry-run-logged for the right entrants in the
+right order. Confirmed `/api/contest/current` never includes a vote count
+in its response at any point. Confirmed `node --check` passes on every
+changed file.
+
+**Left open, not done here**: no bespoke rank-badge POD product template
+for the non-winner upsell yet — it points to the existing generic custom
+print shop, which is real and functional but not custom-designed around a
+cat's placement. `calendar.html`'s photo grid stays client-rendered (see
+the previous entry — unchanged by this pass). Turnstile CAPTCHA needs the
+owner's own Cloudflare account and site keys before it's actually active;
+until then voting relies on the cookie + rate-limit layers alone.
+Consult a lawyer on `rules.html` before relying on it at real scale — it's
+a good-faith, standard-shape rules page, not legal advice, same caveat this
+document has given on every other legal-adjacent item throughout.

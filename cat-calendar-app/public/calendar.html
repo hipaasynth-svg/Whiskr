@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Your batch's calendar — Whiskr</title>
+<title>Your round's calendar — Whiskr</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
@@ -34,15 +34,15 @@
 <header class="site-header">
   <a href="index.html" class="brand">Whiskr</a>
   <nav class="site-nav">
-    <a href="index.html#shop">All calendars</a>
+    <a href="index.html#calendars">All calendars</a>
     <a href="index.html#enter" class="nav-cta">Enter your cat</a>
   </nav>
 </header>
 
 <div class="cal-wrap">
   <div class="cal-header">
-    <p class="ribbon-tag" id="calGroupLabel">Loading batch…</p>
-    <h1 id="calTitle">This batch's calendar</h1>
+    <p class="ribbon-tag" id="calGroupLabel">Loading round…</p>
+    <h1 id="calTitle">This round's calendar</h1>
     <p id="calStatus"></p>
   </div>
 
@@ -90,23 +90,23 @@
 
   async function load() {
     if (!groupId) {
-      statusEl.textContent = 'No batch specified — use a link from your result email.';
+      statusEl.textContent = 'No round specified — use a link from your result email.';
       return;
     }
-    label.textContent = `Batch #${groupId}`;
+    label.textContent = `Round #${groupId}`;
     try {
       const res = await fetch(`/api/calendar/${groupId}`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Batch not found');
+      if (!res.ok) throw new Error(data.error || 'Round not found');
 
       document.getElementById('calPriceOne').textContent = `$${data.priceOne.toFixed(2)}`;
       document.getElementById('calPriceMulti').textContent = `$${data.priceMulti.toFixed(2)}`;
 
       if (data.status !== 'completed') {
-        statusEl.textContent = 'This batch is still being judged — check back once a cover cat is picked.';
+        statusEl.textContent = 'Voting is still open for this round — check back once it closes.';
       } else {
         title.textContent = 'The calendar from this round';
-        statusEl.textContent = '12 cats, one cover star, thirteen months of good mornings.';
+        statusEl.textContent = "This round's top vote-getters, one cover star, thirteen months of good mornings.";
       }
 
       data.cats.forEach((cat) => {

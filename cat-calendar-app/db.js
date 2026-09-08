@@ -58,6 +58,22 @@ CREATE TABLE IF NOT EXISTS groups (
   winner_submission_id INTEGER
 );
 
+-- One open-entry, real-public-vote contest per period (e.g. a month). A
+-- contest gets exactly one groups row once it closes, holding the top
+-- CONTEST_WINNERS_COUNT vote-getters — that reuses the existing calendar
+-- checkout/Stripe/PDF/email pipeline unchanged for the shared calendar
+-- product; only entry, voting, and per-entrant ranking are new. Declared
+-- before submissions since submissions.contest_id references it.
+CREATE TABLE IF NOT EXISTS contests (
+  id SERIAL PRIMARY KEY,
+  label TEXT NOT NULL,
+  opens_at TEXT NOT NULL,
+  closes_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',   -- open | completed
+  group_id INTEGER REFERENCES groups(id),
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS submissions (
   id SERIAL PRIMARY KEY,
   email TEXT NOT NULL,
@@ -71,6 +87,31 @@ CREATE TABLE IF NOT EXISTS submissions (
   photo_rights_consent_at TEXT,
   FOREIGN KEY (group_id) REFERENCES groups(id)
 );
+-- Open, high-volume public-voting contest (replaces the old seal-at-12
+-- flow): every entrant attaches to a contest_id, accumulates real votes,
+-- and gets a final_rank when the contest closes — 1..N for every entrant,
+-- not just the top 12, so a non-winner can be told "you placed #47."
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS contest_id INTEGER REFERENCES contests(id);
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS vote_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS final_rank INTEGER;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS disqualified INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS disqualified_reason TEXT;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS notified_rank INTEGER NOT NULL DEFAULT 0;
+
+-- One row per (submission, voter) so a browser/cookie identity can't vote
+-- for the same cat twice — the UNIQUE constraint is the real enforcement,
+-- not just an application-level check. ip_hash is sha256(ip + salt), never
+-- the raw IP, so this table isn't itself a store of visitors' real IPs.
+CREATE TABLE IF NOT EXISTS votes (
+  id SERIAL PRIMARY KEY,
+  submission_id INTEGER NOT NULL REFERENCES submissions(id),
+  voter_token TEXT NOT NULL,
+  ip_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(submission_id, voter_token)
+);
+CREATE INDEX IF NOT EXISTS votes_ip_hash_created_idx ON votes(ip_hash, created_at);
+CREATE INDEX IF NOT EXISTS votes_voter_token_created_idx ON votes(voter_token, created_at);
 
 CREATE TABLE IF NOT EXISTS orders (
   id SERIAL PRIMARY KEY,

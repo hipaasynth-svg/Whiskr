@@ -22,11 +22,11 @@ function buildTransport() {
       user: process.env.ZOHO_EMAIL,
       pass: process.env.ZOHO_APP_PASSWORD,
     },
-    // Result emails are sent synchronously inside the request that seals a
-    // group (see maybeSealGroup/runDueJudging in server.js) — without these,
-    // a slow or unreachable SMTP host hangs that visitor's HTTP response
-    // until Node's default OS-level socket timeout, which is effectively
-    // "forever" from a user's perspective. Bound it instead.
+    // Entry/result emails are sent synchronously inside the request that
+    // triggers them (submission, contest close) — without these, a slow or
+    // unreachable SMTP host hangs that request until Node's default
+    // OS-level socket timeout, which is effectively "forever" from a
+    // user's perspective. Bound it instead.
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,
     socketTimeout: 10_000,
@@ -86,19 +86,25 @@ function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = '
   </div>`;
 }
 
-async function sendEntryConfirmation({ email, catName, groupId }) {
+async function sendEntryConfirmation({ email, catName, voteUrl, closesAt }) {
   const safeName = escapeHtml(catName);
+  const closeDate = new Date(closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
   const html = wrapLayout(`
     <p>Hi there,</p>
-    <p><strong>${safeName}</strong> is officially entered in this month's group of 12. Our judging table reviews the full batch over the next few weeks before picking a cover cat.</p>
-    <p>We'll email you the moment results are in — win or place, your cat's photo may still make the calendar.</p>
-    <p>— The Whiskr judging table</p>
+    <p><strong>${safeName}</strong> is entered — free, no purchase necessary. The top vote-getters when voting closes on <strong>${closeDate}</strong> win this round's calendar.</p>
+    <p style="text-align:center;margin:24px 0;">
+      <a href="${voteUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
+        Vote for ${safeName} &amp; share to get more votes
+      </a>
+    </p>
+    <p>Share that link with friends, family, and followers — votes from real people are what get a cat into the top spots.</p>
+    <p>— Whiskr</p>
   `);
   return sendMail({
     to: email,
-    subject: `${catName} is entered! (Group #${groupId})`,
+    subject: `${catName} is entered! Get votes before ${closeDate}`,
     html,
-    text: `${catName} is entered in group #${groupId}. Our judging table reviews the batch over the next few weeks — we'll email you when the cover cat is picked.`,
+    text: `${catName} is entered — free, no purchase necessary. Voting closes ${closeDate}. Vote and get your share link: ${voteUrl}`,
   });
 }
 
@@ -107,15 +113,15 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p><strong>${safeName} has been selected as this month's Cat of the Month.</strong></p>
-    <p>${safeName} is the cover star of this batch's 12-month calendar, sharing the pages with 11 other very good cats.</p>
+    <p><strong>${safeName} got the most votes and is this month's Cat of the Month.</strong></p>
+    <p>${safeName} is the cover star of this round's calendar, sharing the pages with the other top vote-getters.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Get ${safeName}'s calendar — $${priceOne}
       </a>
     </p>
     <p style="font-size:13px;color:#555;">Order 2 or more and each one drops to $${priceMulti} — great for gifts.</p>
-    <p>— The Whiskr judging table</p>
+    <p>— Whiskr</p>
   `,
     { showUnsubscribe: true, email }
   );
@@ -123,7 +129,7 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
     to: email,
     subject: `${catName} is Cat of the Month`,
     html,
-    text: `${catName} has been selected as Cat of the Month. Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} got the most votes and is Cat of the Month. Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -132,15 +138,15 @@ async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, pr
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p>Judging's closed for this group, and while another cat took the cover this round, <strong>${safeName} made the calendar</strong> as one of the 12 featured cats.</p>
+    <p>Voting's closed for this round, and while another cat got the most votes, <strong>${safeName} made the calendar</strong> as one of this round's top vote-getters.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Get the calendar featuring ${safeName} — $${priceOne}
       </a>
     </p>
     <p style="font-size:13px;color:#555;">Order 2 or more and each one drops to $${priceMulti}.</p>
-    <p>Thanks for entering ${safeName} — we'd love to see them in a future round too.</p>
-    <p>— The Whiskr judging table</p>
+    <p>Thanks for entering ${safeName} — and to everyone who voted — we'd love to see them in a future round too.</p>
+    <p>— Whiskr</p>
   `,
     { showUnsubscribe: true, email }
   );
@@ -148,7 +154,36 @@ async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, pr
     to: email,
     subject: `${catName} made the calendar`,
     html,
-    text: `${catName} made this round's calendar as one of 12 featured cats. Get it here: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} made this round's calendar as one of the top vote-getters. Get it here: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+  });
+}
+
+// Sent to every entrant who didn't place in the top vote-getters, once a
+// contest closes — real placement, not a consolation lie. Points to the
+// evergreen custom print shop so a non-winner can still get a solo print of
+// their own cat instead of nothing.
+async function sendFinalRankEmail({ email, catName, rank, totalEntries, shopUrl }) {
+  const safeName = escapeHtml(catName);
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p>Voting's closed — <strong>${safeName} placed #${rank} out of ${totalEntries} entries</strong> this round. Thanks for entering and for every vote you rounded up.</p>
+    <p>${safeName} didn't make this round's shared calendar, but you can still get a solo print of your own cat — mug, poster, canvas, and more.</p>
+    <p style="text-align:center;margin:24px 0;">
+      <a href="${shopUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
+        Get a print of ${safeName}
+      </a>
+    </p>
+    <p>A new contest is already open — enter ${safeName} again any time.</p>
+    <p>— Whiskr</p>
+  `,
+    { showUnsubscribe: true, email }
+  );
+  return sendMail({
+    to: email,
+    subject: `${catName} placed #${rank} — final results`,
+    html,
+    text: `${catName} placed #${rank} out of ${totalEntries} entries. Get a solo print: ${shopUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -184,6 +219,7 @@ module.exports = {
   sendEntryConfirmation,
   sendWinnerEmail,
   sendFeaturedEmail,
+  sendFinalRankEmail,
   sendReviewRequest,
   sendMail,
   isSuppressed,

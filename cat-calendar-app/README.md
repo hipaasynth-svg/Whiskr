@@ -1,4 +1,4 @@
-# Whiskr — custom cat/dog prints, verified reviews, and a judged contest
+# Whiskr — custom cat/dog prints, verified reviews, and a real-public-vote contest
 
 A real, runnable Node/Express site with two things going on:
 
@@ -6,9 +6,12 @@ A real, runnable Node/Express site with two things going on:
   product (mug, poster, canvas, phone case, tote, pillow), pay, and it's
   printed and shipped through **Printful** — no inventory, always open,
   doesn't depend on the contest running.
-- **Monthly photo contest**: entries seal into batches of 12; a human (you)
-  picks the cover cat in `public/admin.html`, everyone in the batch gets a
-  calendar offer.
+- **Free, real-public-vote photo contest**: entry is free and always open —
+  no batch to wait for. Anyone can vote for any entered cat, once per cat,
+  at `vote.html`. When a round closes, the top `CONTEST_WINNERS_COUNT`
+  (default 12) vote-getters make that round's calendar; everyone else gets
+  their final placement by email and a nudge toward a solo print. Full
+  mechanics in `public/rules.html`.
 
 Reviews are **real or absent, never fabricated**. There is no seed/fake
 review anywhere in this codebase — a review can only be created by
@@ -17,19 +20,26 @@ following a signed, order-specific link emailed after a real purchase (see
 `admin.html`. Fabricating reviews violates the FTC's rule on fake
 reviews/testimonials (16 CFR Part 465) — don't add a path around this.
 
-Contest winners are similarly **judged, not voted on**. There is no public
-voting anywhere in this app — you review each sealed batch of 12 and pick
-the cover cat yourself. If you don't decide before the judging deadline,
-one is picked at random as a fallback so entrants aren't left waiting
-forever, and (if `ADMIN_EMAIL` is set) you get emailed when that happens.
+Votes are similarly **real, not simulated**. `POST /api/vote` writes a real
+row to the `votes` table, gated by a one-vote-per-cat-per-browser-identity
+`UNIQUE` constraint, two independent rate limits (per voter identity, per
+IP — see `VOTE_LIMIT_*` in `.env.example`), and optional Cloudflare
+Turnstile CAPTCHA (`TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY`). Vote
+tallies stay hidden from the public while a round is open — see
+`docs/audit-assembly.md` for why. `public/admin.html`'s "fraud review"
+section surfaces vote velocity per entry and lets you disqualify one
+(excludes it from tallying and voting, keeps its vote history for review).
 
 ## What's actually here
 
 - `server.js` — Express app: the custom-product + contest submission APIs,
-  judge-pick endpoints, reviews endpoints, Stripe Checkout + webhook
-  (routes both order types and submits paid custom orders to Printful),
-  the daily cron job (contest random-fallback + due review-request
-  emails), admin endpoints.
+  the vote endpoint and anti-fraud checks, the contest tally/close job
+  (promotes the top vote-getters into a `groups` row, reusing the calendar/
+  checkout/PDF/email pipeline unchanged), reviews endpoints, Stripe
+  Checkout + webhook, the daily cron job (contest close + due
+  review-request emails), admin endpoints.
+- `seo.js` — server-side prerendering helpers so the homepage/calendar pages
+  are indexable without running client JS — see its header comment.
 - `db.js` — Postgres (via the `pg` package), through a thin get/all/run
   shim so the rest of the app didn't need a query-by-query rewrite. Needs
   `POSTGRES_URL` — see Deployment below.
@@ -42,9 +52,10 @@ forever, and (if `ADMIN_EMAIL` is set) you get emailed when that happens.
 - `unsubscribe.js` / `reviewLink.js` — signed-link helpers (HMAC tokens) for
   one-click unsubscribe and verified-purchase review links, respectively.
 - `public/` — the storefront + contest landing page (`index.html`), the
-  per-batch calendar/checkout page (`calendar.html`), the review submission
-  page (`review.html`), `admin.html` (judging + fulfillment + review
-  moderation — not linked from the public site), CSS, JS.
+  public voting gallery (`vote.html`), official contest rules
+  (`rules.html`), the per-round calendar/checkout page (`calendar.html`),
+  the review submission page (`review.html`), `admin.html` (fraud review +
+  fulfillment + review moderation — not linked from the public site), CSS, JS.
 
 This is built specifically to run on **Vercel** as a serverless deployment:
 `vercel.json` routes every request to `server.js` (exported as a plain
@@ -144,17 +155,22 @@ you've verified the basic order flow works end to end.
 npm start
 ```
 Visit `http://localhost:3000`. Try the custom-print shop (upload any photo,
-pick a product) and the contest entry form (submit 12 entries to watch a
-group seal), then go to `http://localhost:3000/admin.html`, enter your
-`ADMIN_KEY`, and pick a cover cat — that sends the winner + "featured"
-emails for real (if Zoho is configured).
+pick a product) and the contest entry form (submit a cat — you're
+immediately entered, no batch to wait for), then vote for it at
+`http://localhost:3000/vote.html`.
 
-If you want to test the contest's random-fallback safety net instead of
-judging manually, force a group's deadline to now and let it auto-pick:
+To see a round actually close and a calendar get created without waiting
+for `CONTEST_LENGTH_DAYS`, force-close the current contest from
+`http://localhost:3000/admin.html` (enter your `ADMIN_KEY`, "Force-close
+now" in the Current contest section), or directly:
 
 ```bash
-curl -X POST http://localhost:3000/api/admin/force-close/1 -H "x-admin-key: <ADMIN_KEY from .env>"
+curl -X POST http://localhost:3000/api/admin/contest/force-close -H "x-admin-key: <ADMIN_KEY from .env>"
 ```
+
+That tallies every entrant's votes, promotes the top `CONTEST_WINNERS_COUNT`
+into a new calendar, sends the winner/featured/final-placement emails for
+real (if Zoho is configured), and opens the next round automatically.
 
 ## 6. Stripe webhook (required for any order to ever show as paid)
 
@@ -239,13 +255,19 @@ timestamp either way. Still worth having counsel confirm the checkbox
 language covers what you actually need (e.g. minors in photos, background
 people/property) before scaling up.
 
-**[RESOLVED] — winners are judged, not simulated-voted.** `Math.random()`
-used to silently pick every winner while the copy claimed "the room votes"
-— a real FTC deceptive-advertising exposure. It's now a real decision: you
-pick the cover cat per batch at `/admin.html`, and the random pick only
-ever fires as a fallback if you miss the judging deadline (with an
-`ADMIN_EMAIL` notification when that happens). Site and email copy now say
-"judged"/"judging table," not "voted."
+**[RESOLVED, later superseded] — winners are judged, not simulated-voted.**
+`Math.random()` used to silently pick every winner while the copy claimed
+"the room votes" — a real FTC deceptive-advertising exposure. The fix at
+the time was human judging: you picked the cover cat per batch at
+`/admin.html`, with a random fallback only if you missed the judging
+deadline. **This was later deliberately reversed** — the owner chose to
+build real public voting on purpose, as a high-volume growth mechanic, this
+time with actual anti-fraud infrastructure (rate limits, optional CAPTCHA,
+hidden live tallies, disqualification) instead of the fake `Math.random()`
+version rejected above. See `docs/audit-assembly.md`'s entry on the
+public-voting rebuild for the full reasoning. The distinction that mattered
+both times: fake voting dressed up as real is the FTC problem; real voting,
+honestly described, never was.
 
 **[RESOLVED] — reviews are real or absent, never fabricated.** See the
 Reviews section above — every review requires a signed, order-specific

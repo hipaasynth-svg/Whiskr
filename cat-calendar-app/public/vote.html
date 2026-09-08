@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vote for a cat — Whiskr</title>
+<meta name="description" content="Vote free for your favorite cat in Whiskr's monthly photo contest. No purchase necessary. Top 12 by vote win the calendar." />
+<link rel="canonical" href="https://whiskr.lol/vote.html" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<style>
+  .vote-wrap { max-width: 1080px; margin: 0 auto; padding: 50px 36px 100px; }
+  .vote-header { margin-bottom: 30px; }
+  .vote-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 18px;
+  }
+  .vote-card {
+    background: var(--paper-card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: box-shadow 0.15s ease;
+  }
+  .vote-card.highlighted { box-shadow: 0 0 0 3px var(--marigold); }
+  .vote-card img { width: 100%; aspect-ratio: 1/1; object-fit: cover; }
+  .vote-card-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .vote-card-name { font-family: var(--font-display); font-size: 1.05rem; }
+  .vote-card-actions { display: flex; gap: 8px; margin-top: auto; }
+  .vote-card-actions button { flex: 1; font-size: 0.82rem; padding: 8px; }
+  .vote-btn.voted { background: var(--forest); color: #fff; cursor: default; }
+  .vote-empty, .vote-note { color: #55503f; }
+  #turnstileWidget { margin: 20px 0; }
+  .vote-toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 4px;
+    font-size: 0.85rem; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; z-index: 100;
+  }
+  .vote-toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <nav class="site-nav">
+    <a href="index.html#enter">Enter your cat</a>
+    <a href="rules.html">Rules</a>
+  </nav>
+</header>
+
+<div class="vote-wrap">
+  <div class="vote-header">
+    <p class="ribbon-tag" id="voteContestLabel">Loading contest…</p>
+    <h1>Vote for your favorite cat</h1>
+    <p class="vote-note">Free to vote, no purchase necessary. One vote per cat per person — see <a href="rules.html">official rules</a>. Vote totals stay hidden until this round closes, so it's a fair count, not a popularity snowball.</p>
+    <div id="turnstileWidget"></div>
+  </div>
+
+  <div class="vote-grid" id="voteGrid"></div>
+  <p class="vote-empty" id="voteEmpty" style="display:none;">No entries yet this round — be the first to <a href="index.html#enter">enter your cat</a>.</p>
+</div>
+
+<div class="vote-toast" id="voteToast"></div>
+
+<footer class="site-footer">
+  <div>Whiskr — a free, real-public-vote cat photo contest.</div>
+  <div class="footer-links"><a href="index.html">Home</a></div>
+</footer>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const highlightId = params.get('cat');
+  const grid = document.getElementById('voteGrid');
+  const empty = document.getElementById('voteEmpty');
+  const label = document.getElementById('voteContestLabel');
+  const toastEl = document.getElementById('voteToast');
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    setTimeout(() => toastEl.classList.remove('show'), 2500);
+  }
+
+  function votedSet() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('whiskr_voted') || '[]'));
+    } catch (_) {
+      return new Set();
+    }
+  }
+  function markVoted(id) {
+    const set = votedSet();
+    set.add(String(id));
+    try { localStorage.setItem('whiskr_voted', JSON.stringify([...set])); } catch (_) {}
+  }
+
+  // ---------- optional Turnstile CAPTCHA ----------
+  // Only appears once the owner sets TURNSTILE_SITE_KEY/SECRET_KEY — see
+  // README. Without it, /api/vote just skips CAPTCHA verification entirely
+  // (same dry-run-if-unconfigured pattern as Stripe/Printful/Zoho elsewhere
+  // in this app), so voting still works today without any CAPTCHA setup.
+  let turnstileToken = null;
+  let turnstileWidgetId = null;
+  async function initTurnstile() {
+    try {
+      const res = await fetch('/api/config');
+      const data = await res.json();
+      if (!data.turnstileSiteKey) return;
+      const script = document.createElement('script');
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+      script.onload = () => {
+        turnstileWidgetId = window.turnstile.render('#turnstileWidget', {
+          sitekey: data.turnstileSiteKey,
+          callback: (token) => { turnstileToken = token; },
+        });
+      };
+    } catch (err) {
+      console.error('turnstile config load failed', err);
+    }
+  }
+  initTurnstile();
+
+  async function loadContest() {
+    try {
+      const res = await fetch('/api/contest/current');
+      const data = await res.json();
+      if (!data.contest) {
+        label.textContent = 'No contest is open right now — check back soon.';
+        empty.style.display = 'block';
+        return;
+      }
+      const closes = new Date(data.contest.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+      label.textContent = `${data.contest.label} — voting closes ${closes}`;
+
+      if (data.entries.length === 0) {
+        empty.style.display = 'block';
+        return;
+      }
+
+      const voted = votedSet();
+      grid.innerHTML = '';
+      data.entries.forEach((cat) => {
+        const card = document.createElement('div');
+        card.className = 'vote-card';
+        if (highlightId && String(cat.id) === highlightId) card.classList.add('highlighted');
+
+        const img = document.createElement('img');
+        img.src = cat.photo_path;
+        img.alt = cat.cat_name;
+        card.appendChild(img);
+
+        const body = document.createElement('div');
+        body.className = 'vote-card-body';
+
+        const name = document.createElement('div');
+        name.className = 'vote-card-name';
+        name.textContent = cat.cat_name;
+        body.appendChild(name);
+
+        const actions = document.createElement('div');
+        actions.className = 'vote-card-actions';
+
+        const voteBtn = document.createElement('button');
+        voteBtn.type = 'button';
+        voteBtn.className = 'btn btn-primary vote-btn';
+        const alreadyVoted = voted.has(String(cat.id));
+        voteBtn.textContent = alreadyVoted ? 'Voted' : 'Vote';
+        if (alreadyVoted) { voteBtn.classList.add('voted'); voteBtn.disabled = true; }
+        voteBtn.addEventListener('click', () => castVote(cat, voteBtn));
+        actions.appendChild(voteBtn);
+
+        const shareBtn = document.createElement('button');
+        shareBtn.type = 'button';
+        shareBtn.className = 'btn btn-ghost';
+        shareBtn.style.color = 'var(--ink)';
+        shareBtn.style.borderColor = 'var(--ink)';
+        shareBtn.textContent = 'Share';
+        shareBtn.addEventListener('click', () => shareCat(cat));
+        actions.appendChild(shareBtn);
+
+        body.appendChild(actions);
+        card.appendChild(body);
+        grid.appendChild(card);
+      });
+    } catch (err) {
+      label.textContent = 'Could not load the contest right now.';
+      console.error(err);
+    }
+  }
+
+  async function castVote(cat, btn) {
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/vote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: cat.id, turnstileToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Vote failed.');
+      markVoted(cat.id);
+      btn.textContent = 'Voted';
+      btn.classList.add('voted');
+      toast(`Vote counted for ${cat.cat_name}!`);
+      if (turnstileWidgetId !== null && window.turnstile) {
+        turnstileToken = null;
+        window.turnstile.reset(turnstileWidgetId);
+      }
+    } catch (err) {
+      toast(err.message);
+      btn.disabled = false;
+    }
+  }
+
+  function shareCat(cat) {
+    const url = `${window.location.origin}/vote.html?cat=${cat.id}`;
+    const text = `Vote for ${cat.cat_name} in Whiskr's free cat photo contest!`;
+    if (navigator.share) {
+      navigator.share({ title: text, url }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(`${text} ${url}`).then(() => toast('Link copied — go paste it!'));
+    } else {
+      window.prompt('Copy this link:', url);
+    }
+  }
+
+  loadContest();
+</script>
+</body>
+</html>
