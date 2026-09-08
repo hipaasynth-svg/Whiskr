@@ -503,7 +503,10 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
   }
 });
 
-// Public status: how full is the current open batch
+// Public status: a coarse fill signal only — never the real count. A raw
+// "X of 12 entered" is honest but reads as "nobody's here yet" for most of
+// this business's life; it's also nobody's business how many strangers have
+// entered right now.
 app.get('/api/status', async (req, res) => {
   const openRow = await db.get(`SELECT COUNT(*) AS c FROM submissions WHERE group_id IS NULL`);
   const openCount = Number(openRow.c);
@@ -516,10 +519,14 @@ app.get('/api/status', async (req, res) => {
       lastCompleted.winner_submission_id,
     ]);
   }
+  let fillStatus;
+  if (openCount <= 0) fillStatus = 'empty';
+  else if (openCount >= GROUP_SIZE) fillStatus = 'sealed';
+  else if (openCount >= GROUP_SIZE - 2) fillStatus = 'almost_full';
+  else fillStatus = 'filling';
+
   res.json({
-    openCount,
-    groupSize: GROUP_SIZE,
-    spotsLeft: Math.max(0, GROUP_SIZE - openCount),
+    fillStatus,
     lastWinner: winnerCat,
   });
 });

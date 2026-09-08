@@ -59,10 +59,13 @@ async function loadStatus() {
 
     const spotsLeftEl = document.getElementById('spotsLeft');
     if (spotsLeftEl) {
-      spotsLeftEl.textContent =
-        data.spotsLeft > 0
-          ? `${data.spotsLeft} of ${data.groupSize} spots left in the batch that's currently filling.`
-          : `This batch just sealed — the next one is now open.`;
+      const messages = {
+        empty: 'A new batch just opened — be the first one in.',
+        filling: 'This batch is filling up — enter before it seals.',
+        almost_full: 'Almost full — last chance to make this batch.',
+        sealed: 'This batch just sealed — the next one is now open.',
+      };
+      spotsLeftEl.textContent = messages[data.fillStatus] || '';
     }
 
     const nameEl = document.getElementById('winnerName');
