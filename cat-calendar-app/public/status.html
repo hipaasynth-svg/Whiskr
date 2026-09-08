@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Your cat's status — Whiskr</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<style>
+  .status-wrap { max-width: 560px; margin: 0 auto; padding: 60px 36px 100px; text-align: center; }
+  .status-card { background: var(--paper-card); border: 1px solid var(--line); border-radius: 8px; padding: 40px 30px; }
+  .status-rank { font-family: var(--font-display); font-size: 3rem; color: var(--marigold); margin: 10px 0; }
+  .status-sub { color: #55503f; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <nav class="site-nav">
+    <a href="vote.html">Vote</a>
+  </nav>
+</header>
+
+<div class="status-wrap">
+  <div class="status-card" id="statusCard">
+    <p class="ribbon-tag">Your status</p>
+    <p>Loading…</p>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div>Whiskr — a free, real-public-vote cat photo contest.</div>
+  <div class="footer-links"><a href="index.html">Home</a></div>
+</footer>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const card = document.getElementById('statusCard');
+
+  async function load() {
+    const cat = params.get('cat');
+    const email = params.get('email');
+    const token = params.get('token');
+    if (!cat || !email || !token) {
+      card.innerHTML = '<p class="ribbon-tag">Your status</p><p>This link looks incomplete — use the link from your entry-confirmation email.</p>';
+      return;
+    }
+    try {
+      const res = await fetch(`/api/my-status?cat=${encodeURIComponent(cat)}&email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not load status.');
+
+      if (data.disqualified) {
+        card.innerHTML = `<p class="ribbon-tag">${data.catName}</p><p class="status-sub">This entry was disqualified${data.reason ? ': ' + data.reason : '.'}</p>`;
+        return;
+      }
+
+      if (data.contestStatus === 'open') {
+        const closes = new Date(data.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+        card.innerHTML = `
+          <p class="ribbon-tag">${data.catName} is currently</p>
+          <div class="status-rank">#${data.liveRank}</div>
+          <p class="status-sub">out of ${data.totalEntries} entries this round · voting closes ${closes}</p>
+          <p style="margin-top:24px;"><a href="vote.html?cat=${encodeURIComponent(cat)}" class="btn btn-primary">Share for more votes</a></p>
+        `;
+      } else {
+        card.innerHTML = `
+          <p class="ribbon-tag">${data.catName}'s final result</p>
+          <div class="status-rank">#${data.finalRank}</div>
+          <p class="status-sub">${data.madeCalendar ? 'Made this round\'s calendar!' : 'Didn\'t make this round\'s calendar.'}</p>
+          ${data.madeCalendar ? `<p style="margin-top:24px;"><a href="calendar.html?group=${data.groupId}" class="btn btn-primary">See the calendar</a></p>` : `<p style="margin-top:24px;"><a href="index.html#shop-custom" class="btn btn-primary">Get a solo print</a></p>`}
+        `;
+      }
+    } catch (err) {
+      card.innerHTML = `<p class="ribbon-tag">Your status</p><p>${err.message}</p>`;
+    }
+  }
+  load();
+</script>
+</body>
+</html>

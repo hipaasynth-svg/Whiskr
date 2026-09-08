@@ -86,7 +86,30 @@ function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = '
   </div>`;
 }
 
-async function sendEntryConfirmation({ email, catName, voteUrl, closesAt }) {
+// Renders the discount call-to-action shared by the entry-confirmation and
+// final-placement emails — a real, time-limited percent off the evergreen
+// print shop, verified server-side against discountToken.js (see server.js)
+// at checkout, never trusted from the link alone.
+function discountBlockHtml(discount, catName) {
+  if (!discount) return '';
+  const expires = new Date(discount.expiresAt).toLocaleString('en-US', {
+    month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+  const shopUrl = `${BASE_URL}/?discountEmail=${encodeURIComponent(discount.email)}&discountExpires=${encodeURIComponent(discount.expiresAt)}&discountToken=${discount.token}#shop-custom`;
+  return `
+    <p style="text-align:center;margin:24px 0;padding:16px;border:1px dashed #d8cdb5;border-radius:6px;">
+      <strong>${discount.percent}% off a print of ${escapeHtml(catName)}</strong><br/>
+      <span style="font-size:13px;color:#555;">Expires ${expires}</span><br/>
+      <a href="${shopUrl}" style="display:inline-block;margin-top:10px;background:#2F5D50;color:#fff;padding:10px 18px;border-radius:3px;text-decoration:none;font-weight:bold;">Shop a print of ${escapeHtml(catName)}</a>
+    </p>`;
+}
+function discountBlockText(discount, catName) {
+  if (!discount) return '';
+  const shopUrl = `${BASE_URL}/?discountEmail=${encodeURIComponent(discount.email)}&discountExpires=${encodeURIComponent(discount.expiresAt)}&discountToken=${discount.token}#shop-custom`;
+  return `\n${discount.percent}% off a print of ${catName}, expires ${discount.expiresAt}: ${shopUrl}`;
+}
+
+async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, closesAt, discount }) {
   const safeName = escapeHtml(catName);
   const closeDate = new Date(closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
   const html = wrapLayout(`
@@ -98,13 +121,15 @@ async function sendEntryConfirmation({ email, catName, voteUrl, closesAt }) {
       </a>
     </p>
     <p>Share that link with friends, family, and followers — votes from real people are what get a cat into the top spots.</p>
+    ${discountBlockHtml(discount, catName)}
+    <p style="font-size:13px;color:#555;">Curious where ${safeName} stands? <a href="${statusUrl}">Check your status any time</a>.</p>
     <p>— Whiskr</p>
   `);
   return sendMail({
     to: email,
     subject: `${catName} is entered! Get votes before ${closeDate}`,
     html,
-    text: `${catName} is entered — free, no purchase necessary. Voting closes ${closeDate}. Vote and get your share link: ${voteUrl}`,
+    text: `${catName} is entered — free, no purchase necessary. Voting closes ${closeDate}. Vote and get your share link: ${voteUrl}${discountBlockText(discount, catName)}\nCheck your status any time: ${statusUrl}`,
   });
 }
 
@@ -162,18 +187,19 @@ async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, pr
 // contest closes — real placement, not a consolation lie. Points to the
 // evergreen custom print shop so a non-winner can still get a solo print of
 // their own cat instead of nothing.
-async function sendFinalRankEmail({ email, catName, rank, totalEntries, shopUrl }) {
+async function sendFinalRankEmail({ email, catName, rank, totalEntries, shopUrl, discount }) {
   const safeName = escapeHtml(catName);
   const html = wrapLayout(
     `
     <p>Hi there,</p>
     <p>Voting's closed — <strong>${safeName} placed #${rank} out of ${totalEntries} entries</strong> this round. Thanks for entering and for every vote you rounded up.</p>
-    <p>${safeName} didn't make this round's shared calendar, but you can still get a solo print of your own cat — mug, poster, canvas, and more.</p>
+    <p>${safeName} didn't make this round's shared calendar, but you can still get a solo print of your own cat — mug, poster, canvas, magnet, and more.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${shopUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Get a print of ${safeName}
       </a>
     </p>
+    ${discountBlockHtml(discount, catName)}
     <p>A new contest is already open — enter ${safeName} again any time.</p>
     <p>— Whiskr</p>
   `,
@@ -183,7 +209,35 @@ async function sendFinalRankEmail({ email, catName, rank, totalEntries, shopUrl 
     to: email,
     subject: `${catName} placed #${rank} — final results`,
     html,
-    text: `${catName} placed #${rank} out of ${totalEntries} entries. Get a solo print: ${shopUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} placed #${rank} out of ${totalEntries} entries. Get a solo print: ${shopUrl}${discountBlockText(discount, catName)}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+  });
+}
+
+// The free, share-driven version of "gamified" urgency — no paid votes, no
+// "buy your way back up" path. See sendRankDropAlerts in server.js for the
+// throttle that decides when this actually fires.
+async function sendRankDropEmail({ email, catName, rank, voteUrl, closesAt }) {
+  const safeName = escapeHtml(catName);
+  const closeDate = new Date(closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p><strong>${safeName} is currently #${rank}</strong> — voting closes ${closeDate}.</p>
+    <p>A fresh round of shares is the fastest way to pick up real votes before the deadline.</p>
+    <p style="text-align:center;margin:24px 0;">
+      <a href="${voteUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
+        Share ${safeName}'s link
+      </a>
+    </p>
+    <p>— Whiskr</p>
+  `,
+    { showUnsubscribe: true, email }
+  );
+  return sendMail({
+    to: email,
+    subject: `${catName} just fell to #${rank}`,
+    html,
+    text: `${catName} is currently #${rank} — voting closes ${closeDate}. Share for more votes: ${voteUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -220,6 +274,7 @@ module.exports = {
   sendWinnerEmail,
   sendFeaturedEmail,
   sendFinalRankEmail,
+  sendRankDropEmail,
   sendReviewRequest,
   sendMail,
   isSuppressed,

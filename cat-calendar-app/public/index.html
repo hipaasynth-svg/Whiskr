@@ -134,6 +134,7 @@
       </label>
       <button type="submit" class="btn btn-primary">Submit entry</button>
       <p class="form-note" id="entryNote"></p>
+      <div id="entryMockup" hidden></div>
     </form>
   </div>
 </section>
@@ -206,6 +207,7 @@
   <form id="customOrderForm" class="custom-order-form" enctype="multipart/form-data">
     <input type="hidden" name="species" id="customSpecies" value="cat" />
     <input type="hidden" name="productId" id="customProductId" />
+    <p class="form-note" id="customDiscountBanner" hidden></p>
     <p class="form-note" id="customSelectedNote">Pick a product above to get started.</p>
     <label>
       Pet's name (optional)
