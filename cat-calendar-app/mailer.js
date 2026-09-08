@@ -96,7 +96,7 @@ async function sendEntryConfirmation({ email, catName, groupId }) {
   `);
   return sendMail({
     to: email,
-    subject: `${catName} is entered! 🐾 (Group #${groupId})`,
+    subject: `${catName} is entered! (Group #${groupId})`,
     html,
     text: `${catName} is entered in group #${groupId}. Our judging table reviews the batch over the next few weeks — we'll email you when the cover cat is picked.`,
   });
@@ -107,7 +107,7 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p><strong>${safeName} is so cute — and has been selected as this month's Cat of the Month! 🏆</strong></p>
+    <p><strong>${safeName} has been selected as this month's Cat of the Month.</strong></p>
     <p>${safeName} is the cover star of this batch's 12-month calendar, sharing the pages with 11 other very good cats.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
@@ -121,9 +121,9 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
   );
   return sendMail({
     to: email,
-    subject: `${catName} is Cat of the Month! 🏆`,
+    subject: `${catName} is Cat of the Month`,
     html,
-    text: `${catName} is so cute — and has been selected as Cat of the Month! Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} has been selected as Cat of the Month. Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -146,7 +146,7 @@ async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, pr
   );
   return sendMail({
     to: email,
-    subject: `${catName} made the calendar! 📅`,
+    subject: `${catName} made the calendar`,
     html,
     text: `${catName} made this round's calendar as one of 12 featured cats. Get it here: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });

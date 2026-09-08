@@ -1,54 +1,72 @@
 // ---------- hero slideshow ----------
-// Pulls a handful of random cat photos from the free cataas.com service as
-// placeholder hero imagery. Swap SLIDE_COUNT/urls for your own photography
-// whenever you're ready — see README.
+// Admin-controlled, from /api/background (see admin.html's "Background
+// slideshow" section). Zero photos uploaded there means no slideshow at
+// all — the plain hero background stays, never a stock-photo placeholder.
+// The server may have already prerendered these same slides into #heroSlides
+// for crawlers/first paint (see seo.js); this rebuild is idempotent, same
+// content either way, so a real visitor sees no meaningful change.
 (function heroSlideshow() {
-  const SLIDE_COUNT = 6;
   const track = document.getElementById('heroSlides');
   const dotsWrap = document.getElementById('heroDots');
   const pauseBtn = document.getElementById('heroPause');
   if (!track) return;
+  pauseBtn.hidden = true;
 
-  const urls = Array.from({ length: SLIDE_COUNT }, (_, i) =>
-    `https://cataas.com/cat?width=1600&height=1000&t=${Date.now()}_${i}`
-  );
+  async function init() {
+    let slides = [];
+    try {
+      const res = await fetch('/api/background');
+      const data = await res.json();
+      slides = data.slides || [];
+    } catch (err) {
+      console.error('background slides load failed', err);
+    }
+    if (slides.length === 0) return;
 
-  urls.forEach((src, i) => {
-    const img = document.createElement('img');
-    img.src = src;
-    img.alt = '';
-    img.loading = i === 0 ? 'eager' : 'lazy';
-    if (i === 0) img.classList.add('active');
-    track.appendChild(img);
+    track.innerHTML = '';
+    dotsWrap.innerHTML = '';
+    slides.forEach((s, i) => {
+      const img = document.createElement('img');
+      img.src = s.image_path;
+      img.alt = '';
+      img.loading = i === 0 ? 'eager' : 'lazy';
+      if (i === 0) img.classList.add('active');
+      track.appendChild(img);
 
-    const dot = document.createElement('span');
-    if (i === 0) dot.classList.add('active');
-    dotsWrap.appendChild(dot);
-  });
+      const dot = document.createElement('span');
+      if (i === 0) dot.classList.add('active');
+      dotsWrap.appendChild(dot);
+    });
 
-  const slides = track.querySelectorAll('img');
-  const dots = dotsWrap.querySelectorAll('span');
-  let index = 0;
-  let paused = false;
+    if (slides.length < 2) return;
+    pauseBtn.hidden = false;
 
-  function show(i) {
-    slides[index].classList.remove('active');
-    dots[index].classList.remove('active');
-    index = (i + slides.length) % slides.length;
-    slides[index].classList.add('active');
-    dots[index].classList.add('active');
+    const imgs = track.querySelectorAll('img');
+    const dots = dotsWrap.querySelectorAll('span');
+    let index = 0;
+    let paused = false;
+
+    function show(i) {
+      imgs[index].classList.remove('active');
+      dots[index].classList.remove('active');
+      index = (i + imgs.length) % imgs.length;
+      imgs[index].classList.add('active');
+      dots[index].classList.add('active');
+    }
+
+    setInterval(() => {
+      if (!paused) show(index + 1);
+    }, 4500);
+
+    pauseBtn.addEventListener('click', () => {
+      paused = !paused;
+      pauseBtn.textContent = paused ? 'Play' : 'Pause';
+    });
+
+    dots.forEach((dot, i) => dot.addEventListener('click', () => show(i)));
   }
 
-  let timer = setInterval(() => {
-    if (!paused) show(index + 1);
-  }, 4500);
-
-  pauseBtn.addEventListener('click', () => {
-    paused = !paused;
-    pauseBtn.textContent = paused ? 'Play' : 'Pause';
-  });
-
-  dots.forEach((dot, i) => dot.addEventListener('click', () => show(i)));
+  init();
 })();
 
 // ---------- live batch status ----------

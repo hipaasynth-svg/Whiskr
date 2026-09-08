@@ -13,6 +13,7 @@ const unsubscribe = require('./unsubscribe');
 const reviewLink = require('./reviewLink');
 const productCatalog = require('./products');
 const printful = require('./printful');
+const seo = require('./seo');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -202,6 +203,157 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
 });
 
 app.use(express.json());
+
+// ---------- server-rendered pages (must come before express.static below,
+// so these routes intercept /, /index.html, /calendar.html, /sitemap.xml
+// instead of the static files of the same name) ----------
+
+// Same query the /api/status JSON endpoint answers, shared so the
+// server-rendered homepage and the client's live re-check never disagree.
+async function getContestStatus() {
+  const openRow = await db.get(`SELECT COUNT(*) AS c FROM submissions WHERE group_id IS NULL`);
+  const openCount = Number(openRow.c);
+  const lastCompleted = await db.get(
+    `SELECT id, winner_submission_id FROM groups WHERE status = 'completed' ORDER BY id DESC LIMIT 1`
+  );
+  let winnerCat = null;
+  if (lastCompleted) {
+    winnerCat = await db.get(`SELECT cat_name, photo_path FROM submissions WHERE id = ?`, [
+      lastCompleted.winner_submission_id,
+    ]);
+  }
+  let fillStatus;
+  if (openCount <= 0) fillStatus = 'empty';
+  else if (openCount >= GROUP_SIZE) fillStatus = 'sealed';
+  else if (openCount >= GROUP_SIZE - 2) fillStatus = 'almost_full';
+  else fillStatus = 'filling';
+  return { fillStatus, lastWinner: winnerCat };
+}
+
+const INDEX_PATH = path.join(__dirname, 'public', 'index.html');
+const CALENDAR_PATH = path.join(__dirname, 'public', 'calendar.html');
+
+// Bakes real contest status, the last winner, the full product catalog
+// (with JSON-LD), and any admin-uploaded background photos into the HTML
+// the server sends — so a crawler that never runs script.js still sees the
+// site's actual content, not empty containers. script.js re-fills the same
+// containers on load for real visitors; see seo.js's header comment.
+async function renderIndexHtml() {
+  let html = fs.readFileSync(INDEX_PATH, 'utf8');
+
+  const { fillStatus, lastWinner } = await getContestStatus();
+  html = seo.fillEmpty(html, 'spotsLeft', seo.escapeHtml(seo.fillStatusText(fillStatus)));
+  if (lastWinner) {
+    html = seo.fillEmpty(html, 'winnerName', seo.escapeHtml(lastWinner.cat_name));
+    html = seo.setAttr(html, 'winnerPhoto', 'src', lastWinner.photo_path);
+    html = seo.setAttr(html, 'winnerPhoto', 'alt', `${lastWinner.cat_name}, Cat of the Month`);
+    html = seo.fillEmpty(
+      html,
+      'winnerBlurb',
+      seo.escapeHtml("Chosen as Cat of the Month by the last batch's judging. Their calendar — with the other 11 finalists — is in the shop below.")
+    );
+  }
+
+  const products = productCatalog.listProducts('all');
+  html = seo.fillEmpty(html, 'customGrid', seo.renderProductCards(products));
+  html = seo.injectIntoHead(
+    html,
+    `<script type="application/ld+json">${seo.productsJsonLd(products, BASE_URL)}</script>`
+  );
+
+  const slides = await db.all(`SELECT image_path FROM background_slides ORDER BY position ASC, id ASC`);
+  if (slides.length > 0) {
+    html = seo.fillEmpty(html, 'heroSlides', seo.renderHeroSlides(slides.map((s) => s.image_path)));
+  }
+
+  return html;
+}
+
+async function renderCalendarHtml(groupIdRaw) {
+  let html = fs.readFileSync(CALENDAR_PATH, 'utf8');
+  const groupId = Number(groupIdRaw);
+  if (!groupId) return html;
+
+  const group = await db.get(`SELECT * FROM groups WHERE id = ?`, [groupId]);
+  if (!group) return html;
+
+  const title = `Batch #${groupId} calendar — Whiskr`;
+  const description = group.status === 'completed'
+    ? `12 cats from Whiskr contest batch #${groupId}, one cover star chosen by our judging table. Order this calendar as a print.`
+    : `Whiskr contest batch #${groupId} — still being judged. Check back once a cover cat is picked.`;
+  html = html.replace(/<title>.*?<\/title>/, `<title>${seo.escapeHtml(title)}</title>`);
+  html = seo.injectIntoHead(html, `<meta name="description" content="${seo.escapeHtml(description)}" />
+<meta property="og:title" content="${seo.escapeHtml(title)}" />
+<meta property="og:description" content="${seo.escapeHtml(description)}" />
+<meta property="og:type" content="product.group" />
+<link rel="canonical" href="${BASE_URL}/calendar.html?group=${groupId}" />`);
+
+  if (group.status === 'completed') {
+    const jsonLd = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: title,
+      description,
+      offers: {
+        '@type': 'Offer',
+        price: PRICE_ONE.toFixed(2),
+        priceCurrency: 'USD',
+        availability: 'https://schema.org/InStock',
+        url: `${BASE_URL}/calendar.html?group=${groupId}`,
+      },
+    });
+    html = seo.injectIntoHead(html, `<script type="application/ld+json">${jsonLd}</script>`);
+  }
+
+  return html;
+}
+
+app.get(['/', '/index.html'], async (req, res, next) => {
+  try {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(await renderIndexHtml());
+  } catch (err) {
+    console.error('[render] index prerender failed, falling back to static file:', err.message);
+    next(); // let express.static below serve the plain file
+  }
+});
+
+app.get('/calendar.html', async (req, res, next) => {
+  try {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(await renderCalendarHtml(req.query.group));
+  } catch (err) {
+    console.error('[render] calendar prerender failed, falling back to static file:', err.message);
+    next();
+  }
+});
+
+// Dynamic sitemap — every completed contest batch gets its own indexable
+// URL, not just the homepage. Regenerated per-request from the live groups
+// table (cheap: this table stays small), so a new batch is discoverable the
+// moment judging finishes, no redeploy needed.
+app.get('/sitemap.xml', async (req, res) => {
+  const completed = await db.all(`SELECT id FROM groups WHERE status = 'completed' ORDER BY id ASC`);
+  const urls = [
+    { loc: `${BASE_URL}/`, changefreq: 'daily', priority: '1.0' },
+    ...completed.map((g) => ({
+      loc: `${BASE_URL}/calendar.html?group=${g.id}`,
+      changefreq: 'weekly',
+      priority: '0.8',
+    })),
+  ];
+  const body = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((u) => `  <url>
+    <loc>${seo.escapeHtml(u.loc)}</loc>
+    <changefreq>${u.changefreq}</changefreq>
+    <priority>${u.priority}</priority>
+  </url>`).join('\n')}
+</urlset>`;
+  res.set('Content-Type', 'application/xml; charset=utf-8');
+  res.send(body);
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- helpers ----------
@@ -429,6 +581,13 @@ app.get('/api/products', (req, res) => {
   res.json({ products: list });
 });
 
+// Admin-managed hero background photos — empty means no slideshow at all
+// (plain dark hero background), never a placeholder/stock-photo fallback.
+app.get('/api/background', async (req, res) => {
+  const slides = await db.all(`SELECT id, image_path FROM background_slides ORDER BY position ASC, id ASC`);
+  res.json({ slides });
+});
+
 // Upload a pet photo, pick a product, pay — this is the evergreen storefront
 // (as opposed to the contest, which only runs in batches of 12). Fulfilled
 // through Printful once Stripe confirms payment via the webhook above.
@@ -508,27 +667,7 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
 // this business's life; it's also nobody's business how many strangers have
 // entered right now.
 app.get('/api/status', async (req, res) => {
-  const openRow = await db.get(`SELECT COUNT(*) AS c FROM submissions WHERE group_id IS NULL`);
-  const openCount = Number(openRow.c);
-  const lastCompleted = await db.get(
-    `SELECT id, winner_submission_id FROM groups WHERE status = 'completed' ORDER BY id DESC LIMIT 1`
-  );
-  let winnerCat = null;
-  if (lastCompleted) {
-    winnerCat = await db.get(`SELECT cat_name, photo_path FROM submissions WHERE id = ?`, [
-      lastCompleted.winner_submission_id,
-    ]);
-  }
-  let fillStatus;
-  if (openCount <= 0) fillStatus = 'empty';
-  else if (openCount >= GROUP_SIZE) fillStatus = 'sealed';
-  else if (openCount >= GROUP_SIZE - 2) fillStatus = 'almost_full';
-  else fillStatus = 'filling';
-
-  res.json({
-    fillStatus,
-    lastWinner: winnerCat,
-  });
+  res.json(await getContestStatus());
 });
 
 // Calendar landing/checkout page for a specific completed group
@@ -764,6 +903,30 @@ app.get('/api/admin/reviews', requireAdmin, async (req, res) => {
   const rows = await db.all(`SELECT * FROM reviews WHERE approved = ? ORDER BY created_at ASC`, [approved]);
   res.json({ reviews: rows });
 });
+
+// Background slideshow management — see admin.html's "Background slideshow"
+// section. Uploading the first photo turns the slideshow on; deleting the
+// last one turns it back off (plain hero background, no fallback photos).
+app.get('/api/admin/background', requireAdmin, async (req, res) => {
+  const slides = await db.all(`SELECT id, image_path, position FROM background_slides ORDER BY position ASC, id ASC`);
+  res.json({ slides });
+});
+app.post('/api/admin/background', requireAdmin, upload.single('photo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'A photo is required.' });
+  const imagePath = await storePhoto(req.file);
+  const maxPos = await db.get(`SELECT COALESCE(MAX(position), -1) AS m FROM background_slides`);
+  const info = await db.run(
+    `INSERT INTO background_slides (image_path, position, created_at) VALUES (?, ?, ?) RETURNING id`,
+    [imagePath, Number(maxPos.m) + 1, new Date().toISOString()]
+  );
+  res.json({ id: info.rows[0].id, image_path: imagePath });
+});
+app.delete('/api/admin/background/:id', requireAdmin, async (req, res) => {
+  const info = await db.run(`DELETE FROM background_slides WHERE id = ?`, [Number(req.params.id)]);
+  if (info.changes === 0) return res.status(404).json({ error: 'Slide not found.' });
+  res.json({ ok: true });
+});
+
 app.post('/api/admin/reviews/:id/approve', requireAdmin, async (req, res) => {
   const info = await db.run(`UPDATE reviews SET approved = 1 WHERE id = ?`, [Number(req.params.id)]);
   if (info.changes === 0) return res.status(404).json({ error: 'Review not found.' });
