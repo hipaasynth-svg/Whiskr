@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS orders (
   review_requested_at TEXT,
   shipping_address TEXT               -- JSON from Stripe's shipping_details; nothing to print/ship without it
 );
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
 
 -- Emails that have opted out of Whiskr mail (CAN-SPAM unsubscribe requests).
 CREATE TABLE IF NOT EXISTS suppressions (
@@ -220,6 +221,43 @@ ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_width INTEGER;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_height INTEGER;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+
+-- Which ad campaign/geo a contest entry's first visit came from (captured
+-- client-side from a ?utm_campaign= link into a cookie, see script.js) —
+-- lets the marketing ledger below attribute a later paid order back to
+-- whatever brought that visitor in, even if the order itself doesn't carry
+-- its own utm param (e.g. they entered from an ad, then bought a print
+-- days later from the same browser).
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+
+-- Lightweight marketing/ad-spend ledger — the real, non-automated version
+-- of the "Sentinel" ad-spend/ROAS engine the owner referenced: no live ad
+-- platform API integration (nothing here can pause a real campaign), just
+-- honest tracking so a human can compute ROAS per named campaign/geo and
+-- decide manually. Supports multiple concurrent named campaigns/geos —
+-- name is whatever value you put in your ad URLs' ?utm_campaign= param
+-- and is matched case-insensitively against orders/custom_orders/
+-- submissions' utm_campaign column when computing revenue (see
+-- /api/admin/marketing/campaigns in server.js).
+CREATE TABLE IF NOT EXISTS ad_campaigns (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  platform TEXT,                     -- free text: meta, google, tiktok, organic, etc.
+  status TEXT NOT NULL DEFAULT 'active',  -- active | paused (a note to yourself, not a live toggle)
+  notes TEXT,
+  created_at TEXT NOT NULL
+);
+-- One row per day/amount of spend logged against a campaign — manual
+-- entry (from your ad platform's own dashboard), not pulled live from an
+-- API.
+CREATE TABLE IF NOT EXISTS ad_spend_entries (
+  id SERIAL PRIMARY KEY,
+  campaign_id INTEGER NOT NULL REFERENCES ad_campaigns(id),
+  spend_date TEXT NOT NULL,
+  amount_usd REAL NOT NULL,
+  created_at TEXT NOT NULL
+);
 
 -- Admin-managed hero background photos. Empty table = no slideshow, just
 -- the plain dark hero background — never a placeholder/stock-photo

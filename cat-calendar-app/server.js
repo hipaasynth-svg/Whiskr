@@ -518,6 +518,18 @@ function isValidEmail(e) {
   return typeof e === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
+// Whatever a visitor's ?utm_campaign= link said, captured client-side into
+// a cookie (see script.js) and sent along with entry/order requests — a
+// free-text label matched case-insensitively against ad_campaigns.name at
+// reporting time (see /api/admin/marketing/campaigns), not a foreign key,
+// so an order never fails to save just because a campaign name doesn't
+// exist yet or was typed slightly differently in the ad platform.
+function cleanUtmCampaign(raw) {
+  if (!raw) return null;
+  const cleaned = String(raw).replace(/[\r\n]+/g, ' ').trim().slice(0, 120);
+  return cleaned || null;
+}
+
 function calendarBuyUrl(groupId) {
   return `${BASE_URL}/calendar.html?group=${groupId}`;
 }
@@ -820,13 +832,14 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     const { width, height, lowResolution } = await checkImageQuality(req.file.buffer);
     const photoPath = await storePhoto(req.file);
     const shareImagePath = await generateShareCard(req.file.buffer, name);
+    const utmCampaign = cleanUtmCampaign(req.body.utmCampaign);
     const now = new Date().toISOString();
     const contest = await getOrOpenCurrentContest();
 
     const info = await db.run(
-      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution, share_image_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, name, photoPath, now, now, contest.id, width, height, lowResolution, shareImagePath]
+      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution, share_image_path, utm_campaign)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, name, photoPath, now, now, contest.id, width, height, lowResolution, shareImagePath, utmCampaign]
     );
     const submissionId = info.rows[0].id;
     const voteUrl = `${BASE_URL}/vote.html?cat=${submissionId}`;
@@ -1141,6 +1154,7 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     const petNameClean = (petName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
     const { width, height, lowResolution } = await checkImageQuality(req.file.buffer);
     const photoPath = await storePhoto(req.file);
+    const utmCampaign = cleanUtmCampaign(req.body.utmCampaign);
     const now = new Date().toISOString();
 
     // Optional time-limited discount from the contest entry-confirmation
@@ -1158,9 +1172,9 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     const amount = unitPrice * qty;
 
     const info = await db.run(
-      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at, photo_width, photo_height, low_resolution, discount_percent)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now, width, height, lowResolution, discountPercent]
+      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at, photo_width, photo_height, low_resolution, discount_percent, utm_campaign)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now, width, height, lowResolution, discountPercent, utmCampaign]
     );
     const orderId = info.rows[0].id;
 
@@ -1246,10 +1260,11 @@ app.post('/api/checkout', async (req, res) => {
 
     const qty = Math.max(1, Math.min(20, Number(quantity) || 1));
     const unitPrice = qty >= 2 ? PRICE_MULTI : PRICE_ONE;
+    const utmCampaign = cleanUtmCampaign(req.body.utmCampaign);
 
     const info = await db.run(
-      `INSERT INTO orders (group_id, email, quantity, amount_usd, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?) RETURNING id`,
-      [groupId, email || '', qty, unitPrice * qty, new Date().toISOString()]
+      `INSERT INTO orders (group_id, email, quantity, amount_usd, status, created_at, utm_campaign) VALUES (?, ?, ?, ?, 'pending', ?, ?) RETURNING id`,
+      [groupId, email || '', qty, unitPrice * qty, new Date().toISOString(), utmCampaign]
     );
     const orderId = info.rows[0].id;
 
@@ -1483,6 +1498,90 @@ app.post('/api/admin/year-award/force-close', requireAdmin, async (req, res) => 
   if (!award) return res.status(404).json({ error: 'No open year award.' });
   const winnerSubmissionId = await tallyAndCloseYearAward(award.id);
   res.json({ ok: true, yearAwardId: award.id, winnerSubmissionId });
+});
+
+// Marketing/ROAS ledger — the honest, non-automated version of the
+// "Sentinel" ad-spend/ROAS engine referenced in planning docs: no live ad
+// platform API integration lives here (nothing on this server can pause a
+// real ad campaign), just real spend you log yourself against real
+// revenue this app already recorded, so a human can compute ROAS per
+// named campaign/geo and decide manually whether to keep it running.
+// Revenue is matched by name (case-insensitive) against whatever
+// ?utm_campaign= value a visitor's link carried — see cleanUtmCampaign
+// and script.js's capture on page load.
+app.get('/api/admin/marketing/campaigns', requireAdmin, async (req, res) => {
+  const rows = await db.all(`
+    SELECT c.*,
+      COALESCE(spend.total_spend, 0) AS total_spend,
+      COALESCE(rev.total_revenue, 0) AS total_revenue
+    FROM ad_campaigns c
+    LEFT JOIN (
+      SELECT campaign_id, SUM(amount_usd) AS total_spend FROM ad_spend_entries GROUP BY campaign_id
+    ) spend ON spend.campaign_id = c.id
+    LEFT JOIN (
+      SELECT LOWER(utm_campaign) AS name, SUM(amount_usd) AS total_revenue FROM (
+        SELECT utm_campaign, amount_usd FROM orders WHERE status = 'paid' AND utm_campaign IS NOT NULL
+        UNION ALL
+        SELECT utm_campaign, amount_usd FROM custom_orders WHERE status = 'paid' AND utm_campaign IS NOT NULL
+      ) paid_orders GROUP BY LOWER(utm_campaign)
+    ) rev ON rev.name = LOWER(c.name)
+    ORDER BY c.created_at DESC
+  `);
+  const campaigns = rows.map((r) => ({
+    ...r,
+    total_spend: Number(r.total_spend),
+    total_revenue: Number(r.total_revenue),
+    roas: Number(r.total_spend) > 0 ? Number((Number(r.total_revenue) / Number(r.total_spend)).toFixed(2)) : null,
+  }));
+  res.json({ campaigns });
+});
+
+app.post('/api/admin/marketing/campaigns', requireAdmin, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim().slice(0, 120);
+    const platform = String(req.body.platform || '').trim().slice(0, 60) || null;
+    const notes = String(req.body.notes || '').trim().slice(0, 500) || null;
+    if (!name) return res.status(400).json({ error: 'A campaign name is required.' });
+    const info = await db.run(
+      `INSERT INTO ad_campaigns (name, platform, notes, status, created_at) VALUES (?, ?, ?, 'active', ?) RETURNING id`,
+      [name, platform, notes, new Date().toISOString()]
+    );
+    res.json({ ok: true, id: info.rows[0].id });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'A campaign with this exact name already exists.' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
+});
+
+app.post('/api/admin/marketing/campaigns/:id/status', requireAdmin, async (req, res) => {
+  const status = req.body.status === 'paused' ? 'paused' : 'active';
+  const info = await db.run(`UPDATE ad_campaigns SET status = ? WHERE id = ?`, [status, Number(req.params.id)]);
+  if (info.changes === 0) return res.status(404).json({ error: 'Campaign not found.' });
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/marketing/campaigns/:id/spend', requireAdmin, async (req, res) => {
+  const rows = await db.all(
+    `SELECT * FROM ad_spend_entries WHERE campaign_id = ? ORDER BY spend_date DESC, id DESC`,
+    [Number(req.params.id)]
+  );
+  res.json({ entries: rows });
+});
+
+app.post('/api/admin/marketing/campaigns/:id/spend', requireAdmin, async (req, res) => {
+  const campaignId = Number(req.params.id);
+  const amount = Number(req.body.amountUsd);
+  const spendDate = String(req.body.spendDate || '').slice(0, 10);
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'A positive amountUsd is required.' });
+  if (!spendDate) return res.status(400).json({ error: 'spendDate is required.' });
+  const info = await db.run(
+    `INSERT INTO ad_spend_entries (campaign_id, spend_date, amount_usd, created_at) VALUES (?, ?, ?, ?) RETURNING id`,
+    [campaignId, spendDate, amount, new Date().toISOString()]
+  );
+  res.json({ ok: true, id: info.rows[0].id });
 });
 
 // Orders, for fulfillment. ?status=paid to see what actually needs printing;

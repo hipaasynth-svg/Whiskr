@@ -1,3 +1,29 @@
+// ---------- marketing attribution ----------
+// First-touch only: captures ?utm_campaign= from an ad link into a cookie
+// the first time it's seen, and never overwrites it on a later visit (so
+// browsing back to the homepage organically doesn't erase credit for the
+// ad that actually brought this visitor in). Read by the entry/order forms
+// below and sent along so the admin-only marketing ledger can attribute
+// real revenue back to a real campaign — see cleanUtmCampaign in server.js.
+function captureUtmCampaign() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const utm = params.get('utm_campaign');
+    if (utm && !document.cookie.includes('whiskr_utm_campaign=')) {
+      document.cookie = `whiskr_utm_campaign=${encodeURIComponent(utm.slice(0, 120))};path=/;max-age=${30 * 24 * 60 * 60}`;
+    }
+  } catch (_) {}
+}
+function getUtmCampaign() {
+  try {
+    const m = document.cookie.match(/(?:^|; )whiskr_utm_campaign=([^;]*)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  } catch (_) {
+    return '';
+  }
+}
+captureUtmCampaign();
+
 // ---------- hero slideshow ----------
 // Admin-controlled, from /api/background (see admin.html's "Background
 // slideshow" section). Zero photos uploaded there means no slideshow at
@@ -223,6 +249,7 @@ if (entryForm) {
     mockup.hidden = true;
 
     const formData = new FormData(entryForm);
+    formData.append('utmCampaign', getUtmCampaign());
     const photoFile = photoInput.files[0];
 
     const catNameValue = document.getElementById('catName').value;
@@ -488,6 +515,7 @@ loadReviews();
       submitBtn.disabled = true;
 
       const formData = new FormData(form);
+      formData.append('utmCampaign', getUtmCampaign());
       try {
         const res = await fetch('/api/custom-orders', { method: 'POST', body: formData });
         const data = await res.json();
@@ -534,7 +562,7 @@ if (checkoutForm) {
       const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupId, quantity, email }),
+        body: JSON.stringify({ groupId, quantity, email, utmCampaign: getUtmCampaign() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Checkout is not available yet.');

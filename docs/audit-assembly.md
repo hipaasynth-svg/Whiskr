@@ -910,3 +910,65 @@ any of the above testing, not after.
 **Left open, not done here**: the marketing/ad-spend/ROAS tracking layer
 from the original Sentinel plan the owner referenced — that's a distinct
 follow-up pass, not folded into this one.
+
+## Update — 2026-09-09: lightweight marketing/ROAS ledger, no live ad-platform automation
+
+The follow-up promised above. The owner's original "Sentinel" plan (a
+different, earlier project — a youth-sports nomination funnel, not
+Whiskr) called for a Python engine that logged ad spend/revenue, computed
+ROAS per city/batch, and could auto-pause a live Meta ad campaign below a
+2.0x ROAS threshold. Asked the owner how much of that to build for
+Whiskr; they chose the lightweight option: a real ledger inside this same
+Node/Postgres app, no live ad-platform API integration — nothing here can
+touch a real ad campaign. The other two options on the table (full live
+Meta auto-pause automation, or a separate Python service per the original
+spec) were both real, valid choices with a materially different risk
+profile — live automation that can pause real ad spend is a financial-
+automation surface that deserves its own dedicated build-and-test pass
+before being trusted unattended, and a second service is a second
+codebase/deploy to maintain — so this was worth asking rather than
+guessing.
+
+**What "multiple" meant, clarified before building**: the owner's
+original ask ("we should have multiple") was ambiguous across three real
+readings — multiple prize winners per round, multiple simultaneous
+contests (e.g. cats and dogs each running their own), or multiple
+concurrent geo/ad-targeting batches (Sentinel's original per-city model).
+Confirmed it was the third. `ad_campaigns.name` is a free-text label (not
+an enum), so any number of concurrently-tracked named campaigns/geos are
+already supported without further schema changes.
+
+**Built**: `ad_campaigns` (name/platform/status/notes) and
+`ad_spend_entries` (manually logged date+amount per campaign) — genuinely
+manual, matching a real ad platform's own dashboard rather than pretending
+to pull live numbers this app has no connection to fetch. Revenue is real,
+not estimated: a new `utm_campaign` column on `submissions`, `orders`, and
+`custom_orders`, captured client-side from a `?utm_campaign=` link into a
+first-touch-only cookie (never overwritten by a later organic visit, so
+credit for the ad that actually brought someone in doesn't get erased) and
+sent along with every entry/order request. The admin ROAS view
+(`/api/admin/marketing/campaigns`) sums real paid-order revenue matched
+case-insensitively against each campaign's name — verified this
+specifically, not assumed: attributed a submission tagged `DALLAS-META`
+and a simulated paid order tagged `Dallas-Meta` (deliberately mismatched
+case) to a campaign named `dallas-meta`, confirmed both counted, and
+confirmed a third paid order tagged with an unrelated campaign name
+correctly did **not** count toward it. New admin.html section to add
+campaigns, log spend, and pause/activate a campaign as a note-to-self (not
+a live toggle — there is no live campaign on the other end of it).
+
+**Verified against a real local Postgres instance**: created a campaign,
+rejected a duplicate name cleanly, logged two spend entries and confirmed
+their sum, submitted a real entry with a case-mismatched utm tag and
+confirmed it stored correctly, simulated two paid orders (one matching the
+campaign case-insensitively, one deliberately not) and confirmed the ROAS
+math (`$200 revenue / $75 spend = 2.67x`) only counted the matching one,
+confirmed the spend-history and status-toggle endpoints, and screenshotted
+the admin panel with Playwright to confirm it actually renders the real
+numbers, not just that the API returns them. Caught the same class of bug
+as the previous update before any of this: a stray backtick inside a new
+SQL comment in `db.js`'s DDL template literal broke `node --check`
+immediately — checked for it explicitly this time (`grep` inside the
+template-literal boundaries) given it had just bitten this exact file.
+`node --check` passes on every changed file; new/edited HTML files have
+balanced tags.

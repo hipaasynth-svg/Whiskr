@@ -108,6 +108,28 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
+        <h2>Marketing / ad spend (ROAS)</h2>
+        <p class="sub">Manual ledger, no live ad-platform connection — nothing here can pause a real campaign. Tag your ad links with <code>?utm_campaign=your-campaign-name</code> (must match a campaign name below, case-insensitive) so real orders get attributed here; then log spend yourself from your ad platform's dashboard to see ROAS per campaign/geo.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshMarketing" type="button">Refresh</button>
+    </div>
+    <form id="campaignForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+      <label style="font-size:0.8rem;">Campaign name (= utm_campaign)<br/><input type="text" id="campName" placeholder="dallas-meta" style="padding:8px;border:1px solid var(--line);border-radius:3px;" required /></label>
+      <label style="font-size:0.8rem;">Platform<br/><input type="text" id="campPlatform" placeholder="meta" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
+      <button class="btn btn-primary" type="submit" style="padding:9px 16px;font-size:0.85rem;">Add campaign</button>
+    </form>
+    <form id="spendForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px;">
+      <label style="font-size:0.8rem;">Log spend for campaign ID<br/><input type="number" id="spendCampaignId" min="1" style="padding:8px;border:1px solid var(--line);border-radius:3px;width:90px;" required /></label>
+      <label style="font-size:0.8rem;">Date<br/><input type="date" id="spendDate" style="padding:8px;border:1px solid var(--line);border-radius:3px;" required /></label>
+      <label style="font-size:0.8rem;">Amount (USD)<br/><input type="number" id="spendAmount" min="0.01" step="0.01" style="padding:8px;border:1px solid var(--line);border-radius:3px;width:100px;" required /></label>
+      <button class="btn btn-primary" type="submit" style="padding:9px 16px;font-size:0.85rem;">Log spend</button>
+    </form>
+    <div id="marketingList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
         <h2>Paid calendar orders</h2>
         <p class="sub">What actually needs printing and shipping.</p>
       </div>
@@ -339,6 +361,104 @@
   });
   document.getElementById('refreshYearAward').addEventListener('click', loadYearAward);
 
+  const marketingList = document.getElementById('marketingList');
+
+  async function loadMarketing() {
+    marketingList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/marketing/campaigns');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load.');
+
+      if (data.campaigns.length === 0) {
+        marketingList.innerHTML = '<p class="empty">No campaigns yet — add one above.</p>';
+        return;
+      }
+
+      marketingList.innerHTML = `
+        <table class="orders">
+          <thead><tr><th>ID</th><th>Name</th><th>Platform</th><th>Status</th><th>Spend</th><th>Revenue</th><th>ROAS</th><th></th></tr></thead>
+          <tbody>
+            ${data.campaigns.map((c) => `
+              <tr data-id="${c.id}">
+                <td>${c.id}</td>
+                <td>${escapeHtml(c.name)}</td>
+                <td>${escapeHtml(c.platform || '—')}</td>
+                <td>${escapeHtml(c.status)}</td>
+                <td>$${c.total_spend.toFixed(2)}</td>
+                <td>$${c.total_revenue.toFixed(2)}</td>
+                <td style="${c.roas !== null && c.roas < 2 ? 'color:#b3261e;font-weight:700;' : ''}">${c.roas === null ? '—' : c.roas + 'x'}</td>
+                <td><button type="button" class="toggle-status-btn" data-id="${c.id}" data-status="${c.status}" style="font-size:0.75rem;padding:4px 10px;">${c.status === 'active' ? 'Pause' : 'Activate'}</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      marketingList.querySelectorAll('.toggle-status-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const newStatus = btn.dataset.status === 'active' ? 'paused' : 'active';
+          try {
+            const res = await adminFetch(`/api/admin/marketing/campaigns/${btn.dataset.id}/status`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: newStatus }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Update failed.');
+            loadMarketing();
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      marketingList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  document.getElementById('campaignForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('campName').value.trim();
+    const platform = document.getElementById('campPlatform').value.trim();
+    if (!name) return;
+    try {
+      const res = await adminFetch('/api/admin/marketing/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, platform }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Add failed.');
+      document.getElementById('campaignForm').reset();
+      loadMarketing();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById('spendForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const campaignId = document.getElementById('spendCampaignId').value;
+    const spendDate = document.getElementById('spendDate').value;
+    const amountUsd = document.getElementById('spendAmount').value;
+    try {
+      const res = await adminFetch(`/api/admin/marketing/campaigns/${campaignId}/spend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ spendDate, amountUsd }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Log failed.');
+      document.getElementById('spendForm').reset();
+      loadMarketing();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+  document.getElementById('refreshMarketing').addEventListener('click', loadMarketing);
+
   async function loadOrders() {
     ordersList.innerHTML = '<p class="empty">Loading…</p>';
     try {
@@ -545,6 +665,7 @@
     loadBackground();
     loadContest();
     loadYearAward();
+    loadMarketing();
     loadOrders();
     loadCustomOrders();
     loadPendingReviews();
