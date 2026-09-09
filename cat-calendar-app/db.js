@@ -248,9 +248,25 @@ CREATE TABLE IF NOT EXISTS ad_campaigns (
   notes TEXT,
   created_at TEXT NOT NULL
 );
--- One row per day/amount of spend logged against a campaign — manual
--- entry (from your ad platform's own dashboard), not pulled live from an
--- API.
+-- Set once a campaign's name is matched against a real Meta campaign (see
+-- syncMetaAdSpend in server.js) so later syncs look it up by id instead of
+-- re-matching by name — a rename in Meta's own UI afterward doesn't break
+-- the link. NULL means never matched (no META_ACCESS_TOKEN configured
+-- yet, or no Meta campaign has this name).
+ALTER TABLE ad_campaigns ADD COLUMN IF NOT EXISTS meta_campaign_id TEXT;
+-- Throttles the ROAS-below-threshold alert email (see checkRoasAlerts in
+-- server.js) so a campaign that stays bad doesn't re-email every single
+-- day — see ROAS_ALERT_COOLDOWN_DAYS.
+ALTER TABLE ad_campaigns ADD COLUMN IF NOT EXISTS last_roas_alert_at TEXT;
+
+-- One row per day/amount of spend logged against a campaign. source
+-- distinguishes a human's manual entry (from the admin form, reading
+-- their ad platform's own dashboard) from an automatic pull via the Meta
+-- Marketing API (syncMetaAdSpend) — kept in the same table since both are
+-- just "spend, on this campaign, on this day," but never mixed silently:
+-- the partial unique index below lets an automatic sync safely upsert
+-- (re-running it for a day it already synced updates that day's number
+-- instead of double-counting) without ever touching a manual entry.
 CREATE TABLE IF NOT EXISTS ad_spend_entries (
   id SERIAL PRIMARY KEY,
   campaign_id INTEGER NOT NULL REFERENCES ad_campaigns(id),
@@ -258,6 +274,9 @@ CREATE TABLE IF NOT EXISTS ad_spend_entries (
   amount_usd REAL NOT NULL,
   created_at TEXT NOT NULL
 );
+ALTER TABLE ad_spend_entries ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+CREATE UNIQUE INDEX IF NOT EXISTS ad_spend_entries_auto_unique
+  ON ad_spend_entries(campaign_id, spend_date) WHERE source = 'meta_api';
 
 -- Admin-managed hero background photos. Empty table = no slideshow, just
 -- the plain dark hero background — never a placeholder/stock-photo

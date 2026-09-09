@@ -109,9 +109,12 @@
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
         <h2>Marketing / ad spend (ROAS)</h2>
-        <p class="sub">Manual ledger, no live ad-platform connection — nothing here can pause a real campaign. Tag your ad links with <code>?utm_campaign=your-campaign-name</code> (must match a campaign name below, case-insensitive) so real orders get attributed here; then log spend yourself from your ad platform's dashboard to see ROAS per campaign/geo.</p>
+        <p class="sub">Tag your ad links with <code>?utm_campaign=your-campaign-name</code> (must match a campaign name below, case-insensitive) so real orders get attributed here. Spend can be logged manually below, or pulled automatically once a day from Meta if a campaign's name matches a real Meta campaign — <span id="metaStatus">checking Meta connection…</span> Read-only either way: nothing here can pause a campaign or change its budget.</p>
       </div>
-      <button class="btn btn-ghost refresh-btn" id="refreshMarketing" type="button">Refresh</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost refresh-btn" id="syncMetaNow" type="button">Sync from Meta now</button>
+        <button class="btn btn-ghost refresh-btn" id="refreshMarketing" type="button">Refresh</button>
+      </div>
     </div>
     <form id="campaignForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
       <label style="font-size:0.8rem;">Campaign name (= utm_campaign)<br/><input type="text" id="campName" placeholder="dallas-meta" style="padding:8px;border:1px solid var(--line);border-radius:3px;" required /></label>
@@ -370,6 +373,13 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load.');
 
+      const metaStatusEl = document.getElementById('metaStatus');
+      if (metaStatusEl) {
+        metaStatusEl.textContent = data.metaConfigured
+          ? 'Meta is connected.'
+          : 'Meta is not connected yet (set META_ACCESS_TOKEN/META_AD_ACCOUNT_ID) — log spend manually below.';
+      }
+
       if (data.campaigns.length === 0) {
         marketingList.innerHTML = '<p class="empty">No campaigns yet — add one above.</p>';
         return;
@@ -377,13 +387,14 @@
 
       marketingList.innerHTML = `
         <table class="orders">
-          <thead><tr><th>ID</th><th>Name</th><th>Platform</th><th>Status</th><th>Spend</th><th>Revenue</th><th>ROAS</th><th></th></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>Platform</th><th>Meta link</th><th>Status</th><th>Spend</th><th>Revenue</th><th>ROAS</th><th></th></tr></thead>
           <tbody>
             ${data.campaigns.map((c) => `
               <tr data-id="${c.id}">
                 <td>${c.id}</td>
                 <td>${escapeHtml(c.name)}</td>
                 <td>${escapeHtml(c.platform || '—')}</td>
+                <td>${c.meta_campaign_id ? 'Linked' : '—'}</td>
                 <td>${escapeHtml(c.status)}</td>
                 <td>$${c.total_spend.toFixed(2)}</td>
                 <td>$${c.total_revenue.toFixed(2)}</td>
@@ -458,6 +469,17 @@
     }
   });
   document.getElementById('refreshMarketing').addEventListener('click', loadMarketing);
+  document.getElementById('syncMetaNow').addEventListener('click', async () => {
+    try {
+      const res = await adminFetch('/api/admin/marketing/sync-meta', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Sync failed.');
+      alert(data.dryRun ? 'Meta is not connected yet — nothing to sync.' : `Synced spend for ${data.synced} campaign(s).`);
+      loadMarketing();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   async function loadOrders() {
     ordersList.innerHTML = '<p class="empty">Loading…</p>';

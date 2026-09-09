@@ -303,3 +303,41 @@ not just a trust problem.
 - Calendar pricing lives in `.env` (`CALENDAR_PRICE_USD`,
   `CALENDAR_2PLUS_PRICE_USD`) and is read by both the shop section and the
   Stripe checkout — change it in one place.
+
+## 11. Marketing / ROAS ledger (optional)
+
+The admin panel (`admin.html` → "Marketing / ad spend") tracks real ad
+spend against real attributed revenue and computes ROAS per named
+campaign. It works two ways, and you don't need this section at all to use
+the manual one:
+
+**Manual (no setup needed).** Add a campaign in the admin panel, tag your
+ad links with `?utm_campaign=your-campaign-name` (must match the campaign
+name you typed, case-insensitive), and log spend yourself from your ad
+platform's own dashboard whenever you check in.
+
+**Automatic spend pulls from Meta (optional).** If you're running Meta
+(Facebook/Instagram) ads and don't want to log spend by hand every day:
+
+1. Create an app at [developers.facebook.com](https://developers.facebook.com/)
+   and add the Marketing API product to it.
+2. In your Meta Business Settings, add a **System User**, and generate an
+   access token for it scoped to **`ads_read`** only — this app never
+   needs `ads_management` since it only ever reads spend, never changes a
+   campaign.
+3. Find your ad account ID in Meta Ads Manager's URL — it looks like
+   `act_1234567890` (include the `act_` prefix).
+4. Put both in `.env` as `META_ACCESS_TOKEN` and `META_AD_ACCOUNT_ID`.
+5. Name your campaign in the admin panel **exactly the same as** the real
+   campaign's name in Meta Ads Manager (case doesn't matter, exact text
+   does) — that's how a campaign gets linked the first time. After that,
+   it's remembered by Meta's own campaign ID, so renaming it in Meta later
+   won't break the link.
+
+Once connected, spend is pulled once a day (see `/api/cron/daily`), or any
+time via the "Sync from Meta now" button. **This is read-only, on
+purpose** — nothing in `metaAds.js` can pause a campaign, change its
+budget, or spend a dollar on your behalf, even with these keys set. If a
+campaign's all-time ROAS drops under `ROAS_ALERT_THRESHOLD` (default
+2.0x), you get a plain alert email at `ADMIN_EMAIL` — you decide what to
+do about it in Meta's own dashboard.

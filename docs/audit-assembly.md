@@ -972,3 +972,87 @@ immediately — checked for it explicitly this time (`grep` inside the
 template-literal boundaries) given it had just bitten this exact file.
 `node --check` passes on every changed file; new/edited HTML files have
 balanced tags.
+
+## Update — 2026-09-09: automatic (read-only) spend pulls from Meta, plus a real ROAS alert
+
+The owner came back after the lightweight ledger above: they wanted the
+"automatic self-funding version, just without auto-pause," not the manual
+one. That phrase bundles two different asks with two different risk
+profiles, so before writing code: (1) confirmed no Meta Marketing API
+token/ad account exists yet — a hard prerequisite, since this can't be
+tested or work at all without one, the same way Stripe/Printful/Zoho
+don't work here without their own real keys; (2) asked which part should
+actually be automatic, since "self-funding" is the half that moves real
+money — automatically *reading* spend and computing ROAS is safe (nothing
+but a GET request to Meta), automatically *writing* budget increases to
+reinvest profit is a live financial-automation surface with its own risk
+profile regardless of the auto-pause question. The owner chose read-only:
+automatic spend pulls, automatic ROAS math, no automatic budget changes of
+any kind; and for a below-threshold campaign, an alert email instead of
+the auto-pause they'd already ruled out.
+
+**Built**: `metaAds.js`, a new integration module following the exact
+`printful.js`/Stripe dry-run pattern already established in this app — if
+`META_ACCESS_TOKEN`/`META_AD_ACCOUNT_ID` aren't set, every call returns a
+dry-run result and the manual ledger from the previous update keeps
+working exactly as before. It can only ever read (`ads_read` is the only
+permission the README setup instructions ask for) — there is no function
+in this module that can create, pause, or resize a campaign, and there
+won't be without a separate, explicit decision to add one.
+
+A daily sync (`syncMetaAdSpend`, wired into the existing `/api/cron/daily`
+alongside contest-closing and review requests, plus a manual "Sync from
+Meta now" admin button) links each `ad_campaigns` row to a real Meta
+campaign by matching name the first time, remembers it by Meta's own
+campaign id afterward (a later rename in Meta's UI doesn't break the
+link), and upserts yesterday's real spend — safe to re-run any time
+without double-counting, via a partial unique index on
+`(campaign_id, spend_date) WHERE source = 'meta_api'` that only
+constrains automatically-synced rows, leaving manual entries untouched.
+`checkRoasAlerts` emails `ADMIN_EMAIL` (the same address already used for
+Printful submission failures) when an active campaign's all-time ROAS
+drops under `ROAS_ALERT_THRESHOLD` — never pausing or changing anything —
+throttled by `last_roas_alert_at` so a campaign that stays bad doesn't
+re-email every single day, and floored by `ROAS_ALERT_MIN_SPEND` so a
+campaign with a few dollars of spend and one lucky order doesn't trigger
+on noise.
+
+**Deliberately isolated in the cron handler**: `syncMetaAdSpend` got its
+own try/catch inside `/api/cron/daily`, separate from the existing steps
+(contest closing, rank-drop alerts, review requests). Those don't touch a
+third party and have run reliably; a Meta API hiccup — rate limit, an
+expired token, a transient outage — is a new and comparatively likely
+failure mode this pass introduces, and it should never block the
+unrelated, more reliable steps around it. Verified this isn't theoretical:
+tested with a real (deliberately invalid) token against Meta's actual API,
+got a genuine 403 back, confirmed the manual sync endpoint surfaces it as
+a clean error rather than crashing, and confirmed `/api/cron/daily` still
+returned `{ok: true}` and ran its other steps regardless.
+
+**Verified**: unit-tested `metaAds.js` in isolation with a mocked `fetch`
+(this sandbox has no real Meta credentials to test against) — correct
+URL/query construction including the `time_range` JSON encoding, correct
+`access_token` attachment, correct spend parsing, an empty insights
+response correctly treated as zero spend rather than an error, and a 401
+response correctly thrown with the status code in the message. Against
+real local Postgres: confirmed the new columns/partial-unique-index
+migrate cleanly, confirmed `metaConfigured` reports correctly in both
+states, confirmed the existing manual-entry flow from the previous update
+is unchanged (regression check), and confirmed the full ROAS-alert path
+end to end — created a campaign with genuinely bad ROAS (real spend
+logged, real revenue attributed via a simulated paid order, netting well
+under threshold), ran the alert check, confirmed the email fired with
+correct numbers, confirmed a second immediate run did **not** re-alert
+(cooldown working), and confirmed `last_roas_alert_at` was actually
+persisted on that exact campaign. `node --check` passes on every changed
+and new file (checked for stray backticks inside `db.js`'s DDL template
+literal a third time, on purpose, given the first two).
+
+**Left open, not done here, on purpose**: any automatic write to a live ad
+account — reinvestment, budget scaling, pausing — is out of scope until
+the owner asks for it as its own explicit decision, not folded into "make
+it automatic." Also not done: Google/TikTok/other ad platforms — this
+integrates only Meta, per what was actually asked for; the same
+`ad_campaigns.platform` free-text field and revenue-attribution logic
+would support another platform's own read-only module later without
+schema changes.

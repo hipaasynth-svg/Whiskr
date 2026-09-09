@@ -17,6 +17,7 @@ const discountToken = require('./discountToken');
 const statusToken = require('./statusToken');
 const productCatalog = require('./products');
 const printful = require('./printful');
+const metaAds = require('./metaAds');
 const seo = require('./seo');
 
 const app = express();
@@ -61,6 +62,18 @@ const RANK_DROP_THRESHOLD = Number(process.env.RANK_DROP_THRESHOLD || 5);
 // daily voting, so the per-IP guard is a flat cap for the whole award
 // rather than a per-day rate — see year_award_votes in db.js.
 const YEAR_AWARD_VOTE_LIMIT_PER_IP = Number(process.env.YEAR_AWARD_VOTE_LIMIT_PER_IP || 5);
+
+// Marketing ledger: below this ROAS, an active campaign with real spend
+// logged gets an alert email — never an automatic pause or budget change,
+// by design (see metaAds.js and docs/audit-assembly.md). Cooldown keeps a
+// campaign that stays bad from re-emailing every single day.
+const ROAS_ALERT_THRESHOLD = Number(process.env.ROAS_ALERT_THRESHOLD || 2.0);
+const ROAS_ALERT_COOLDOWN_DAYS = Number(process.env.ROAS_ALERT_COOLDOWN_DAYS || 3);
+// Below this, a campaign's ROAS isn't alerted on at all — a campaign that
+// has only spent a few dollars can show a wild/misleading ROAS just from
+// noise (one $20 order looks like 20x ROAS on $1 of spend, but that isn't
+// a signal of anything yet).
+const ROAS_ALERT_MIN_SPEND = Number(process.env.ROAS_ALERT_MIN_SPEND || 25);
 const BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const PRICE_ONE = Number(process.env.CALENDAR_PRICE_USD || 24.99);
 const PRICE_MULTI = Number(process.env.CALENDAR_2PLUS_PRICE_USD || 19.99);
@@ -1500,15 +1513,116 @@ app.post('/api/admin/year-award/force-close', requireAdmin, async (req, res) => 
   res.json({ ok: true, yearAwardId: award.id, winnerSubmissionId });
 });
 
-// Marketing/ROAS ledger — the honest, non-automated version of the
-// "Sentinel" ad-spend/ROAS engine referenced in planning docs: no live ad
-// platform API integration lives here (nothing on this server can pause a
-// real ad campaign), just real spend you log yourself against real
-// revenue this app already recorded, so a human can compute ROAS per
-// named campaign/geo and decide manually whether to keep it running.
-// Revenue is matched by name (case-insensitive) against whatever
+// Marketing/ROAS ledger — spend can come in two ways: manually logged (see
+// the POST endpoint below) or, once META_ACCESS_TOKEN/META_AD_ACCOUNT_ID
+// are set, automatically pulled once a day from the Meta Marketing API by
+// syncMetaAdSpend below. Either way this is READ-ONLY against the ad
+// platform — nothing here can pause a real campaign or change its budget;
+// see metaAds.js. Revenue is always computed the same way regardless of
+// spend source: matched by name (case-insensitive) against whatever
 // ?utm_campaign= value a visitor's link carried — see cleanUtmCampaign
 // and script.js's capture on page load.
+
+// Pulls yesterday's real spend for every active campaign that has a
+// matching Meta campaign (by meta_campaign_id if already linked, else by
+// matching name the first time) and upserts it into ad_spend_entries with
+// source='meta_api' — safe to re-run any time, including manually via the
+// admin endpoint below, since the partial unique index on
+// (campaign_id, spend_date) WHERE source='meta_api' means a re-sync
+// updates that day's number instead of double-counting it. No-ops
+// entirely (returns dryRun: true) if Meta isn't configured — the manual
+// ledger keeps working exactly as before either way.
+async function syncMetaAdSpend() {
+  if (!metaAds.configured()) return { dryRun: true, synced: 0 };
+
+  const campaigns = await db.all(`SELECT * FROM ad_campaigns WHERE status = 'active'`);
+  if (campaigns.length === 0) return { dryRun: false, synced: 0 };
+
+  let metaCampaignsByName = null;
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  let synced = 0;
+
+  for (const campaign of campaigns) {
+    let metaCampaignId = campaign.meta_campaign_id;
+
+    if (!metaCampaignId) {
+      if (!metaCampaignsByName) {
+        const result = await metaAds.listCampaigns();
+        metaCampaignsByName = new Map(result.campaigns.map((c) => [c.name.toLowerCase(), c.id]));
+      }
+      metaCampaignId = metaCampaignsByName.get(campaign.name.toLowerCase());
+      if (!metaCampaignId) continue; // no matching Meta campaign — nothing to sync for this one
+      await db.run(`UPDATE ad_campaigns SET meta_campaign_id = ? WHERE id = ?`, [metaCampaignId, campaign.id]);
+    }
+
+    try {
+      const spend = await metaAds.getCampaignSpendForDate(metaCampaignId, yesterday);
+      await db.run(
+        `INSERT INTO ad_spend_entries (campaign_id, spend_date, amount_usd, source, created_at)
+         VALUES (?, ?, ?, 'meta_api', ?)
+         ON CONFLICT (campaign_id, spend_date) WHERE source = 'meta_api'
+         DO UPDATE SET amount_usd = EXCLUDED.amount_usd`,
+        [campaign.id, yesterday, spend.amountUsd, new Date().toISOString()]
+      );
+      synced++;
+    } catch (err) {
+      console.error(`[meta-ads] spend sync failed for campaign ${campaign.id} (${campaign.name}):`, err.message);
+    }
+  }
+  return { dryRun: false, synced };
+}
+
+// Emails ADMIN_EMAIL (same address used for Printful submission failures
+// elsewhere in this app) when an active campaign's all-time ROAS drops
+// below ROAS_ALERT_THRESHOLD — never pauses or changes anything, per the
+// owner's explicit choice. Throttled by last_roas_alert_at so a campaign
+// that stays bad re-alerts at most once every ROAS_ALERT_COOLDOWN_DAYS,
+// not every single day.
+async function checkRoasAlerts() {
+  if (!process.env.ADMIN_EMAIL) return;
+
+  const rows = await db.all(`
+    SELECT c.*,
+      COALESCE(spend.total_spend, 0) AS total_spend,
+      COALESCE(rev.total_revenue, 0) AS total_revenue
+    FROM ad_campaigns c
+    LEFT JOIN (
+      SELECT campaign_id, SUM(amount_usd) AS total_spend FROM ad_spend_entries GROUP BY campaign_id
+    ) spend ON spend.campaign_id = c.id
+    LEFT JOIN (
+      SELECT LOWER(utm_campaign) AS name, SUM(amount_usd) AS total_revenue FROM (
+        SELECT utm_campaign, amount_usd FROM orders WHERE status = 'paid' AND utm_campaign IS NOT NULL
+        UNION ALL
+        SELECT utm_campaign, amount_usd FROM custom_orders WHERE status = 'paid' AND utm_campaign IS NOT NULL
+      ) paid_orders GROUP BY LOWER(utm_campaign)
+    ) rev ON rev.name = LOWER(c.name)
+    WHERE c.status = 'active'
+  `);
+
+  const cooldownCutoff = new Date(Date.now() - ROAS_ALERT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  for (const c of rows) {
+    const totalSpend = Number(c.total_spend);
+    const totalRevenue = Number(c.total_revenue);
+    if (totalSpend < ROAS_ALERT_MIN_SPEND) continue;
+    const roas = totalRevenue / totalSpend;
+    if (roas >= ROAS_ALERT_THRESHOLD) continue;
+    if (c.last_roas_alert_at && c.last_roas_alert_at >= cooldownCutoff) continue;
+
+    try {
+      await mailer.sendMail({
+        to: process.env.ADMIN_EMAIL,
+        subject: `Campaign "${c.name}" is under ${ROAS_ALERT_THRESHOLD}x ROAS`,
+        text: `"${c.name}" has spent $${totalSpend.toFixed(2)} and attributed $${totalRevenue.toFixed(2)} in revenue — ${roas.toFixed(2)}x ROAS, below your ${ROAS_ALERT_THRESHOLD}x threshold. Nothing has been paused or changed automatically; check it in Meta Ads Manager and the admin marketing panel and decide yourself.`,
+        html: `<p><strong>"${seo.escapeHtml(c.name)}"</strong> has spent $${totalSpend.toFixed(2)} and attributed $${totalRevenue.toFixed(2)} in revenue — <strong>${roas.toFixed(2)}x ROAS</strong>, below your ${ROAS_ALERT_THRESHOLD}x threshold.</p><p>Nothing has been paused or changed automatically — check it in Meta Ads Manager and the admin marketing panel, then decide yourself.</p>`,
+      }).catch(() => {});
+      await db.run(`UPDATE ad_campaigns SET last_roas_alert_at = ? WHERE id = ?`, [new Date().toISOString(), c.id]);
+    } catch (err) {
+      console.error(`[meta-ads] ROAS alert email failed for campaign ${c.id} (${c.name}):`, err.message);
+    }
+  }
+}
+
 app.get('/api/admin/marketing/campaigns', requireAdmin, async (req, res) => {
   const rows = await db.all(`
     SELECT c.*,
@@ -1533,7 +1647,20 @@ app.get('/api/admin/marketing/campaigns', requireAdmin, async (req, res) => {
     total_revenue: Number(r.total_revenue),
     roas: Number(r.total_spend) > 0 ? Number((Number(r.total_revenue) / Number(r.total_spend)).toFixed(2)) : null,
   }));
-  res.json({ campaigns });
+  res.json({ campaigns, metaConfigured: metaAds.configured() });
+});
+
+// Manual on-demand trigger for the same sync the daily cron runs — lets
+// you link a freshly-added campaign to Meta and pull its spend right away
+// instead of waiting for the next cron run.
+app.post('/api/admin/marketing/sync-meta', requireAdmin, async (req, res) => {
+  try {
+    const result = await syncMetaAdSpend();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Sync failed.' });
+  }
 });
 
 app.post('/api/admin/marketing/campaigns', requireAdmin, async (req, res) => {
@@ -1660,6 +1787,11 @@ app.post('/api/admin/run-rank-drop-alerts', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/admin/run-roas-alerts', requireAdmin, async (req, res) => {
+  await checkRoasAlerts();
+  res.json({ ok: true });
+});
+
 app.get('/healthz', (req, res) => res.send('ok'));
 
 // ---------- background schedule ----------
@@ -1688,6 +1820,15 @@ app.get('/api/cron/daily', async (req, res) => {
     await runDueContestClose();
     await sendRankDropAlerts();
     await sendDueReviewRequests();
+    // Isolated from the steps above: a Meta API hiccup (rate limit, an
+    // expired token, a transient outage) should never block contest
+    // closing or review requests, which don't depend on any third party.
+    try {
+      await syncMetaAdSpend();
+    } catch (err) {
+      console.error('[cron] Meta ad spend sync failed:', err.message);
+    }
+    await checkRoasAlerts();
     res.json({ ok: true });
   } catch (err) {
     console.error('[cron] daily run failed:', err);
