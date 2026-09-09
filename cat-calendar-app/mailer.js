@@ -109,9 +109,13 @@ function discountBlockText(discount, catName) {
   return `\n${discount.percent}% off a print of ${catName}, expires ${discount.expiresAt}: ${shopUrl}`;
 }
 
-async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, closesAt, discount }) {
+async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, closesAt, discount, shareImageUrl }) {
   const safeName = escapeHtml(catName);
   const closeDate = new Date(closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  const shareImageBlock = shareImageUrl
+    ? `<p style="text-align:center;margin:20px 0;"><img src="${shareImageUrl}" alt="Vote for ${safeName}" style="max-width:280px;border-radius:6px;" /></p>
+       <p style="font-size:13px;color:#555;text-align:center;">Post that image straight to Stories, WhatsApp, or a group chat — it already has ${safeName}'s vote link on it.</p>`
+    : '';
   const html = wrapLayout(`
     <p>Hi there,</p>
     <p><strong>${safeName}</strong> is entered — free, no purchase necessary. The top vote-getters when voting closes on <strong>${closeDate}</strong> win this round's calendar.</p>
@@ -121,6 +125,7 @@ async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, close
       </a>
     </p>
     <p>Share that link with friends, family, and followers — votes from real people are what get a cat into the top spots.</p>
+    ${shareImageBlock}
     ${discountBlockHtml(discount, catName)}
     <p style="font-size:13px;color:#555;">Curious where ${safeName} stands? <a href="${statusUrl}">Check your status any time</a>.</p>
     <p>— Whiskr</p>
@@ -129,7 +134,7 @@ async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, close
     to: email,
     subject: `${catName} is entered! Get votes before ${closeDate}`,
     html,
-    text: `${catName} is entered — free, no purchase necessary. Voting closes ${closeDate}. Vote and get your share link: ${voteUrl}${discountBlockText(discount, catName)}\nCheck your status any time: ${statusUrl}`,
+    text: `${catName} is entered — free, no purchase necessary. Voting closes ${closeDate}. Vote and get your share link: ${voteUrl}${shareImageUrl ? `\nShare image: ${shareImageUrl}` : ''}${discountBlockText(discount, catName)}\nCheck your status any time: ${statusUrl}`,
   });
 }
 
@@ -139,7 +144,7 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
     `
     <p>Hi there,</p>
     <p><strong>${safeName} got the most votes and is this month's Cat of the Month.</strong></p>
-    <p>${safeName} is the cover star of this round's calendar, sharing the pages with the other top vote-getters.</p>
+    <p>${safeName} is the cover star of this round's calendar, sharing the pages with the other top vote-getters. ${safeName} is also now in the running for Cat of the Year — a public vote among this year's monthly winners, once a year, for a one-of-a-kind wooden sculpture prize.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Get ${safeName}'s calendar — $${priceOne}
@@ -154,7 +159,36 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
     to: email,
     subject: `${catName} is Cat of the Month`,
     html,
-    text: `${catName} got the most votes and is Cat of the Month. Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} got the most votes and is Cat of the Month, and is now in the running for Cat of the Year. Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+  });
+}
+
+// Sent once a year when the Cat of the Year award closes (see
+// tallyAndCloseYearAward in server.js) — this is the actual grand-prize
+// notification, the one that carries a real fulfillment commitment
+// (sculptureDeadline), separate from the monthly Cat of the Month email
+// above, which no longer promises a sculpture.
+async function sendCatOfYearEmail({ email, catName, sculptureDeadline }) {
+  const safeName = escapeHtml(catName);
+  const deadlineText = sculptureDeadline
+    ? new Date(sculptureDeadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
+    : 'in the coming months';
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p><strong>${safeName} is Cat of the Year!</strong> Out of all of this year's monthly Cat of the Month winners, ${safeName} got the most votes in the year-end vote.</p>
+    <p><strong>${safeName} wins a one-of-a-kind wooden sculpture of ${safeName}, handmade by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. We're aiming to have it delivered by ${deadlineText}.</p>
+    <p>Reply to this email with a mailing address and we'll get started.</p>
+    <p>Congratulations, and thank you for being part of Whiskr this year.</p>
+    <p>— Whiskr</p>
+  `,
+    { showUnsubscribe: true, email, tagline: 'Cat of the Year' }
+  );
+  return sendMail({
+    to: email,
+    subject: `${catName} is Cat of the Year!`,
+    html,
+    text: `${catName} is Cat of the Year! ${catName} wins a one-of-a-kind wooden sculpture of ${catName}, handmade by Cody Carlson, aiming for delivery by ${deadlineText}. Reply to this email with a mailing address.\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -272,6 +306,7 @@ async function sendReviewRequest({ email, itemLabel, reviewUrl }) {
 module.exports = {
   sendEntryConfirmation,
   sendWinnerEmail,
+  sendCatOfYearEmail,
   sendFeaturedEmail,
   sendFinalRankEmail,
   sendRankDropEmail,

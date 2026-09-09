@@ -54,6 +54,13 @@ const MIN_PRINT_DIMENSION_PX = Number(process.env.MIN_PRINT_DIMENSION_PX || 2000
 // How many places an entrant's live rank has to worsen (or crossing out of
 // the winner zone) before sendRankDropAlerts emails them again.
 const RANK_DROP_THRESHOLD = Number(process.env.RANK_DROP_THRESHOLD || 5);
+
+// Cat of the Year: a once-a-year public vote among that year's monthly
+// Cat-of-the-Month winners for the one physical grand prize (a wooden
+// sculpture of the winning cat). This is a single ballot, not repeatable
+// daily voting, so the per-IP guard is a flat cap for the whole award
+// rather than a per-day rate — see year_award_votes in db.js.
+const YEAR_AWARD_VOTE_LIMIT_PER_IP = Number(process.env.YEAR_AWARD_VOTE_LIMIT_PER_IP || 5);
 const BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const PRICE_ONE = Number(process.env.CALENDAR_PRICE_USD || 24.99);
 const PRICE_MULTI = Number(process.env.CALENDAR_2PLUS_PRICE_USD || 19.99);
@@ -134,6 +141,53 @@ async function storePhoto(file) {
   fs.mkdirSync(uploadDir, { recursive: true });
   fs.writeFileSync(path.join(uploadDir, filename), file.buffer);
   return `/uploads/${filename}`;
+}
+
+// Stores a raw buffer (not a multer file) under uploads/ the same way
+// storePhoto does — used for generated assets like the share card, which
+// don't come from an incoming form upload.
+async function storeBuffer(buffer, mimetype, filename) {
+  if (BLOB_CONFIGURED) {
+    const blob = await putBlob(`uploads/${filename}`, buffer, { access: 'public', contentType: mimetype });
+    return blob.url;
+  }
+  const uploadDir = path.join(__dirname, 'public', 'uploads');
+  fs.mkdirSync(uploadDir, { recursive: true });
+  fs.writeFileSync(path.join(uploadDir, filename), buffer);
+  return `/uploads/${filename}`;
+}
+
+// Composites a real, ready-to-post "vote for me" image from the entrant's
+// own photo — a square crop with the cat's name and the Whiskr wordmark
+// overlaid, so sharing is an actual image (Stories/feed/WhatsApp all
+// prefer an image over a bare link), not a fabricated render — same photo
+// they uploaded, just framed for sharing. Failure here never blocks an
+// entry; the caller treats a null return as "no share card this time."
+async function generateShareCard(photoBuffer, catName) {
+  const SIZE = 1080;
+  const BAR_HEIGHT = 190;
+  const safeName = seo.escapeHtml(catName);
+  // Plain text only, no emoji — this renders server-side via whatever font
+  // stack happens to be installed on the host, which reliably has a normal
+  // sans-serif face but not necessarily an emoji font, so an emoji here can
+  // silently come out as a broken tofu box on every single share card.
+  const svg = `
+    <svg width="${SIZE}" height="${SIZE}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="${SIZE - BAR_HEIGHT}" width="${SIZE}" height="${BAR_HEIGHT}" fill="rgba(27,36,48,0.85)" />
+      <text x="40" y="${SIZE - BAR_HEIGHT + 70}" font-family="sans-serif" font-size="54" font-weight="700" fill="#ffffff">Vote for ${safeName}!</text>
+      <text x="40" y="${SIZE - BAR_HEIGHT + 130}" font-family="sans-serif" font-size="32" fill="#E8A33D" font-weight="600">whiskr.lol</text>
+    </svg>`;
+  try {
+    const buffer = await sharp(photoBuffer)
+      .resize(SIZE, SIZE, { fit: 'cover' })
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .jpeg({ quality: 85 })
+      .toBuffer();
+    return await storeBuffer(buffer, 'image/jpeg', `share-${uuid()}.jpg`);
+  } catch (err) {
+    console.warn('[share-card] generation failed:', err.message);
+    return null;
+  }
 }
 
 // Reads real pixel dimensions and flags (never blocks — a business would
@@ -328,9 +382,10 @@ const CALENDAR_PATH = path.join(__dirname, 'public', 'calendar.html');
 async function renderIndexHtml() {
   let html = fs.readFileSync(INDEX_PATH, 'utf8');
 
-  const { statusText, lastWinner } = await getContestStatus();
+  const { statusText, lastWinner, contestId } = await getContestStatus();
   html = seo.fillEmpty(html, 'contestStatus', seo.escapeHtml(statusText));
   if (lastWinner) {
+    html = seo.fillEmpty(html, 'currentRibbon', seo.escapeHtml('Most recent Cat of the Month'));
     html = seo.fillEmpty(html, 'winnerName', seo.escapeHtml(lastWinner.cat_name));
     html = seo.setAttr(html, 'winnerPhoto', 'src', lastWinner.photo_path);
     html = seo.setAttr(html, 'winnerPhoto', 'alt', `${lastWinner.cat_name}, Cat of the Month`);
@@ -339,6 +394,18 @@ async function renderIndexHtml() {
       'winnerBlurb',
       seo.escapeHtml('Chosen as Cat of the Month by real public vote. Their calendar is in the shop below.')
     );
+  } else if (contestId) {
+    // No round has closed yet — instead of a dead-end "check back soon",
+    // show a few of this round's real entries (random, no vote counts —
+    // same hidden-tally rule as the vote page) so there's something to
+    // click on the very first round, not just an empty promise.
+    const teaserEntries = await db.all(
+      `SELECT id, cat_name, photo_path FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY RANDOM() LIMIT 6`,
+      [contestId]
+    );
+    if (teaserEntries.length > 0) {
+      html = seo.fillEmpty(html, 'currentTeaser', seo.renderEntryTeaser(teaserEntries));
+    }
   }
 
   const products = productCatalog.listProducts('all');
@@ -424,6 +491,7 @@ app.get('/sitemap.xml', async (req, res) => {
   const urls = [
     { loc: `${BASE_URL}/`, changefreq: 'daily', priority: '1.0' },
     { loc: `${BASE_URL}/vote.html`, changefreq: 'hourly', priority: '0.9' },
+    { loc: `${BASE_URL}/year-award.html`, changefreq: 'weekly', priority: '0.4' },
     { loc: `${BASE_URL}/rules.html`, changefreq: 'monthly', priority: '0.3' },
     ...completed.map((g) => ({
       loc: `${BASE_URL}/calendar.html?group=${g.id}`,
@@ -448,6 +516,18 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ---------- helpers ----------
 function isValidEmail(e) {
   return typeof e === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+// Whatever a visitor's ?utm_campaign= link said, captured client-side into
+// a cookie (see script.js) and sent along with entry/order requests — a
+// free-text label matched case-insensitively against ad_campaigns.name at
+// reporting time (see /api/admin/marketing/campaigns), not a foreign key,
+// so an order never fails to save just because a campaign name doesn't
+// exist yet or was typed slightly differently in the ad platform.
+function cleanUtmCampaign(raw) {
+  if (!raw) return null;
+  const cleaned = String(raw).replace(/[\r\n]+/g, ' ').trim().slice(0, 120);
+  return cleaned || null;
 }
 
 function calendarBuyUrl(groupId) {
@@ -587,6 +667,46 @@ async function tallyAndCloseContest(contestId) {
   return groupId;
 }
 
+// Tallies a Cat of the Year award: highest-vote finalist wins, ties broken
+// by whichever finalist row was created first (deterministic, same
+// principle as the monthly tie-break). Unlike tallyAndCloseContest, this
+// is only ever called from an admin action (POST
+// /api/admin/year-award/force-close) — never a cron — since crowning Cat
+// of the Year is a rare, deliberate moment, not a scheduled event.
+async function tallyAndCloseYearAward(yearAwardId) {
+  const award = await db.get(`SELECT * FROM year_awards WHERE id = ?`, [yearAwardId]);
+  if (!award || award.status !== 'open') return null;
+
+  const finalists = await db.all(
+    `SELECT * FROM year_award_finalists WHERE year_award_id = ? ORDER BY vote_count DESC, id ASC`,
+    [yearAwardId]
+  );
+  if (finalists.length === 0) {
+    await db.run(`UPDATE year_awards SET status = 'completed' WHERE id = ?`, [yearAwardId]);
+    console.warn(`[year-award] #${yearAwardId} closed with zero finalists — nothing to crown.`);
+    return null;
+  }
+
+  const winner = finalists[0];
+  const winnerSubmission = await db.get(`SELECT * FROM submissions WHERE id = ?`, [winner.submission_id]);
+  await db.run(`UPDATE year_awards SET status = 'completed', winner_submission_id = ? WHERE id = ?`, [
+    winnerSubmission.id, yearAwardId,
+  ]);
+
+  try {
+    await mailer.sendCatOfYearEmail({
+      email: winnerSubmission.email,
+      catName: winnerSubmission.cat_name,
+      sculptureDeadline: award.sculpture_deadline,
+    });
+  } catch (err) {
+    console.error(`[mailer] Cat of the Year email failed for submission ${winnerSubmission.id}:`, err.message);
+  }
+
+  console.log(`[year-award] #${yearAwardId} closed. Cat of the Year: ${winnerSubmission.cat_name} (submission ${winnerSubmission.id}).`);
+  return winnerSubmission.id;
+}
+
 // Daily cron entry point — closes any contest whose closes_at has passed.
 // Normally there's at most one (contests don't overlap), but this handles
 // more than one due safely if the cron was down for a while.
@@ -711,13 +831,15 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     const name = (catName || 'Anonymous Cat').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
     const { width, height, lowResolution } = await checkImageQuality(req.file.buffer);
     const photoPath = await storePhoto(req.file);
+    const shareImagePath = await generateShareCard(req.file.buffer, name);
+    const utmCampaign = cleanUtmCampaign(req.body.utmCampaign);
     const now = new Date().toISOString();
     const contest = await getOrOpenCurrentContest();
 
     const info = await db.run(
-      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, name, photoPath, now, now, contest.id, width, height, lowResolution]
+      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution, share_image_path, utm_campaign)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, name, photoPath, now, now, contest.id, width, height, lowResolution, shareImagePath, utmCampaign]
     );
     const submissionId = info.rows[0].id;
     const voteUrl = `${BASE_URL}/vote.html?cat=${submissionId}`;
@@ -737,14 +859,14 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
 
     try {
       await mailer.sendEntryConfirmation({
-        email, catName: name, voteUrl, statusUrl, closesAt: contest.closes_at, discount,
+        email, catName: name, voteUrl, statusUrl, closesAt: contest.closes_at, discount, shareImageUrl: shareImagePath,
       });
       await db.run(`UPDATE submissions SET notified_entry = 1 WHERE id = ?`, [submissionId]);
     } catch (err) {
       console.error(`[mailer] entry confirmation failed for submission ${submissionId}:`, err.message);
     }
 
-    res.json({ ok: true, submissionId, voteUrl, statusUrl, lowResolution, width, height, discount });
+    res.json({ ok: true, submissionId, voteUrl, statusUrl, lowResolution, width, height, discount, shareImageUrl: shareImagePath });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong.' });
@@ -759,7 +881,7 @@ app.get('/api/contest/current', async (req, res) => {
   const contest = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
   if (!contest) return res.json({ contest: null, entries: [] });
   const entries = await db.all(
-    `SELECT id, cat_name, photo_path FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY RANDOM()`,
+    `SELECT id, cat_name, photo_path, share_image_path FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY RANDOM()`,
     [contest.id]
   );
   res.json({
@@ -879,6 +1001,76 @@ app.post('/api/vote', async (req, res) => {
   }
 });
 
+// Public: the currently open Cat of the Year award and its finalists (no
+// vote counts — same hidden-tally rule as the monthly vote). Returns
+// award: null most of the year, since this only opens once annually.
+app.get('/api/year-award/current', async (req, res) => {
+  const award = await db.get(`SELECT * FROM year_awards WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  if (!award) return res.json({ award: null, finalists: [] });
+  const finalists = await db.all(
+    `SELECT yaf.id AS finalist_id, s.id AS submission_id, s.cat_name, s.photo_path, s.share_image_path
+     FROM year_award_finalists yaf JOIN submissions s ON s.id = yaf.submission_id
+     WHERE yaf.year_award_id = ? ORDER BY RANDOM()`,
+    [award.id]
+  );
+  res.json({
+    award: { id: award.id, label: award.label, closesAt: award.closes_at },
+    finalists,
+  });
+});
+
+// Cast one Cat of the Year ballot. Unlike monthly voting, this is a single
+// pick per person for the whole award (UNIQUE on year_award_id+voter_token,
+// not per finalist) — see year_award_votes in db.js.
+app.post('/api/year-award/vote', async (req, res) => {
+  try {
+    const finalistId = Number(req.body.finalistId);
+    if (!finalistId) return res.status(400).json({ error: 'Missing finalistId.' });
+
+    const finalist = await db.get(
+      `SELECT yaf.*, ya.status AS award_status FROM year_award_finalists yaf
+       JOIN year_awards ya ON ya.id = yaf.year_award_id WHERE yaf.id = ?`,
+      [finalistId]
+    );
+    if (!finalist) return res.status(404).json({ error: 'Finalist not found.' });
+    if (finalist.award_status !== 'open') {
+      return res.status(400).json({ error: 'Voting has closed for this award.' });
+    }
+
+    if (process.env.TURNSTILE_SECRET_KEY) {
+      const captchaOk = await verifyTurnstile(req.body.turnstileToken, req.ip);
+      if (!captchaOk) return res.status(400).json({ error: 'Captcha verification failed — please try again.' });
+    }
+
+    const voterToken = getOrSetVoterToken(req, res);
+    const ipHash = hashIp(req.ip);
+
+    const ipCount = await db.get(
+      `SELECT COUNT(*) AS c FROM year_award_votes WHERE year_award_id = ? AND ip_hash = ?`,
+      [finalist.year_award_id, ipHash]
+    );
+    if (Number(ipCount.c) >= YEAR_AWARD_VOTE_LIMIT_PER_IP) {
+      return res.status(429).json({ error: 'Too many votes from this connection for this award.' });
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.run(
+        `INSERT INTO year_award_votes (year_award_id, finalist_id, voter_token, ip_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
+        [finalist.year_award_id, finalistId, voterToken, ipHash, new Date().toISOString()]
+      );
+      await tx.run(`UPDATE year_award_finalists SET vote_count = vote_count + 1 WHERE id = ?`, [finalistId]);
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: "You've already voted in this year's award." });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
+});
+
 async function verifyTurnstile(token, remoteIp) {
   if (!token) return false;
   try {
@@ -962,6 +1154,7 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     const petNameClean = (petName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
     const { width, height, lowResolution } = await checkImageQuality(req.file.buffer);
     const photoPath = await storePhoto(req.file);
+    const utmCampaign = cleanUtmCampaign(req.body.utmCampaign);
     const now = new Date().toISOString();
 
     // Optional time-limited discount from the contest entry-confirmation
@@ -979,9 +1172,9 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     const amount = unitPrice * qty;
 
     const info = await db.run(
-      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at, photo_width, photo_height, low_resolution, discount_percent)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now, width, height, lowResolution, discountPercent]
+      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at, photo_width, photo_height, low_resolution, discount_percent, utm_campaign)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now, width, height, lowResolution, discountPercent, utmCampaign]
     );
     const orderId = info.rows[0].id;
 
@@ -1067,10 +1260,11 @@ app.post('/api/checkout', async (req, res) => {
 
     const qty = Math.max(1, Math.min(20, Number(quantity) || 1));
     const unitPrice = qty >= 2 ? PRICE_MULTI : PRICE_ONE;
+    const utmCampaign = cleanUtmCampaign(req.body.utmCampaign);
 
     const info = await db.run(
-      `INSERT INTO orders (group_id, email, quantity, amount_usd, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?) RETURNING id`,
-      [groupId, email || '', qty, unitPrice * qty, new Date().toISOString()]
+      `INSERT INTO orders (group_id, email, quantity, amount_usd, status, created_at, utm_campaign) VALUES (?, ?, ?, ?, 'pending', ?, ?) RETURNING id`,
+      [groupId, email || '', qty, unitPrice * qty, new Date().toISOString(), utmCampaign]
     );
     const orderId = info.rows[0].id;
 
@@ -1246,6 +1440,148 @@ app.post('/api/admin/contest/force-close', requireAdmin, async (req, res) => {
   if (!contest) return res.status(404).json({ error: 'No open contest.' });
   const groupId = await tallyAndCloseContest(contest.id);
   res.json({ ok: true, contestId: contest.id, groupId });
+});
+
+// Opens a new Cat of the Year award: auto-populates finalists from every
+// completed monthly Cat-of-the-Month winner (groups.winner_submission_id)
+// sealed within [sinceDate, untilDate] — default sinceDate is "the
+// beginning of time" (covers year one, before any award has ever run) and
+// default untilDate is now. Deliberately admin-triggered, not cron-driven:
+// the operator should set the date range and sculptureDeadline
+// deliberately once a year, not have this fire unattended.
+app.post('/api/admin/year-award/open', requireAdmin, async (req, res) => {
+  const { label, closesAt, sculptureDeadline, sinceDate, untilDate } = req.body;
+  if (!label || !closesAt) return res.status(400).json({ error: 'label and closesAt are required.' });
+
+  const since = sinceDate || '2000-01-01T00:00:00.000Z';
+  const until = untilDate || new Date().toISOString();
+  const winners = await db.all(
+    `SELECT DISTINCT g.winner_submission_id AS submission_id
+     FROM groups g WHERE g.status = 'completed' AND g.winner_submission_id IS NOT NULL
+       AND g.sealed_at >= ? AND g.sealed_at <= ?`,
+    [since, until]
+  );
+  if (winners.length === 0) {
+    return res.status(400).json({ error: 'No completed Cat-of-the-Month winners in that date range.' });
+  }
+
+  const now = new Date().toISOString();
+  const info = await db.run(
+    `INSERT INTO year_awards (label, opens_at, closes_at, status, sculpture_deadline, created_at)
+     VALUES (?, ?, ?, 'open', ?, ?) RETURNING id`,
+    [label, now, closesAt, sculptureDeadline || null, now]
+  );
+  const yearAwardId = info.rows[0].id;
+  for (const w of winners) {
+    await db.run(
+      `INSERT INTO year_award_finalists (year_award_id, submission_id) VALUES (?, ?) ON CONFLICT DO NOTHING`,
+      [yearAwardId, w.submission_id]
+    );
+  }
+  res.json({ ok: true, yearAwardId, finalistCount: winners.length });
+});
+
+app.get('/api/admin/year-award/current', requireAdmin, async (req, res) => {
+  const award = await db.get(`SELECT * FROM year_awards WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  if (!award) return res.json({ award: null, finalists: [] });
+  const finalists = await db.all(
+    `SELECT yaf.id AS finalist_id, yaf.vote_count, s.id AS submission_id, s.cat_name, s.photo_path
+     FROM year_award_finalists yaf JOIN submissions s ON s.id = yaf.submission_id
+     WHERE yaf.year_award_id = ? ORDER BY yaf.vote_count DESC`,
+    [award.id]
+  );
+  res.json({ award, finalists });
+});
+
+app.post('/api/admin/year-award/force-close', requireAdmin, async (req, res) => {
+  const award = await db.get(`SELECT * FROM year_awards WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  if (!award) return res.status(404).json({ error: 'No open year award.' });
+  const winnerSubmissionId = await tallyAndCloseYearAward(award.id);
+  res.json({ ok: true, yearAwardId: award.id, winnerSubmissionId });
+});
+
+// Marketing/ROAS ledger — the honest, non-automated version of the
+// "Sentinel" ad-spend/ROAS engine referenced in planning docs: no live ad
+// platform API integration lives here (nothing on this server can pause a
+// real ad campaign), just real spend you log yourself against real
+// revenue this app already recorded, so a human can compute ROAS per
+// named campaign/geo and decide manually whether to keep it running.
+// Revenue is matched by name (case-insensitive) against whatever
+// ?utm_campaign= value a visitor's link carried — see cleanUtmCampaign
+// and script.js's capture on page load.
+app.get('/api/admin/marketing/campaigns', requireAdmin, async (req, res) => {
+  const rows = await db.all(`
+    SELECT c.*,
+      COALESCE(spend.total_spend, 0) AS total_spend,
+      COALESCE(rev.total_revenue, 0) AS total_revenue
+    FROM ad_campaigns c
+    LEFT JOIN (
+      SELECT campaign_id, SUM(amount_usd) AS total_spend FROM ad_spend_entries GROUP BY campaign_id
+    ) spend ON spend.campaign_id = c.id
+    LEFT JOIN (
+      SELECT LOWER(utm_campaign) AS name, SUM(amount_usd) AS total_revenue FROM (
+        SELECT utm_campaign, amount_usd FROM orders WHERE status = 'paid' AND utm_campaign IS NOT NULL
+        UNION ALL
+        SELECT utm_campaign, amount_usd FROM custom_orders WHERE status = 'paid' AND utm_campaign IS NOT NULL
+      ) paid_orders GROUP BY LOWER(utm_campaign)
+    ) rev ON rev.name = LOWER(c.name)
+    ORDER BY c.created_at DESC
+  `);
+  const campaigns = rows.map((r) => ({
+    ...r,
+    total_spend: Number(r.total_spend),
+    total_revenue: Number(r.total_revenue),
+    roas: Number(r.total_spend) > 0 ? Number((Number(r.total_revenue) / Number(r.total_spend)).toFixed(2)) : null,
+  }));
+  res.json({ campaigns });
+});
+
+app.post('/api/admin/marketing/campaigns', requireAdmin, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim().slice(0, 120);
+    const platform = String(req.body.platform || '').trim().slice(0, 60) || null;
+    const notes = String(req.body.notes || '').trim().slice(0, 500) || null;
+    if (!name) return res.status(400).json({ error: 'A campaign name is required.' });
+    const info = await db.run(
+      `INSERT INTO ad_campaigns (name, platform, notes, status, created_at) VALUES (?, ?, ?, 'active', ?) RETURNING id`,
+      [name, platform, notes, new Date().toISOString()]
+    );
+    res.json({ ok: true, id: info.rows[0].id });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'A campaign with this exact name already exists.' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
+});
+
+app.post('/api/admin/marketing/campaigns/:id/status', requireAdmin, async (req, res) => {
+  const status = req.body.status === 'paused' ? 'paused' : 'active';
+  const info = await db.run(`UPDATE ad_campaigns SET status = ? WHERE id = ?`, [status, Number(req.params.id)]);
+  if (info.changes === 0) return res.status(404).json({ error: 'Campaign not found.' });
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/marketing/campaigns/:id/spend', requireAdmin, async (req, res) => {
+  const rows = await db.all(
+    `SELECT * FROM ad_spend_entries WHERE campaign_id = ? ORDER BY spend_date DESC, id DESC`,
+    [Number(req.params.id)]
+  );
+  res.json({ entries: rows });
+});
+
+app.post('/api/admin/marketing/campaigns/:id/spend', requireAdmin, async (req, res) => {
+  const campaignId = Number(req.params.id);
+  const amount = Number(req.body.amountUsd);
+  const spendDate = String(req.body.spendDate || '').slice(0, 10);
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'A positive amountUsd is required.' });
+  if (!spendDate) return res.status(400).json({ error: 'spendDate is required.' });
+  const info = await db.run(
+    `INSERT INTO ad_spend_entries (campaign_id, spend_date, amount_usd, created_at) VALUES (?, ?, ?, ?) RETURNING id`,
+    [campaignId, spendDate, amount, new Date().toISOString()]
+  );
+  res.json({ ok: true, id: info.rows[0].id });
 });
 
 // Orders, for fulfillment. ?status=paid to see what actually needs printing;

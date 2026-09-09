@@ -8,6 +8,12 @@
   --line: #d8cdb5;
   --font-display: 'Fraunces', Georgia, serif;
   --font-body: 'Work Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Fun/bright accents — scoped to the hero's contest+prize announcement
+     only, so the rest of the site keeps its calmer editorial palette. */
+  --font-fun: 'Baloo 2', var(--font-display);
+  --candy-pink: #FF5D8F;
+  --candy-yellow: #FFC93C;
+  --candy-teal: #17C3B2;
 }
 
 * { box-sizing: border-box; }
@@ -136,6 +142,34 @@ h1, h2, h3, h4 {
   font-size: clamp(2.4rem, 5.5vw, 4rem);
   color: #fff;
 }
+.ribbon-fun {
+  font-family: var(--font-fun);
+  font-style: normal;
+  font-weight: 600;
+  color: var(--candy-yellow);
+  letter-spacing: 0.02em;
+}
+.hero-fun-headline {
+  font-family: var(--font-fun);
+  font-weight: 800;
+  font-size: clamp(2.6rem, 6.5vw, 4.6rem);
+  line-height: 1.08;
+  color: #fff;
+  text-shadow: 3px 3px 0 var(--candy-pink);
+}
+.hero-prize-callout {
+  display: inline-block;
+  font-family: var(--font-fun);
+  font-weight: 800;
+  font-size: clamp(1.1rem, 2.2vw, 1.4rem);
+  color: var(--ink);
+  background: var(--candy-teal);
+  padding: 8px 16px;
+  border-radius: 8px;
+  margin: 6px 0 18px;
+  transform: rotate(-1.5deg);
+}
+.hero-prize-callout a { text-decoration: underline; text-decoration-thickness: 2px; }
 .hero-sub {
   max-width: 46ch;
   font-size: 1.08rem;
@@ -202,15 +236,49 @@ h1, h2, h3, h4 {
   border-radius: 6px;
   overflow: hidden;
 }
-.current-photo { background: var(--ink); min-height: 320px; }
+.current-photo { background: var(--ink); min-height: 320px; position: relative; }
 .current-photo img { width: 100%; height: 100%; object-fit: cover; min-height: 320px; }
-.current-copy { padding: 40px; display: flex; flex-direction: column; justify-content: center; }
+/* Before any round has closed, winnerPhoto has no src yet — hide the
+   broken-image box and show a plain placeholder instead. */
+.current-photo img[src=""] { display: none; }
+.current-photo:has(img[src=""])::after {
+  content: "🐾";
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 3.5rem; opacity: 0.5;
+}
+.current-vote-cta { margin-top: 22px; align-self: flex-start; }
 .contest-status {
   margin-top: 18px;
   font-size: 0.9rem;
   color: var(--forest);
   font-weight: 600;
 }
+
+/* Teaser strip of this round's entries — shown only before any round has
+   closed (see renderIndexHtml/loadStatus). No vote counts, no ranking by
+   vote — just who's entered, same principle as the vote page. */
+.current-teaser {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+.current-teaser:empty { display: none; }
+.teaser-card {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: var(--ink);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--paper-card);
+  transition: transform 0.15s ease;
+}
+.teaser-card:hover { transform: translateY(-2px); }
+.teaser-card img { width: 100%; aspect-ratio: 1/1; object-fit: cover; }
+.teaser-card span { padding: 6px 8px; font-size: 0.82rem; font-weight: 500; }
 
 /* ---------- shop ---------- */
 .shop-grid { margin-top: 34px; display: grid; grid-template-columns: minmax(0, 460px); }
@@ -386,6 +454,23 @@ h1, h2, h3, h4 {
 .affiliate-disclosure { margin-top: 26px; font-size: 0.78rem; color: rgba(239,230,216,0.5); }
 
 /* ---------- entry form ---------- */
+.year-award-banner {
+  background: var(--candy-teal);
+  color: var(--ink);
+  border-radius: 8px;
+  max-width: 1000px;
+  margin: 0 auto 40px;
+  padding: 32px 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.year-award-banner:empty { display: none; }
+.year-award-banner h2 { font-family: var(--font-fun); font-size: 1.6rem; margin: 0 0 6px; }
+.year-award-banner p { margin: 0; max-width: 50ch; }
+
 .enter { background: var(--forest); color: #fff; }
 .enter-wrap {
   display: grid;
@@ -453,6 +538,12 @@ h1, h2, h3, h4 {
   margin-top: 8px;
   color: #6b6552;
 }
+.entry-share {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.entry-share p { font-size: 0.85rem; margin: 0 0 10px; word-break: break-all; }
 .entry-discount {
   background: var(--paper);
   border: 1px dashed var(--marigold);

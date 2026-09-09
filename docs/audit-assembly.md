@@ -718,3 +718,257 @@ pre-existing "worth adding once verified" item, unchanged by this pass.
 The discount is time-limited but not single-use — the same signed link
 works for every order placed before it expires, a deliberate simplicity
 choice, not an oversight.
+
+## Update — 2026-09-09: real funnel audit against the live site, a new grand prize, and a deliberate reversal on decorative emoji
+
+The owner sent live-site feedback (an external review of whiskr.lol) plus
+two follow-up copy packages, and asked for the critical fixes and the
+strongest funnel upgrades to actually be built — not just discussed. Every
+claim was verified against the real code first, not taken at face value:
+
+**Confirmed and fixed, real bugs:**
+1. The "Gear we actually use" section had a literal dev note visible in
+   production: "Replace these href values with your real, tagged affiliate
+   URLs before launch — see README." Removed from the page; the
+   instruction already lives in the README, so nothing was lost.
+2. `loadProducts()` in `script.js` unconditionally blanked `#customGrid` to
+   "Loading…" on every call, and to an error message on any fetch failure —
+   overwriting the real product cards `renderProductCards` (see `seo.js`)
+   already server-rendered into that exact container. A crawler was never
+   actually affected (SSR already covers that), but every real visitor saw
+   a flash, and a slow or failed fetch replaced good content with worse.
+   Fixed to only touch the grid when it's still empty.
+3. The homepage's "most recent winner" card showed a dead-end "Voting in
+   progress… check back soon" for the entire length of the first-ever
+   round (it only ever populates once a round has closed) — exactly the
+   dead traffic the review flagged. Fixed without touching the hidden-vote-
+   count principle from the previous session: added a small teaser of a
+   few of the current round's real entries, random order, no vote counts
+   and no ranking-by-vote (same rule the vote page already states), server-
+   rendered (`renderEntryTeaser` in `seo.js`) and client-refreshed
+   (`loadCurrentTeaser` in `script.js`) — social proof without reopening
+   the exact fraud-verification/snowball loop that principle was built to
+   close.
+
+**Rejected as written, then built the honest version:** the review's own
+draft leaderboard fix ("show the current top 3–5 vote-getters… with vote
+counts") would have undone that same hidden-tally design outright. Built
+the random, count-free teaser above instead.
+
+**Rejected as written, not built at all:** the forwarded "full kit"
+proposed daily/staged emails that state exact vote counts ("Fluffy has 0
+votes," "leader has 87 votes"). This app already has a real urgency
+mechanic for this — `sendRankDropAlerts`, which emails on a genuine rank
+change or falling out of the winner zone, deliberately without a raw
+count, for the same reason votes stay hidden publicly: a number lets
+someone verify whether a fraud attempt "worked." Left that mechanic as-is
+rather than adding a second, count-leaking one beside it. Also not built:
+single-use discount codes, a calendar-buyer referral/friend-code system,
+and non-entrant email capture — each is a real, reasonable roadmap item,
+but a genuine new schema/infra piece, scoped out rather than half-built in
+the same pass as everything else here.
+
+**Built, real conversion loop:**
+- Vote page: a persistent "have a cat? enter free" banner, and a one-time
+  post-vote nudge to the entry form — the review's "biggest single bet."
+- Entry form: a direct rules link next to the submit button (previously
+  only reachable from the "how it works" section), and an anti-fraud line
+  on the vote page ("votes are checked for abuse; suspicious activity is
+  removed") next to the existing hidden-tally explanation.
+- A real share-card image, not just a link: `generateShareCard` in
+  `server.js` composites the entrant's own uploaded photo (via `sharp`,
+  already a dependency) into a 1080×1080 image with their cat's name and
+  the site's URL overlaid, generated once at entry time and stored the
+  same way an uploaded photo is (Vercel Blob or local disk). Wired into
+  the entry-confirmation email, the post-entry "Share for votes" button,
+  and the vote page's existing Share button (Web Share Level 2's `files`
+  API when the browser supports sharing an actual file, falling back to a
+  link+text share, then clipboard) — the same asset reused in all three
+  places. Caught and fixed one real defect before treating this as done:
+  the first version put a 🗳️ emoji in the server-side SVG text, which
+  rendered as a broken glyph box in a real generated image (verified by
+  actually reading the output file, not just checking the response was
+  200) — an emoji is only as good as whatever font happens to be installed
+  wherever `sharp`/librsvg run, which server-side is not guaranteed the
+  way a browser's emoji font is. Removed it; plain text renders correctly
+  everywhere. **Still not proven**: this sandbox has a system sans-serif
+  font installed, so SVG text rendering worked here — Vercel's serverless
+  Node runtime does not ship fonts by default, and `sharp`'s SVG text
+  support depends on librsvg/pango finding one. The very first real
+  submission on the deployed site should be checked for whether the share
+  card's text actually renders (vs. rendering blank) — if it doesn't,
+  the fix is a bundled/embedded font, not a rewrite of this feature.
+
+**New grand prize, and a deliberate reversal of the "no decorative emoji"
+rule:** the owner asked for a real, physical prize — a one-of-a-kind cat
+sculpture handmade by Cody Carlson (a fellow HipAAsynth LLC brand,
+codycarlson.art) for the round's #1 vote-getter — plus a fun, bright,
+big-font hero treatment to announce it. Because this changes what's
+actually promised to a real winner, the prize was made accurate everywhere
+it's legally load-bearing, not just on the homepage banner: `rules.html`'s
+Prizes section now states it explicitly (no cash prize, no cash-equivalent
+substitution, no purchase necessary still applies), and `sendWinnerEmail`
+in `mailer.js` now tells the actual winner directly and asks them to reply
+with a mailing address to claim it — otherwise this would have become
+exactly the kind of gap between marketing copy and reality this codebase's
+audits exist to catch. Flagging, not blocking: a physical prize of
+non-trivial value can trip NY/FL/RI-style sweepstakes registration/bonding
+thresholds depending on its actual value — a business decision for the
+owner to make with real numbers, not a reason to withhold the copy change.
+The fun/bright hero treatment (a new `Baloo 2` display font, bright
+teal/pink/yellow accents, a 🏆 in the prize callout, a 🐾 placeholder
+for the pre-first-round winner photo slot) is a deliberate, scoped
+reversal of the earlier "removed every decorative emoji from the site"
+decision (see the 2026-09-08 redesign entry above) for these two specific
+new elements only — the rest of the site (nav, forms, reviews, footer)
+keeps the calmer editorial palette and type unchanged. The repo-wide
+emoji-grep check that gates every other pass in this log intentionally
+does not stay clean after this one; that's the reversal, not a miss.
+
+**Verified against a real local Postgres instance**: started the server
+against `whiskr_dev`, confirmed `/api/status`'s existing-winner path still
+renders `currentRibbon`/`winnerName`/`winnerBlurb` correctly (this repo's
+dev DB already had a completed round from earlier sessions), confirmed the
+teaser SQL query returns real random entries for an open contest,
+submitted a real JPEG through `/api/submissions` end-to-end and confirmed
+`shareImageUrl` came back non-null, confirmed the row's `share_image_path`
+column was set, and — critically — read the actual generated JPEG back as
+an image rather than just checking the file existed, which is what caught
+the broken-emoji defect above. Confirmed `node --check` passes on every
+changed JS file and the new/edited HTML files have balanced tags.
+
+## Update — 2026-09-09: sculpture prize moved from monthly to annual, Cat of the Year added
+
+Follow-up from the owner after the pass above: the wooden sculpture prize
+(handmade by Cody Carlson, confirmed valued under $5,000 — so no NY/FL/RI
+sweepstakes registration/bonding threshold is actually tripped, which the
+previous pass had flagged as a real risk to check) should be the prize for
+a new annual **Cat of the Year** award, not something promised every
+single month. That's also the operationally sane call independent of the
+legal question: commissioning a unique wooden sculpture every month for
+every monthly winner isn't a sustainable prize to fulfill; once a year is.
+
+**Built, a real second contest mechanic, not a copy-paste of the first:**
+Cat of the Year is a separate, admin-opened public vote among that year's
+monthly Cat of the Month winners (auto-populated from `groups` — no
+nomination step, every eligible winner is automatically a finalist),
+living in its own tables (`year_awards`, `year_award_finalists`,
+`year_award_votes`) rather than reusing the monthly `contests`/`votes`
+tables, because the actual voting rule is different: **one ballot per
+person for the whole award**, not repeatable daily voting over a 30-day
+window — enforced with `UNIQUE(year_award_id, voter_token)`, not
+`UNIQUE(finalist_id, voter_token)`, so a voter can't pick a favorite, get
+told "already voted," and just pick a second favorite instead. Verified
+this distinction actually holds by testing both cases directly: voting
+twice for the same finalist fails, and voting for a *different* finalist
+with the same voter cookie also fails.
+
+Deliberately admin-triggered on both ends (`/api/admin/year-award/open`
+and `/force-close`), never cron-automated — crowning Cat of the Year is a
+once-a-year, deliberate moment the operator should choose (and review the
+auto-populated finalist list for) rather than something that fires
+unattended on a schedule the way the monthly contest does.
+
+**Reverted the previous pass's monthly winner email and Prizes-page
+copy** — both had (correctly, at the time) promised the sculpture to every
+Cat of the Month, which is exactly the promise this update replaces.
+`sendWinnerEmail` no longer mentions a sculpture at all, only that the
+winner is "now in the running for Cat of the Year"; a new
+`sendCatOfYearEmail` carries the actual grand-prize notification and
+fulfillment ask (reply with a mailing address) once an award closes.
+`rules.html`'s Prizes section now states both tiers explicitly, including
+the under-$5,000 value cap and a plain description of the one-ballot
+voting rule, and a new "Cat of the Year" section explains it has no
+separate entry/nomination step.
+
+**New public surface**: `year-award.html` (mirrors `vote.html`'s look,
+different voting rule as above) and a homepage banner
+(`#yearAwardBanner`) that only renders anything while an award is
+actually open — most of the year `/api/year-award/current` returns
+`{award: null}` and the banner stays hidden/empty, same "never show a
+fake/empty state" rule this app has followed everywhere else. Added to
+`sitemap.xml` alongside the other static pages.
+
+**Verified against a real local Postgres instance**, using this repo's
+existing completed-round test data (three prior contest winners already
+in the dev DB from earlier sessions — no fixtures needed): opened a year
+award via the admin endpoint and confirmed it auto-populated exactly those
+three as finalists; confirmed the public endpoint returns finalists with
+no vote counts; cast a vote and confirmed both anti-double-vote cases
+above; confirmed the admin view shows real per-finalist vote counts;
+force-closed the award and confirmed it crowned the actual highest-vote
+finalist, sent the Cat of the Year email with the correct sculpture
+deadline text, and that `/api/year-award/current` correctly goes back to
+`{award: null}` once completed; separately force-closed a live monthly
+contest and confirmed its winner email no longer mentions a sculpture, to
+catch a regression on the reverted copy rather than assume it. A stray
+backtick inside a SQL comment inside `db.js`'s DDL template literal (fine
+as a comment, but backticks close a JS template string wherever they
+appear) broke `node --check db.js` immediately — caught and fixed before
+any of the above testing, not after.
+
+**Left open, not done here**: the marketing/ad-spend/ROAS tracking layer
+from the original Sentinel plan the owner referenced — that's a distinct
+follow-up pass, not folded into this one.
+
+## Update — 2026-09-09: lightweight marketing/ROAS ledger, no live ad-platform automation
+
+The follow-up promised above. The owner's original "Sentinel" plan (a
+different, earlier project — a youth-sports nomination funnel, not
+Whiskr) called for a Python engine that logged ad spend/revenue, computed
+ROAS per city/batch, and could auto-pause a live Meta ad campaign below a
+2.0x ROAS threshold. Asked the owner how much of that to build for
+Whiskr; they chose the lightweight option: a real ledger inside this same
+Node/Postgres app, no live ad-platform API integration — nothing here can
+touch a real ad campaign. The other two options on the table (full live
+Meta auto-pause automation, or a separate Python service per the original
+spec) were both real, valid choices with a materially different risk
+profile — live automation that can pause real ad spend is a financial-
+automation surface that deserves its own dedicated build-and-test pass
+before being trusted unattended, and a second service is a second
+codebase/deploy to maintain — so this was worth asking rather than
+guessing.
+
+**What "multiple" meant, clarified before building**: the owner's
+original ask ("we should have multiple") was ambiguous across three real
+readings — multiple prize winners per round, multiple simultaneous
+contests (e.g. cats and dogs each running their own), or multiple
+concurrent geo/ad-targeting batches (Sentinel's original per-city model).
+Confirmed it was the third. `ad_campaigns.name` is a free-text label (not
+an enum), so any number of concurrently-tracked named campaigns/geos are
+already supported without further schema changes.
+
+**Built**: `ad_campaigns` (name/platform/status/notes) and
+`ad_spend_entries` (manually logged date+amount per campaign) — genuinely
+manual, matching a real ad platform's own dashboard rather than pretending
+to pull live numbers this app has no connection to fetch. Revenue is real,
+not estimated: a new `utm_campaign` column on `submissions`, `orders`, and
+`custom_orders`, captured client-side from a `?utm_campaign=` link into a
+first-touch-only cookie (never overwritten by a later organic visit, so
+credit for the ad that actually brought someone in doesn't get erased) and
+sent along with every entry/order request. The admin ROAS view
+(`/api/admin/marketing/campaigns`) sums real paid-order revenue matched
+case-insensitively against each campaign's name — verified this
+specifically, not assumed: attributed a submission tagged `DALLAS-META`
+and a simulated paid order tagged `Dallas-Meta` (deliberately mismatched
+case) to a campaign named `dallas-meta`, confirmed both counted, and
+confirmed a third paid order tagged with an unrelated campaign name
+correctly did **not** count toward it. New admin.html section to add
+campaigns, log spend, and pause/activate a campaign as a note-to-self (not
+a live toggle — there is no live campaign on the other end of it).
+
+**Verified against a real local Postgres instance**: created a campaign,
+rejected a duplicate name cleanly, logged two spend entries and confirmed
+their sum, submitted a real entry with a case-mismatched utm tag and
+confirmed it stored correctly, simulated two paid orders (one matching the
+campaign case-insensitively, one deliberately not) and confirmed the ROAS
+math (`$200 revenue / $75 spend = 2.67x`) only counted the matching one,
+confirmed the spend-history and status-toggle endpoints, and screenshotted
+the admin panel with Playwright to confirm it actually renders the real
+numbers, not just that the API returns them. Caught the same class of bug
+as the previous update before any of this: a stray backtick inside a new
+SQL comment in `db.js`'s DDL template literal broke `node --check`
+immediately — checked for it explicitly this time (`grep` inside the
+template-literal boundaries) given it had just bitten this exact file.
+`node --check` passes on every changed file; new/edited HTML files have
+balanced tags.

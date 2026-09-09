@@ -1,3 +1,29 @@
+// ---------- marketing attribution ----------
+// First-touch only: captures ?utm_campaign= from an ad link into a cookie
+// the first time it's seen, and never overwrites it on a later visit (so
+// browsing back to the homepage organically doesn't erase credit for the
+// ad that actually brought this visitor in). Read by the entry/order forms
+// below and sent along so the admin-only marketing ledger can attribute
+// real revenue back to a real campaign — see cleanUtmCampaign in server.js.
+function captureUtmCampaign() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const utm = params.get('utm_campaign');
+    if (utm && !document.cookie.includes('whiskr_utm_campaign=')) {
+      document.cookie = `whiskr_utm_campaign=${encodeURIComponent(utm.slice(0, 120))};path=/;max-age=${30 * 24 * 60 * 60}`;
+    }
+  } catch (_) {}
+}
+function getUtmCampaign() {
+  try {
+    const m = document.cookie.match(/(?:^|; )whiskr_utm_campaign=([^;]*)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  } catch (_) {
+    return '';
+  }
+}
+captureUtmCampaign();
+
 // ---------- hero slideshow ----------
 // Admin-controlled, from /api/background (see admin.html's "Background
 // slideshow" section). Zero photos uploaded there means no slideshow at
@@ -78,20 +104,79 @@ async function loadStatus() {
     const statusEl = document.getElementById('contestStatus');
     if (statusEl) statusEl.textContent = data.statusText || '';
 
+    const ribbonEl = document.getElementById('currentRibbon');
     const nameEl = document.getElementById('winnerName');
     const photoEl = document.getElementById('winnerPhoto');
     const blurbEl = document.getElementById('winnerBlurb');
     if (data.lastWinner && nameEl && photoEl) {
+      if (ribbonEl) ribbonEl.textContent = 'Most recent Cat of the Month';
       nameEl.textContent = data.lastWinner.cat_name;
       photoEl.src = data.lastWinner.photo_path;
       photoEl.alt = `${data.lastWinner.cat_name}, Cat of the Month`;
       if (blurbEl) blurbEl.textContent = 'Chosen as Cat of the Month by real public vote. Their calendar is in the shop below.';
+    } else if (data.contestId) {
+      loadCurrentTeaser();
     }
   } catch (err) {
     console.error('status load failed', err);
   }
 }
 loadStatus();
+
+// Cat of the Year only runs once annually and stays closed the rest of the
+// time — this banner stays hidden/empty whenever no award is open, never a
+// fake "coming soon" placeholder.
+async function loadYearAwardBanner() {
+  const banner = document.getElementById('yearAwardBanner');
+  if (!banner) return;
+  try {
+    const res = await fetch('/api/year-award/current');
+    const data = await res.json();
+    if (!data.award) { banner.hidden = true; banner.innerHTML = ''; return; }
+    const closes = new Date(data.award.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    banner.innerHTML = `
+      <div>
+        <h2>🏆 ${data.award.label} is open for voting</h2>
+        <p>Pick your favorite from this year's Cat of the Month winners — voting closes ${closes}.</p>
+      </div>
+      <a href="year-award.html" class="btn btn-primary">Vote for Cat of the Year</a>`;
+    banner.hidden = false;
+  } catch (err) {
+    console.error('year award banner load failed', err);
+  }
+}
+loadYearAwardBanner();
+
+// No round has closed yet — show a few of this round's real entries
+// (random order, no vote counts) instead of a dead-end "check back soon".
+// Same containers the server may have already prerendered (see seo.js's
+// renderEntryTeaser) — this is a no-op for a real visitor if so.
+async function loadCurrentTeaser() {
+  const teaser = document.getElementById('currentTeaser');
+  if (!teaser || teaser.children.length) return;
+  try {
+    const res = await fetch('/api/contest/current');
+    const data = await res.json();
+    const entries = (data.entries || []).slice(0, 6);
+    teaser.innerHTML = '';
+    entries.forEach((cat) => {
+      const a = document.createElement('a');
+      a.className = 'teaser-card';
+      a.href = `vote.html?cat=${cat.id}`;
+      const img = document.createElement('img');
+      img.src = cat.photo_path;
+      img.alt = cat.cat_name;
+      img.loading = 'lazy';
+      const span = document.createElement('span');
+      span.textContent = cat.cat_name;
+      a.appendChild(img);
+      a.appendChild(span);
+      teaser.appendChild(a);
+    });
+  } catch (err) {
+    console.error('teaser load failed', err);
+  }
+}
 
 // ---------- entry form ----------
 // Stores an active print-shop discount (issued at entry or in the
@@ -100,6 +185,39 @@ loadStatus();
 function storeDiscount(discount) {
   if (!discount) return;
   try { localStorage.setItem('whiskr_discount', JSON.stringify(discount)); } catch (_) {}
+}
+
+// Shares the real share-card image (photo + name + vote link, composited
+// server-side — see generateShareCard in server.js) via Web Share Level 2's
+// `files`, when the browser supports sharing files, since an image posts
+// far better than a bare link on Stories/WhatsApp/feed. Falls back to a
+// plain link share, then clipboard, same ladder as vote.html's shareCat().
+async function shareEntryCard(shareImageUrl, catName, voteUrl, noteEl) {
+  const text = `Vote for ${catName} in Whiskr's free cat photo contest! I'd owe you one:`;
+  try {
+    if (shareImageUrl && window.navigator.canShare) {
+      const resp = await fetch(shareImageUrl);
+      const blob = await resp.blob();
+      const file = new File([blob], 'vote-card.jpg', { type: blob.type || 'image/jpeg' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: text, text, url: voteUrl });
+        return;
+      }
+    }
+    if (navigator.share) {
+      await navigator.share({ title: text, text, url: voteUrl });
+      return;
+    }
+  } catch (err) {
+    if (err && err.name === 'AbortError') return; // user cancelled the share sheet
+  }
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(`${text} ${voteUrl}`).then(() => {
+      if (noteEl) noteEl.textContent = 'Link copied — go paste it!';
+    });
+  } else {
+    window.prompt('Copy this link:', voteUrl);
+  }
 }
 
 function renderCountdown(el, expiresAt) {
@@ -131,7 +249,10 @@ if (entryForm) {
     mockup.hidden = true;
 
     const formData = new FormData(entryForm);
+    formData.append('utmCampaign', getUtmCampaign());
     const photoFile = photoInput.files[0];
+
+    const catNameValue = document.getElementById('catName').value;
 
     try {
       const res = await fetch('/api/submissions', { method: 'POST', body: formData });
@@ -151,6 +272,10 @@ if (entryForm) {
       mockup.innerHTML = `
         <div class="entry-mockup">
           ${photoUrl ? `<div class="entry-mockup-frame"><img src="${photoUrl}" alt="" /><div class="caption">A print of your cat could look like this</div></div>` : ''}
+          <div class="entry-share">
+            <p>Your voting link: <a href="${data.voteUrl}">${data.voteUrl}</a></p>
+            <button type="button" class="btn btn-primary" id="entryShareBtn">Share for votes</button>
+          </div>
           ${data.discount ? `
             <div class="entry-discount">
               <div class="pct">${data.discount.percent}% off</div>
@@ -161,6 +286,10 @@ if (entryForm) {
         </div>`;
       mockup.hidden = false;
       if (data.discount) renderCountdown(document.getElementById('entryDiscountCountdown'), data.discount.expiresAt);
+      const shareBtn = document.getElementById('entryShareBtn');
+      if (shareBtn) {
+        shareBtn.addEventListener('click', () => shareEntryCard(data.shareImageUrl, catNameValue, data.voteUrl, note));
+      }
 
       entryForm.reset();
       loadStatus();
@@ -291,15 +420,20 @@ loadReviews();
     discountBanner.textContent = `A time-limited discount is applied — order with the email ${activeDiscount.email} to use it.`;
   }
 
+  // The server already bakes real product cards into #customGrid on first
+  // paint (see renderProductCards in seo.js) — never blank that away while
+  // this fetch is in flight or if it fails; a visitor (or a crawler that
+  // doesn't run this script at all) should never see less than what the
+  // server already sent.
   async function loadProducts(species) {
-    grid.innerHTML = '<p style="color:#6b6552;">Loading…</p>';
+    if (!grid.children.length) grid.innerHTML = '<p style="color:#6b6552;">Loading…</p>';
     try {
       const res = await fetch(`/api/products?species=${encodeURIComponent(species)}`);
       const data = await res.json();
       products = data.products || [];
       renderGrid();
     } catch (err) {
-      grid.innerHTML = '<p style="color:#6b6552;">Could not load products right now.</p>';
+      if (!grid.children.length) grid.innerHTML = '<p style="color:#6b6552;">Could not load products right now.</p>';
     }
   }
 
@@ -381,6 +515,7 @@ loadReviews();
       submitBtn.disabled = true;
 
       const formData = new FormData(form);
+      formData.append('utmCampaign', getUtmCampaign());
       try {
         const res = await fetch('/api/custom-orders', { method: 'POST', body: formData });
         const data = await res.json();
@@ -427,7 +562,7 @@ if (checkoutForm) {
       const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupId, quantity, email }),
+        body: JSON.stringify({ groupId, quantity, email, utmCampaign: getUtmCampaign() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Checkout is not available yet.');

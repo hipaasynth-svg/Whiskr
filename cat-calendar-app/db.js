@@ -108,6 +108,11 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS last_notified_rank INTEGER;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS photo_width INTEGER;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS photo_height INTEGER;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL DEFAULT 0;
+-- A pre-composited "vote for me" image (photo + name + vote link, see
+-- generateShareCard in server.js) generated once at entry time so sharing
+-- is a real image an entrant can post, not just a bare link. Nullable —
+-- generation failure never blocks an entry.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS share_image_path TEXT;
 
 -- One row per (submission, voter) so a browser/cookie identity can't vote
 -- for the same cat twice — the UNIQUE constraint is the real enforcement,
@@ -124,6 +129,53 @@ CREATE TABLE IF NOT EXISTS votes (
 CREATE INDEX IF NOT EXISTS votes_ip_hash_created_idx ON votes(ip_hash, created_at);
 CREATE INDEX IF NOT EXISTS votes_voter_token_created_idx ON votes(voter_token, created_at);
 
+-- Annual "Cat of the Year" award: a separate, once-a-year public vote among
+-- that year's monthly Cat-of-the-Month winners for the one physical grand
+-- prize (a one-of-a-kind wooden sculpture of the winning cat, handmade by
+-- Cody Carlson) — moved here from monthly because commissioning a unique
+-- sculpture every single month isn't a sustainable prize to fulfill. Kept
+-- deliberately separate from the monthly contests/submissions/votes tables
+-- rather than reusing them, since the voting rule is different (one ballot
+-- per person for the whole award, not repeatable daily voting over 30
+-- days) and this only ever runs once a year. Admin-opened and
+-- admin-closed (see /api/admin/year-award/* in server.js) — not
+-- cron-automated, since this is a rare, deliberate moment the operator
+-- should choose, not something to fire on a schedule.
+CREATE TABLE IF NOT EXISTS year_awards (
+  id SERIAL PRIMARY KEY,
+  label TEXT NOT NULL,
+  opens_at TEXT NOT NULL,
+  closes_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',   -- open | completed
+  winner_submission_id INTEGER REFERENCES submissions(id),
+  sculpture_deadline TEXT,               -- the delivery commitment for this cycle's winner
+  created_at TEXT NOT NULL
+);
+-- One row per (year_award, that year's Cat-of-the-Month winner) — the
+-- finalist ballot. Auto-populated from the groups table when an admin
+-- opens an award (see the /api/admin/year-award/open handler).
+CREATE TABLE IF NOT EXISTS year_award_finalists (
+  id SERIAL PRIMARY KEY,
+  year_award_id INTEGER NOT NULL REFERENCES year_awards(id),
+  submission_id INTEGER NOT NULL REFERENCES submissions(id),
+  vote_count INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(year_award_id, submission_id)
+);
+-- UNIQUE is on (year_award_id, voter_token), not (finalist_id,
+-- voter_token) — this is a single ballot ("pick your one favorite of this
+-- year's winners"), so a voter_token can only ever have one row per award,
+-- never one per finalist the way monthly votes work.
+CREATE TABLE IF NOT EXISTS year_award_votes (
+  id SERIAL PRIMARY KEY,
+  year_award_id INTEGER NOT NULL REFERENCES year_awards(id),
+  finalist_id INTEGER NOT NULL REFERENCES year_award_finalists(id),
+  voter_token TEXT NOT NULL,
+  ip_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(year_award_id, voter_token)
+);
+CREATE INDEX IF NOT EXISTS year_award_votes_ip_hash_idx ON year_award_votes(year_award_id, ip_hash);
+
 CREATE TABLE IF NOT EXISTS orders (
   id SERIAL PRIMARY KEY,
   group_id INTEGER NOT NULL,
@@ -136,6 +188,7 @@ CREATE TABLE IF NOT EXISTS orders (
   review_requested_at TEXT,
   shipping_address TEXT               -- JSON from Stripe's shipping_details; nothing to print/ship without it
 );
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
 
 -- Emails that have opted out of Whiskr mail (CAN-SPAM unsubscribe requests).
 CREATE TABLE IF NOT EXISTS suppressions (
@@ -168,6 +221,43 @@ ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_width INTEGER;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_height INTEGER;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+
+-- Which ad campaign/geo a contest entry's first visit came from (captured
+-- client-side from a ?utm_campaign= link into a cookie, see script.js) —
+-- lets the marketing ledger below attribute a later paid order back to
+-- whatever brought that visitor in, even if the order itself doesn't carry
+-- its own utm param (e.g. they entered from an ad, then bought a print
+-- days later from the same browser).
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+
+-- Lightweight marketing/ad-spend ledger — the real, non-automated version
+-- of the "Sentinel" ad-spend/ROAS engine the owner referenced: no live ad
+-- platform API integration (nothing here can pause a real campaign), just
+-- honest tracking so a human can compute ROAS per named campaign/geo and
+-- decide manually. Supports multiple concurrent named campaigns/geos —
+-- name is whatever value you put in your ad URLs' ?utm_campaign= param
+-- and is matched case-insensitively against orders/custom_orders/
+-- submissions' utm_campaign column when computing revenue (see
+-- /api/admin/marketing/campaigns in server.js).
+CREATE TABLE IF NOT EXISTS ad_campaigns (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  platform TEXT,                     -- free text: meta, google, tiktok, organic, etc.
+  status TEXT NOT NULL DEFAULT 'active',  -- active | paused (a note to yourself, not a live toggle)
+  notes TEXT,
+  created_at TEXT NOT NULL
+);
+-- One row per day/amount of spend logged against a campaign — manual
+-- entry (from your ad platform's own dashboard), not pulled live from an
+-- API.
+CREATE TABLE IF NOT EXISTS ad_spend_entries (
+  id SERIAL PRIMARY KEY,
+  campaign_id INTEGER NOT NULL REFERENCES ad_campaigns(id),
+  spend_date TEXT NOT NULL,
+  amount_usd REAL NOT NULL,
+  created_at TEXT NOT NULL
+);
 
 -- Admin-managed hero background photos. Empty table = no slideshow, just
 -- the plain dark hero background — never a placeholder/stock-photo
