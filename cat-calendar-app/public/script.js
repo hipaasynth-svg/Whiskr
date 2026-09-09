@@ -94,17 +94,44 @@ async function loadStatus() {
 loadStatus();
 
 // ---------- entry form ----------
+// Stores an active print-shop discount (issued at entry or in the
+// final-placement email) so the custom-order form below can pick it up and
+// apply it automatically — see applyStoredDiscount().
+function storeDiscount(discount) {
+  if (!discount) return;
+  try { localStorage.setItem('whiskr_discount', JSON.stringify(discount)); } catch (_) {}
+}
+
+function renderCountdown(el, expiresAt) {
+  function tick() {
+    const msLeft = new Date(expiresAt) - Date.now();
+    if (msLeft <= 0) {
+      el.textContent = 'Expired';
+      return;
+    }
+    const hours = Math.floor(msLeft / 3600000);
+    const mins = Math.floor((msLeft % 3600000) / 60000);
+    el.textContent = `Expires in ${hours}h ${mins}m`;
+    setTimeout(tick, 60000);
+  }
+  tick();
+}
+
 const entryForm = document.getElementById('entryForm');
 if (entryForm) {
+  const photoInput = document.getElementById('entryPhoto');
   entryForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const note = document.getElementById('entryNote');
+    const mockup = document.getElementById('entryMockup');
     const submitBtn = entryForm.querySelector('button[type=submit]');
     note.classList.remove('error');
     note.textContent = 'Submitting…';
     submitBtn.disabled = true;
+    mockup.hidden = true;
 
     const formData = new FormData(entryForm);
+    const photoFile = photoInput.files[0];
 
     try {
       const res = await fetch('/api/submissions', { method: 'POST', body: formData });
@@ -112,6 +139,29 @@ if (entryForm) {
       if (!res.ok) throw new Error(data.error || 'Something went wrong.');
 
       note.innerHTML = `You're entered! Check your email for your vote link, or <a href="${data.voteUrl}">go vote for your own cat now</a> and start sharing.`;
+
+      storeDiscount(data.discount);
+
+      // Real preview of the photo they just uploaded, styled like a
+      // finished print — not a fabricated 3D render (this app doesn't fake
+      // product mockups; see README). The discount is real, redeemed and
+      // verified server-side at checkout, not just a client-side display.
+      let photoUrl = '';
+      if (photoFile) photoUrl = URL.createObjectURL(photoFile);
+      mockup.innerHTML = `
+        <div class="entry-mockup">
+          ${photoUrl ? `<div class="entry-mockup-frame"><img src="${photoUrl}" alt="" /><div class="caption">A print of your cat could look like this</div></div>` : ''}
+          ${data.discount ? `
+            <div class="entry-discount">
+              <div class="pct">${data.discount.percent}% off</div>
+              <div class="countdown" id="entryDiscountCountdown"></div>
+              <a href="#shop-custom" class="btn btn-primary">Get a print now</a>
+            </div>` : ''}
+          ${data.lowResolution ? `<div class="low-res-warning">Heads up: this photo is ${data.width}×${data.height}px. Prints larger than a mug (poster, canvas) may look a little soft — a higher-resolution photo will look sharper.</div>` : ''}
+        </div>`;
+      mockup.hidden = false;
+      if (data.discount) renderCountdown(document.getElementById('entryDiscountCountdown'), data.discount.expiresAt);
+
       entryForm.reset();
       loadStatus();
     } catch (err) {
@@ -190,9 +240,56 @@ loadReviews();
   const photoInput = document.getElementById('customPhoto');
   const preview = document.getElementById('customPreview');
   const orderNote = document.getElementById('customOrderNote');
+  const emailField = document.getElementById('customEmail');
+  const discountBanner = document.getElementById('customDiscountBanner');
 
   let currentSpecies = 'cat';
   let products = [];
+
+  // A discount can arrive two ways: a link from the entry-confirmation or
+  // final-placement email (?discountEmail=&discountExpires=&discountToken=
+  // in the URL, ahead of the #shop-custom hash), or already stored from
+  // entering the contest earlier in this same browser session. Either way
+  // it's only ever a client-side convenience — the real check is
+  // discountToken.verify() server-side in POST /api/custom-orders.
+  function loadActiveDiscount() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('discountToken')) {
+      const fromUrl = {
+        percent: null, // server tells us the real percent when the order posts; UI just shows "a discount is applied"
+        email: params.get('discountEmail'),
+        expiresAt: params.get('discountExpires'),
+        token: params.get('discountToken'),
+      };
+      try { localStorage.setItem('whiskr_discount', JSON.stringify(fromUrl)); } catch (_) {}
+    }
+    try {
+      const stored = JSON.parse(localStorage.getItem('whiskr_discount') || 'null');
+      if (stored && stored.expiresAt && new Date(stored.expiresAt) > new Date()) return stored;
+    } catch (_) {}
+    return null;
+  }
+
+  function setHiddenField(name, value) {
+    let input = form.querySelector(`input[name="${name}"]`);
+    if (!input) {
+      input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      form.appendChild(input);
+    }
+    input.value = value;
+  }
+
+  const activeDiscount = loadActiveDiscount();
+  if (activeDiscount && discountBanner) {
+    setHiddenField('discountEmail', activeDiscount.email);
+    setHiddenField('discountExpires', activeDiscount.expiresAt);
+    setHiddenField('discountToken', activeDiscount.token);
+    if (emailField && !emailField.value) emailField.value = activeDiscount.email;
+    discountBanner.hidden = false;
+    discountBanner.textContent = `A time-limited discount is applied — order with the email ${activeDiscount.email} to use it.`;
+  }
 
   async function loadProducts(species) {
     grid.innerHTML = '<p style="color:#6b6552;">Loading…</p>';
@@ -288,6 +385,17 @@ loadReviews();
         const res = await fetch('/api/custom-orders', { method: 'POST', body: formData });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+        if (data.lowResolution) {
+          const proceed = window.confirm(
+            `Heads up: this photo is ${data.width}×${data.height}px. It may look soft on a poster or canvas. Continue to checkout anyway?`
+          );
+          if (!proceed) {
+            submitBtn.disabled = false;
+            orderNote.textContent = '';
+            return;
+          }
+        }
+        try { localStorage.removeItem('whiskr_discount'); } catch (_) {}
         window.location.href = data.url;
       } catch (err) {
         orderNote.textContent = err.message;

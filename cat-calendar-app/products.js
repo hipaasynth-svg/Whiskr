@@ -61,6 +61,14 @@ const PRODUCTS = [
     priceUsd: 29.0,
     printfulVariantId: null,
   },
+  {
+    id: 'fridge-magnet',
+    name: 'Custom Pet Fridge Magnet',
+    species: 'both',
+    description: 'A durable 4x4" magnet of your pet — a low-cost way to keep them on your fridge.',
+    priceUsd: 9.99,
+    printfulVariantId: null,
+  },
 ];
 
 function listProducts(species) {

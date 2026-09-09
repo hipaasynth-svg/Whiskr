@@ -169,13 +169,14 @@
             <span class="deadline">${data.entries.length} entries · closes ${closes}</span>
           </div>
           <table class="orders">
-            <thead><tr><th>Cat</th><th>Votes</th><th>Votes/hr</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Cat</th><th>Votes</th><th>Votes/hr</th><th>Photo</th><th>Status</th><th></th></tr></thead>
             <tbody>
               ${data.entries.map((e) => `
                 <tr data-submission="${e.id}">
                   <td>${escapeHtml(e.cat_name)}</td>
                   <td>${e.vote_count}</td>
                   <td style="${e.votes_last_hour >= 20 ? 'color:#b3261e;font-weight:700;' : ''}">${e.votes_last_hour}</td>
+                  <td>${e.photo_width ? `${e.photo_width}×${e.photo_height}${e.low_resolution ? ' (low-res)' : ''}` : '—'}</td>
                   <td>${e.disqualified ? `Disqualified: ${escapeHtml(e.disqualified_reason || '')}` : 'Eligible'}</td>
                   <td>
                     ${e.disqualified
@@ -297,7 +298,7 @@
 
       customOrdersList.innerHTML = `
         <table class="orders">
-          <thead><tr><th>Date</th><th>Product</th><th>Species</th><th>Pet</th><th>Email</th><th>Qty</th><th>Amount</th><th>Status</th></tr></thead>
+          <thead><tr><th>Date</th><th>Product</th><th>Species</th><th>Pet</th><th>Email</th><th>Qty</th><th>Amount</th><th>Discount</th><th>Photo</th><th>Status</th></tr></thead>
           <tbody>
             ${data.orders.map((o) => `
               <tr>
@@ -308,6 +309,8 @@
                 <td>${escapeHtml(o.email)}</td>
                 <td>${o.quantity}</td>
                 <td>$${Number(o.amount_usd).toFixed(2)}</td>
+                <td>${o.discount_percent ? o.discount_percent + '%' : '—'}</td>
+                <td>${o.photo_width ? `${o.photo_width}×${o.photo_height}${o.low_resolution ? ' (low-res)' : ''}` : '—'}</td>
                 <td>${escapeHtml(o.status)}</td>
               </tr>
             `).join('')}

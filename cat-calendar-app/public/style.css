@@ -423,6 +423,54 @@ h1, h2, h3, h4 {
 }
 .consent-label input { margin-top: 3px; flex-shrink: 0; }
 
+/* ---------- post-entry mockup + discount ---------- */
+.entry-mockup {
+  margin-top: 18px;
+  background: #fff;
+  border-radius: 6px;
+  padding: 20px;
+  text-align: center;
+  color: var(--ink);
+}
+.entry-mockup-frame {
+  display: inline-block;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+  margin-bottom: 14px;
+}
+.entry-mockup-frame img {
+  width: 160px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+.entry-mockup-frame .caption {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 0.85rem;
+  margin-top: 8px;
+  color: #6b6552;
+}
+.entry-discount {
+  background: var(--paper);
+  border: 1px dashed var(--marigold);
+  border-radius: 6px;
+  padding: 14px;
+}
+.entry-discount .pct { font-family: var(--font-display); font-size: 1.4rem; color: var(--blush); }
+.entry-discount .countdown { font-size: 0.8rem; color: #6b6552; margin: 4px 0 12px; }
+.low-res-warning {
+  margin-top: 10px;
+  font-size: 0.82rem;
+  color: #8a5a00;
+  background: #fff6e0;
+  border: 1px solid #e8c877;
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+
 /* ---------- footer ---------- */
 .site-footer {
   padding: 28px 36px;

@@ -49,13 +49,16 @@ section surfaces vote velocity per entry and lets you disqualify one
   shipping. Dry-run/logs if `PRINTFUL_API_KEY` isn't set, same pattern as
   Stripe/Zoho elsewhere in this app.
 - `mailer.js` — sends through **Zoho Mail's SMTP**, not a third-party ESP.
-- `unsubscribe.js` / `reviewLink.js` — signed-link helpers (HMAC tokens) for
-  one-click unsubscribe and verified-purchase review links, respectively.
+- `unsubscribe.js` / `reviewLink.js` / `discountToken.js` / `statusToken.js`
+  — signed-link helpers (all the same HMAC pattern) for one-click
+  unsubscribe, verified-purchase reviews, time-limited print-shop
+  discounts, and an entrant's private "check my status" link, respectively.
 - `public/` — the storefront + contest landing page (`index.html`), the
   public voting gallery (`vote.html`), official contest rules
-  (`rules.html`), the per-round calendar/checkout page (`calendar.html`),
-  the review submission page (`review.html`), `admin.html` (fraud review +
-  fulfillment + review moderation — not linked from the public site), CSS, JS.
+  (`rules.html`), an entrant's private status lookup (`status.html`), the
+  per-round calendar/checkout page (`calendar.html`), the review submission
+  page (`review.html`), `admin.html` (fraud review + fulfillment + review
+  moderation — not linked from the public site), CSS, JS.
 
 This is built specifically to run on **Vercel** as a serverless deployment:
 `vercel.json` routes every request to `server.js` (exported as a plain

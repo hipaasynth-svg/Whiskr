@@ -97,6 +97,17 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS final_rank INTEGER;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS disqualified INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS disqualified_reason TEXT;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS notified_rank INTEGER NOT NULL DEFAULT 0;
+-- Live-rank drop alerts (see sendRankDropAlerts in server.js): the last
+-- rank an entrant was actually emailed about, so the daily check only fires
+-- again once their position has genuinely moved, not every single day.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS last_notified_rank INTEGER;
+-- Print-quality visibility, not a hard block — a business would rather
+-- sell a slightly soft print than lose the sale outright, but wants to
+-- warn the customer (and itself) before checkout. See checkImageQuality
+-- in server.js.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS photo_width INTEGER;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS photo_height INTEGER;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL DEFAULT 0;
 
 -- One row per (submission, voter) so a browser/cookie identity can't vote
 -- for the same cat twice — the UNIQUE constraint is the real enforcement,
@@ -153,6 +164,10 @@ CREATE TABLE IF NOT EXISTS custom_orders (
   review_requested_at TEXT,
   shipping_address TEXT               -- JSON from Stripe's shipping_details; required before Printful can ship
 );
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_width INTEGER;
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_height INTEGER;
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0;
 
 -- Admin-managed hero background photos. Empty table = no slideshow, just
 -- the plain dark hero background — never a placeholder/stock-photo

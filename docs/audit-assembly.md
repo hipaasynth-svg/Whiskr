@@ -591,3 +591,130 @@ until then voting relies on the cookie + rate-limit layers alone.
 Consult a lawyer on `rules.html` before relying on it at real scale — it's
 a good-faith, standard-shape rules page, not legal advice, same caveat this
 document has given on every other legal-adjacent item throughout.
+
+## Update — 2026-09-08: monetization pass — refused paid votes, built the rest
+
+The owner asked for a "gamified voting engine with automated POD
+monetization" modeled on a spec that included paid vote bundles ($5-$30 for
+extra votes toward the leaderboard), a Next.js/Supabase/Redis/S3 rewrite,
+and a full Prodigi/Gelato PDF-compilation pipeline. Two decisions, put to
+the owner directly before writing code:
+
+**Refused: selling votes that affect the real contest outcome.** Charging
+money for something that improves your odds of winning a prize is the
+textbook definition of an illegal lottery in the states that regulate
+"prize, chance, and consideration" (most of them) the moment a free
+alternative method of entry doesn't fully neutralize the paid advantage —
+and here it explicitly wouldn't, since the whole pitch was "buy votes to
+climb the leaderboard faster." Separately, Stripe's own Prohibited and
+Restricted Businesses policy covers gambling-adjacent mechanics, so this
+also risked the account processing every other payment on this site. Put
+to the owner as a choice (cosmetic-only paid boost, drop it entirely, or
+build it anyway on record as a knowing decision); the owner chose to drop
+paid votes entirely and keep voting 100% free, as already built.
+
+**Declined the stack rewrite.** Next.js/Supabase/Redis/S3/Prodigi would
+have thrown away the contest/voting/anti-fraud system built and verified
+this same day, for infrastructure this app's actual scale (hundreds of
+entries/month, not millions) doesn't need — Postgres handles the vote
+concurrency fine, Vercel Blob already does what S3 would, and a second
+stack is a second thing to operate. Extended the existing Express/Postgres
+app instead, per the owner's choice.
+
+**Built, from the legitimate parts of the spec:**
+- **Image print-quality check** (`checkImageQuality` in `server.js`, via
+  the new `sharp` dependency): reads real pixel dimensions on every contest
+  entry and custom order, flags anything under `MIN_PRINT_DIMENSION_PX`
+  (default 2000px either side) — but never blocks the submission. A
+  business would rather sell a slightly soft print than lose the sale
+  outright; the flag surfaces as a warning to the customer before checkout
+  and as a column in `admin.html`'s order tables, not a hard rejection.
+- **Post-entry discount, done honestly instead of the spec's "3D digital
+  mockup."** This codebase already has a documented principle (see the
+  main README's Printful setup section) against fabricating product
+  mockups it can't actually render — a fake photoreal 3D calendar cover
+  would have been worse than no mockup at all. Built instead: a real,
+  honest preview (the entrant's own uploaded photo in a simple styled
+  frame, CSS only, no fabricated rendering) plus a genuine time-limited
+  discount (`CONTEST_DISCOUNT_PERCENT`, default 20%, `ENTRY_DISCOUNT_HOURS`
+  window) on the existing evergreen print shop. The discount is a signed,
+  expiring HMAC token (`discountToken.js`, same pattern as
+  `reviewLink.js`/`unsubscribe.js`) verified server-side at checkout —
+  never trusted from the link or the client's own math — and tied to the
+  entrant's own email so it can't be redeemed by someone else who happens
+  to see the link.
+- **The same discount, reissued, in the final-placement email** for
+  non-winners (`FINAL_RANK_DISCOUNT_HOURS`, a longer 72h window since it's
+  the last-chance nudge) — this is the spec's "non-winner merch upsell,"
+  now with a real incentive attached instead of just a bare link.
+- **Fridge magnet** added to `products.js` — named explicitly in the spec's
+  non-winner upsell list, wasn't in the catalog.
+- **Rank-drop alerts, the free version** (`sendRankDropAlerts` in
+  `server.js`, daily cron): the spec's "gamified urgency" mechanic (e.g.
+  "Mittens just fell to #13") kept, but the call to action is "share your
+  link" — never "buy votes to reclaim your spot," since that's exactly the
+  mechanic refused above. Throttled by a new `last_notified_rank` column so
+  an entrant isn't emailed every single day over normal rank noise — only
+  when their live rank has worsened by `RANK_DROP_THRESHOLD` places (default
+  5) or they've crossed out of the winner zone entirely, compared against
+  their own last-alerted position.
+- **Private "check my status" link** (`statusToken.js`, `/api/my-status`,
+  `status.html`) — the safe version of the spec's "real-time leaderboard
+  rendering." A public real-time leaderboard would undo last session's
+  deliberate decision to hide vote tallies while a round is open (kills the
+  "verify my bought votes worked" loop and stops early-leader snowballing);
+  this instead lets each entrant privately check their own live rank or
+  final result, token-gated so nobody can look up anyone else's. Sent in
+  the entry-confirmation email alongside the vote/share link.
+
+**Bugs caught during verification, not left for later** (three, all real,
+none theoretical):
+1. `low_resolution` was computed as a JS boolean and bound straight into an
+   `INTEGER` column — SQLite would have coerced it silently; real Postgres
+   rejected every submission with `invalid input syntax for type integer:
+   "true"`. Fixed at the source (`checkImageQuality` now returns 0/1).
+2. The custom-order discount was silently never applying: the HTML/email
+   links and the client's hidden form field both use `discountExpires`,
+   but the server destructured `discountExpiresAt` off `req.body` — always
+   `undefined`, so `discountToken.verify()` always failed closed (safe
+   failure mode, but a failure). Fixed the field name to match.
+3. The discount links built in `mailer.js` put the query string *after*
+   the `#shop-custom` hash fragment (`/#shop-custom?discountEmail=...`) —
+   everything after `#` is the fragment, not the query string, so
+   `location.search` on the landing page would never have seen these
+   params at all. Fixed to `/?discountEmail=...#shop-custom` (query first,
+   hash last).
+
+**Verified against a real local Postgres instance**, same standard as
+every other pass in this document: submitted a deliberately tiny (1×1px)
+test image and confirmed `lowResolution: true` in the response before the
+Postgres bug above was found and fixed, confirmed the entry-confirmation
+email dry-run log carries the vote link, discount block, and status link
+together, called `/api/my-status` with the issued token and got back a
+correct live rank, submitted custom orders with no discount / a valid
+discount / a wrong-email discount / an expired discount and confirmed via
+direct DB query that only the valid case actually applied
+`discount_percent = 20` and the reduced `amount_usd` (both other cases
+correctly landed at `discount_percent = 0`, confirming verification fails
+closed), force-closed a contest and confirmed the final-rank emails carry
+a fresh 72-hour discount, and — for the rank-drop alerts — ran the check
+once to establish a silent baseline (confirmed zero emails sent), cast
+votes to deliberately push two entrants out of a 3-winner zone, ran the
+check again, and confirmed exactly those two received "just fell to #N"
+emails while an entrant who dropped only slightly (still inside the winner
+zone) correctly received nothing. Confirmed `node --check` passes on every
+changed file and a full repo-wide emoji grep stays clean.
+
+**Left open, not done here**: no Prodigi/Gelato/automated-PDF-compilation
+fulfillment pipeline for the shared 12-cat calendar — that's genuinely a
+separate project (a calendar is a structurally different POD product, 12
+image slots instead of one, and Printful's own calendar product would need
+its own submission logic distinct from `printful.js`'s current
+single-image path), scoped out rather than half-built, same as the
+rank-badge merch template scoped out in the previous session. Real
+Printful Mockup Generator integration (an actual photoreal product render,
+not the honest CSS-framed preview built here) is still the README's
+pre-existing "worth adding once verified" item, unchanged by this pass.
+The discount is time-limited but not single-use — the same signed link
+works for every order placed before it expires, a deliberate simplicity
+choice, not an oversight.

@@ -7,10 +7,14 @@ const multer = require('multer');
 const { put: putBlob } = require('@vercel/blob');
 const { v4: uuid } = require('uuid');
 
+const sharp = require('sharp');
+
 const db = require('./db');
 const mailer = require('./mailer');
 const unsubscribe = require('./unsubscribe');
 const reviewLink = require('./reviewLink');
+const discountToken = require('./discountToken');
+const statusToken = require('./statusToken');
 const productCatalog = require('./products');
 const printful = require('./printful');
 const seo = require('./seo');
@@ -38,6 +42,18 @@ const VOTE_LIMIT_PER_IP_PER_DAY = Number(process.env.VOTE_LIMIT_PER_IP_PER_DAY |
 // Set a real random value in production — the default is fine for local dev
 // only, since anyone who knows it could pre-compute hashes for known IPs.
 const IP_HASH_SALT = process.env.IP_HASH_SALT || 'dev-only-insecure-salt';
+// Post-entry / non-winner upsell discount. A percentage off, applied
+// server-side to the custom-print line item — no Stripe Coupon object
+// needed since checkout sessions here already build price_data inline.
+const CONTEST_DISCOUNT_PERCENT = Number(process.env.CONTEST_DISCOUNT_PERCENT || 20);
+const ENTRY_DISCOUNT_HOURS = Number(process.env.ENTRY_DISCOUNT_HOURS || 48);
+const FINAL_RANK_DISCOUNT_HOURS = Number(process.env.FINAL_RANK_DISCOUNT_HOURS || 72);
+// Below this on either dimension, a photo is flagged (not blocked — see
+// checkImageQuality) as likely to look soft on a large print.
+const MIN_PRINT_DIMENSION_PX = Number(process.env.MIN_PRINT_DIMENSION_PX || 2000);
+// How many places an entrant's live rank has to worsen (or crossing out of
+// the winner zone) before sendRankDropAlerts emails them again.
+const RANK_DROP_THRESHOLD = Number(process.env.RANK_DROP_THRESHOLD || 5);
 const BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const PRICE_ONE = Number(process.env.CALENDAR_PRICE_USD || 24.99);
 const PRICE_MULTI = Number(process.env.CALENDAR_2PLUS_PRICE_USD || 19.99);
@@ -118,6 +134,28 @@ async function storePhoto(file) {
   fs.mkdirSync(uploadDir, { recursive: true });
   fs.writeFileSync(path.join(uploadDir, filename), file.buffer);
   return `/uploads/${filename}`;
+}
+
+// Reads real pixel dimensions and flags (never blocks — a business would
+// rather sell a slightly soft print than lose the sale) anything under
+// MIN_PRINT_DIMENSION_PX on either side. Falls back to "unknown, not
+// flagged" if Sharp can't read the file for any reason, so a metadata
+// hiccup never breaks a submission that otherwise passed multer's own
+// image-type validation.
+async function checkImageQuality(buffer) {
+  try {
+    const meta = await sharp(buffer).metadata();
+    const width = meta.width || null;
+    const height = meta.height || null;
+    // 0/1, not a JS boolean — this goes straight into an INTEGER column via
+    // a couple of call sites, and Postgres won't implicitly cast true/false.
+    const lowResolution =
+      width && height && (width < MIN_PRINT_DIMENSION_PX || height < MIN_PRINT_DIMENSION_PX) ? 1 : 0;
+    return { width, height, lowResolution };
+  } catch (err) {
+    console.warn('[image-quality] could not read dimensions:', err.message);
+    return { width: null, height: null, lowResolution: 0 };
+  }
 }
 
 // Submits a paid custom order to Printful for printing + shipping. Only
@@ -526,9 +564,16 @@ async function tallyAndCloseContest(contestId) {
           priceOne: PRICE_ONE.toFixed(2), priceMulti: PRICE_MULTI.toFixed(2),
         });
       } else {
+        const discountExpiresAt = new Date(Date.now() + FINAL_RANK_DISCOUNT_HOURS * 60 * 60 * 1000).toISOString();
         await mailer.sendFinalRankEmail({
           email: s.email, catName: s.cat_name, rank, totalEntries: ranked.length,
           shopUrl: `${BASE_URL}/#shop-custom`,
+          discount: {
+            percent: CONTEST_DISCOUNT_PERCENT,
+            email: s.email,
+            expiresAt: discountExpiresAt,
+            token: discountToken.tokenFor(s.email, discountExpiresAt),
+          },
         });
       }
       await db.run(`UPDATE submissions SET notified_result = 1, notified_rank = 1 WHERE id = ?`, [s.id]);
@@ -550,6 +595,52 @@ async function runDueContestClose() {
   const due = await db.all(`SELECT id FROM contests WHERE status = 'open' AND closes_at <= ?`, [nowIso]);
   for (const c of due) {
     await tallyAndCloseContest(c.id);
+  }
+}
+
+// The "gamified" urgency loop, done without paid votes: once a day, for
+// the currently open contest, compute everyone's live rank and email
+// anyone whose position has genuinely worsened since their last alert —
+// either by RANK_DROP_THRESHOLD+ places, or by crossing out of the winner
+// zone entirely. The call to action is "share your link," which is free;
+// there is deliberately no "buy votes to reclaim your spot" path here (see
+// docs/audit-assembly.md for why real-money vote sales were dropped).
+// last_notified_rank is what keeps this from re-emailing someone every
+// single day just because their rank wiggled by one.
+async function sendRankDropAlerts() {
+  const contest = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  if (!contest) return;
+
+  const ranked = await db.all(
+    `SELECT * FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY vote_count DESC, created_at ASC`,
+    [contest.id]
+  );
+
+  for (let i = 0; i < ranked.length; i++) {
+    const s = ranked[i];
+    const rank = i + 1;
+    const baseline = s.last_notified_rank;
+
+    // First time this entrant has ever been checked: record where they
+    // started without emailing anything — there's nothing to compare a
+    // drop against yet, and ranks are noisy in the first hours after entry
+    // as other people join, not a real signal worth alerting on.
+    if (baseline === null) {
+      await db.run(`UPDATE submissions SET last_notified_rank = ? WHERE id = ?`, [rank, s.id]);
+      continue;
+    }
+
+    const droppedEnoughPlaces = rank >= baseline + RANK_DROP_THRESHOLD;
+    const droppedOutOfWinnerZone = baseline <= CONTEST_WINNERS_COUNT && rank > CONTEST_WINNERS_COUNT;
+    if (!droppedEnoughPlaces && !droppedOutOfWinnerZone) continue;
+
+    const voteUrl = `${BASE_URL}/vote.html?cat=${s.id}`;
+    try {
+      await mailer.sendRankDropEmail({ email: s.email, catName: s.cat_name, rank, voteUrl, closesAt: contest.closes_at });
+      await db.run(`UPDATE submissions SET last_notified_rank = ? WHERE id = ?`, [rank, s.id]);
+    } catch (err) {
+      console.error(`[mailer] rank-drop alert failed for submission ${s.id}:`, err.message);
+    }
   }
 }
 
@@ -618,25 +709,42 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     // Strip newlines so a crafted cat name can't inject extra lines into
     // the plaintext/subject of outgoing emails.
     const name = (catName || 'Anonymous Cat').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
+    const { width, height, lowResolution } = await checkImageQuality(req.file.buffer);
     const photoPath = await storePhoto(req.file);
     const now = new Date().toISOString();
     const contest = await getOrOpenCurrentContest();
 
     const info = await db.run(
-      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, name, photoPath, now, now, contest.id]
+      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, name, photoPath, now, now, contest.id, width, height, lowResolution]
     );
     const submissionId = info.rows[0].id;
     const voteUrl = `${BASE_URL}/vote.html?cat=${submissionId}`;
+    const statusUrl = `${BASE_URL}/status.html?cat=${submissionId}&email=${encodeURIComponent(email)}&token=${statusToken.tokenFor(submissionId, email)}`;
+
+    // A time-limited discount on the evergreen print shop — the honest
+    // version of a "pre-order mockup": no fake 3D render, just a real
+    // incentive to buy a print of the photo they just uploaded while the
+    // moment (and the discount) is still fresh.
+    const discountExpiresAt = new Date(Date.now() + ENTRY_DISCOUNT_HOURS * 60 * 60 * 1000).toISOString();
+    const discount = {
+      percent: CONTEST_DISCOUNT_PERCENT,
+      email,
+      expiresAt: discountExpiresAt,
+      token: discountToken.tokenFor(email, discountExpiresAt),
+    };
 
     try {
-      await mailer.sendEntryConfirmation({ email, catName: name, voteUrl, closesAt: contest.closes_at });
+      await mailer.sendEntryConfirmation({
+        email, catName: name, voteUrl, statusUrl, closesAt: contest.closes_at, discount,
+      });
       await db.run(`UPDATE submissions SET notified_entry = 1 WHERE id = ?`, [submissionId]);
     } catch (err) {
       console.error(`[mailer] entry confirmation failed for submission ${submissionId}:`, err.message);
     }
 
-    res.json({ ok: true, submissionId, voteUrl });
+    res.json({ ok: true, submissionId, voteUrl, statusUrl, lowResolution, width, height, discount });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong.' });
@@ -657,6 +765,54 @@ app.get('/api/contest/current', async (req, res) => {
   res.json({
     contest: { id: contest.id, label: contest.label, opensAt: contest.opens_at, closesAt: contest.closes_at },
     entries,
+  });
+});
+
+// An entrant's private lookup of their own standing — the safe alternative
+// to a public real-time leaderboard (which stays hidden on purpose; see the
+// comment on /api/vote). Token-gated per submission so nobody can look up
+// anyone else's. While the contest is still open this computes a LIVE rank
+// on the fly (final_rank isn't set until close); once closed it reports the
+// permanent final_rank instead.
+app.get('/api/my-status', async (req, res) => {
+  const submissionId = Number(req.query.cat);
+  const { email, token } = req.query;
+  if (!statusToken.verify(submissionId, email, token)) {
+    return res.status(403).json({ error: 'Invalid or missing status link.' });
+  }
+  const submission = await db.get(`SELECT * FROM submissions WHERE id = ?`, [submissionId]);
+  if (!submission || String(submission.email).toLowerCase() !== String(email).toLowerCase()) {
+    return res.status(404).json({ error: 'Not found.' });
+  }
+  const contest = await db.get(`SELECT * FROM contests WHERE id = ?`, [submission.contest_id]);
+
+  if (submission.disqualified) {
+    return res.json({ catName: submission.cat_name, disqualified: true, reason: submission.disqualified_reason });
+  }
+
+  if (contest && contest.status === 'open') {
+    const ranked = await db.all(
+      `SELECT id FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY vote_count DESC, created_at ASC`,
+      [contest.id]
+    );
+    const liveRank = ranked.findIndex((r) => r.id === submission.id) + 1;
+    return res.json({
+      catName: submission.cat_name,
+      contestStatus: 'open',
+      voteCount: submission.vote_count,
+      liveRank,
+      totalEntries: ranked.length,
+      closesAt: contest.closes_at,
+    });
+  }
+
+  return res.json({
+    catName: submission.cat_name,
+    contestStatus: 'completed',
+    voteCount: submission.vote_count,
+    finalRank: submission.final_rank,
+    madeCalendar: Boolean(submission.group_id),
+    groupId: submission.group_id,
   });
 });
 
@@ -804,15 +960,34 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
 
     const qty = Math.max(1, Math.min(10, Number(quantity) || 1));
     const petNameClean = (petName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
+    const { width, height, lowResolution } = await checkImageQuality(req.file.buffer);
     const photoPath = await storePhoto(req.file);
     const now = new Date().toISOString();
-    const amount = product.priceUsd * qty;
+
+    // Optional time-limited discount from the contest entry-confirmation
+    // or final-placement email — verified server-side (HMAC + expiry, see
+    // discountToken.js), never trusted from the client's own math. Must
+    // belong to the same email placing this order.
+    const { discountEmail, discountExpires, discountToken: discountTok } = req.body;
+    let discountPercent = 0;
+    if (discountTok && discountEmail && String(discountEmail).toLowerCase() === String(email).toLowerCase()) {
+      if (discountToken.verify(discountEmail, discountExpires, discountTok)) {
+        discountPercent = CONTEST_DISCOUNT_PERCENT;
+      }
+    }
+    const unitPrice = Math.round(product.priceUsd * (1 - discountPercent / 100) * 100) / 100;
+    const amount = unitPrice * qty;
 
     const info = await db.run(
-      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) RETURNING id`,
-      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now]
+      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at, photo_width, photo_height, low_resolution, discount_percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now, width, height, lowResolution, discountPercent]
     );
     const orderId = info.rows[0].id;
+
+    const productName = discountPercent > 0
+      ? `Whiskr — ${product.name} (${discountPercent}% off)`
+      : `Whiskr — ${product.name}`;
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -824,8 +999,8 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
         {
           price_data: {
             currency: 'usd',
-            product_data: { name: `Whiskr — ${product.name}` },
-            unit_amount: Math.round(product.priceUsd * 100),
+            product_data: { name: productName },
+            unit_amount: Math.round(unitPrice * 100),
             tax_behavior: 'exclusive',
           },
           quantity: qty,
@@ -838,7 +1013,7 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
 
     await db.run(`UPDATE custom_orders SET stripe_session_id = ? WHERE id = ?`, [session.id, orderId]);
 
-    res.json({ ok: true, url: session.url });
+    res.json({ ok: true, url: session.url, lowResolution, width, height, discountPercent });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong.' });
@@ -1032,6 +1207,7 @@ app.get('/api/admin/contest/current', requireAdmin, async (req, res) => {
   const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const entries = await db.all(
     `SELECT s.id, s.cat_name, s.photo_path, s.vote_count, s.disqualified, s.disqualified_reason,
+            s.photo_width, s.photo_height, s.low_resolution,
             (SELECT COUNT(*) FROM votes v WHERE v.submission_id = s.id AND v.created_at >= ?) AS votes_last_hour
      FROM submissions s WHERE s.contest_id = ? ORDER BY s.vote_count DESC`,
     [hourAgo, contest.id]
@@ -1141,6 +1317,12 @@ app.post('/api/admin/run-review-requests', requireAdmin, async (req, res) => {
   await sendDueReviewRequests();
   res.json({ ok: true });
 });
+// Runs the rank-drop alert check immediately, for testing — in normal
+// operation the daily cron does this.
+app.post('/api/admin/run-rank-drop-alerts', requireAdmin, async (req, res) => {
+  await sendRankDropAlerts();
+  res.json({ ok: true });
+});
 
 app.get('/healthz', (req, res) => res.send('ok'));
 
@@ -1168,6 +1350,7 @@ app.get('/api/cron/daily', async (req, res) => {
 
   try {
     await runDueContestClose();
+    await sendRankDropAlerts();
     await sendDueReviewRequests();
     res.json({ ok: true });
   } catch (err) {
