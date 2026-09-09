@@ -3,21 +3,21 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Whiskr — Free Cat Photo Contest, Real Public Voting, Plus Custom Prints</title>
-<meta name="description" content="Enter your cat free, then get votes from friends, family, and followers. Top 12 by real public vote win this round's calendar. No purchase necessary. Plus custom cat and dog prints, always open." />
+<title>Whiskr — Free Cat Photo Contest, Win a One-of-a-Kind Cat Sculpture</title>
+<meta name="description" content="Enter your sweet angel free, then get votes from friends, family, and followers. Cat of the Month wins a one-of-a-kind cat sculpture handmade by Cody Carlson, plus the calendar cover. No purchase necessary." />
 <link rel="canonical" href="https://whiskr.lol/" />
 
 <!-- Open Graph / link previews (iMessage, Slack, Facebook, etc.) -->
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Whiskr" />
-<meta property="og:title" content="Whiskr — Free Cat Photo Contest, Real Public Voting, Plus Custom Prints" />
-<meta property="og:description" content="Enter your cat free, then get votes from friends, family, and followers. Top 12 by real public vote win this round's calendar. No purchase necessary." />
+<meta property="og:title" content="Whiskr — Free Cat Photo Contest, Win a One-of-a-Kind Cat Sculpture" />
+<meta property="og:description" content="Enter your sweet angel free, then get votes from friends, family, and followers. Cat of the Month wins a one-of-a-kind cat sculpture handmade by Cody Carlson. No purchase necessary." />
 <meta property="og:url" content="https://whiskr.lol/" />
 
 <!-- Twitter/X card -->
 <meta name="twitter:card" content="summary" />
-<meta name="twitter:title" content="Whiskr — Free Cat Photo Contest, Real Public Voting, Plus Custom Prints" />
-<meta name="twitter:description" content="Enter your cat free, then get votes from friends, family, and followers. Top 12 by real public vote win. No purchase necessary." />
+<meta name="twitter:title" content="Whiskr — Free Cat Photo Contest, Win a One-of-a-Kind Cat Sculpture" />
+<meta name="twitter:description" content="Enter your sweet angel free, then get votes. Cat of the Month wins a one-of-a-kind cat sculpture by Cody Carlson. No purchase necessary." />
 
 <!-- Structured data — helps Google show rich results and helps AI
      assistants/shopping agents understand what this business is and sells
@@ -36,7 +36,7 @@
 </script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -57,9 +57,10 @@
   <div class="hero-slides" id="heroSlides" aria-hidden="true"></div>
   <div class="hero-scrim"></div>
   <div class="hero-content">
-    <p class="ribbon-tag">Free entry, real public voting — plus custom prints, always open</p>
-    <h1>Get your cat voted Cat of the Month.</h1>
-    <p class="hero-sub">Enter free, then share your link for votes from friends, family, and followers. Top 12 by real public vote win this round's calendar — no purchase necessary to enter or win.</p>
+    <p class="ribbon-tag ribbon-fun">Free entry, real public voting — one epic prize</p>
+    <h1 class="hero-fun-headline">Enter your sweet angel in my one-of-a-kind calendar photo contest!</h1>
+    <p class="hero-prize-callout">🏆 Winner receives a one-of-a-kind cat sculpture made by <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>!</p>
+    <p class="hero-sub">Enter free, then share your link for votes from friends, family, and followers. Top 12 by real public vote win this round's calendar — Cat of the Month also takes home the sculpture. No purchase necessary to enter or win.</p>
     <div class="hero-actions">
       <a href="#enter" class="btn btn-primary">Enter your cat free</a>
       <a href="vote.html" class="btn btn-ghost">Vote for cats now</a>
@@ -88,10 +89,10 @@
     <li>
       <span class="step-num">3</span>
       <h3>Top 12 win the calendar</h3>
-      <p>When voting closes, the 12 most-voted cats make this round's calendar. Every entrant can still grab a solo print of their own cat.</p>
+      <p>When voting closes, the 12 most-voted cats make this round's calendar. Cat of the Month — the #1 spot — also wins a one-of-a-kind cat sculpture handmade by our favorite cat artist, <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>. Every entrant can still grab a solo print of their own cat.</p>
     </li>
   </ol>
-  <p class="section-sub"><a href="rules.html">Official contest rules</a> — how votes are counted, eligibility, and what gets an entry disqualified.</p>
+  <p class="section-sub"><a href="rules.html">Official contest rules</a> — how votes are counted, eligibility, and what gets an entry disqualified. Prize sculptures made by <a href="https://codycarlson.art" target="_blank" rel="noopener">codycarlson.art</a>.</p>
 </section>
 
 <section id="current" class="section current">
@@ -100,12 +101,14 @@
       <img id="winnerPhoto" src="" alt="" />
     </div>
     <div class="current-copy">
-      <p class="ribbon-tag">Most recent Cat of the Month</p>
-      <h2 id="winnerName">Voting in progress</h2>
-      <p id="winnerBlurb">This round is still open for entries and votes. Check back soon — or enter your own cat and start collecting votes.</p>
+      <p class="ribbon-tag" id="currentRibbon">This round is live</p>
+      <h2 id="winnerName">Meet this round's cats</h2>
+      <p id="winnerBlurb">Free to enter, free to vote — top 12 by real vote win the calendar, and Cat of the Month wins the sculpture too. Cast your vote below.</p>
       <p class="contest-status" id="contestStatus"></p>
+      <a href="vote.html" class="btn btn-primary current-vote-cta">Vote now</a>
     </div>
   </div>
+  <div class="current-teaser" id="currentTeaser"></div>
 </section>
 
 <section id="enter" class="section enter">
@@ -133,6 +136,7 @@
         I own this photo and grant Whiskr a license to print and sell it.
       </label>
       <button type="submit" class="btn btn-primary">Submit entry</button>
+      <p class="form-note">No purchase necessary to enter or win — <a href="rules.html">official rules</a>.</p>
       <p class="form-note" id="entryNote"></p>
       <div id="entryMockup" hidden></div>
     </form>
@@ -287,7 +291,6 @@
     </a>
   </div>
 
-  <p class="affiliate-disclosure">Replace these href values with your real, tagged affiliate URLs before launch — see README.</p>
 </section>
 
 <footer class="site-footer">

@@ -78,20 +78,55 @@ async function loadStatus() {
     const statusEl = document.getElementById('contestStatus');
     if (statusEl) statusEl.textContent = data.statusText || '';
 
+    const ribbonEl = document.getElementById('currentRibbon');
     const nameEl = document.getElementById('winnerName');
     const photoEl = document.getElementById('winnerPhoto');
     const blurbEl = document.getElementById('winnerBlurb');
     if (data.lastWinner && nameEl && photoEl) {
+      if (ribbonEl) ribbonEl.textContent = 'Most recent Cat of the Month';
       nameEl.textContent = data.lastWinner.cat_name;
       photoEl.src = data.lastWinner.photo_path;
       photoEl.alt = `${data.lastWinner.cat_name}, Cat of the Month`;
       if (blurbEl) blurbEl.textContent = 'Chosen as Cat of the Month by real public vote. Their calendar is in the shop below.';
+    } else if (data.contestId) {
+      loadCurrentTeaser();
     }
   } catch (err) {
     console.error('status load failed', err);
   }
 }
 loadStatus();
+
+// No round has closed yet — show a few of this round's real entries
+// (random order, no vote counts) instead of a dead-end "check back soon".
+// Same containers the server may have already prerendered (see seo.js's
+// renderEntryTeaser) — this is a no-op for a real visitor if so.
+async function loadCurrentTeaser() {
+  const teaser = document.getElementById('currentTeaser');
+  if (!teaser || teaser.children.length) return;
+  try {
+    const res = await fetch('/api/contest/current');
+    const data = await res.json();
+    const entries = (data.entries || []).slice(0, 6);
+    teaser.innerHTML = '';
+    entries.forEach((cat) => {
+      const a = document.createElement('a');
+      a.className = 'teaser-card';
+      a.href = `vote.html?cat=${cat.id}`;
+      const img = document.createElement('img');
+      img.src = cat.photo_path;
+      img.alt = cat.cat_name;
+      img.loading = 'lazy';
+      const span = document.createElement('span');
+      span.textContent = cat.cat_name;
+      a.appendChild(img);
+      a.appendChild(span);
+      teaser.appendChild(a);
+    });
+  } catch (err) {
+    console.error('teaser load failed', err);
+  }
+}
 
 // ---------- entry form ----------
 // Stores an active print-shop discount (issued at entry or in the
@@ -100,6 +135,39 @@ loadStatus();
 function storeDiscount(discount) {
   if (!discount) return;
   try { localStorage.setItem('whiskr_discount', JSON.stringify(discount)); } catch (_) {}
+}
+
+// Shares the real share-card image (photo + name + vote link, composited
+// server-side — see generateShareCard in server.js) via Web Share Level 2's
+// `files`, when the browser supports sharing files, since an image posts
+// far better than a bare link on Stories/WhatsApp/feed. Falls back to a
+// plain link share, then clipboard, same ladder as vote.html's shareCat().
+async function shareEntryCard(shareImageUrl, catName, voteUrl, noteEl) {
+  const text = `Vote for ${catName} in Whiskr's free cat photo contest! I'd owe you one:`;
+  try {
+    if (shareImageUrl && window.navigator.canShare) {
+      const resp = await fetch(shareImageUrl);
+      const blob = await resp.blob();
+      const file = new File([blob], 'vote-card.jpg', { type: blob.type || 'image/jpeg' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: text, text, url: voteUrl });
+        return;
+      }
+    }
+    if (navigator.share) {
+      await navigator.share({ title: text, text, url: voteUrl });
+      return;
+    }
+  } catch (err) {
+    if (err && err.name === 'AbortError') return; // user cancelled the share sheet
+  }
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(`${text} ${voteUrl}`).then(() => {
+      if (noteEl) noteEl.textContent = 'Link copied — go paste it!';
+    });
+  } else {
+    window.prompt('Copy this link:', voteUrl);
+  }
 }
 
 function renderCountdown(el, expiresAt) {
@@ -133,6 +201,8 @@ if (entryForm) {
     const formData = new FormData(entryForm);
     const photoFile = photoInput.files[0];
 
+    const catNameValue = document.getElementById('catName').value;
+
     try {
       const res = await fetch('/api/submissions', { method: 'POST', body: formData });
       const data = await res.json();
@@ -151,6 +221,10 @@ if (entryForm) {
       mockup.innerHTML = `
         <div class="entry-mockup">
           ${photoUrl ? `<div class="entry-mockup-frame"><img src="${photoUrl}" alt="" /><div class="caption">A print of your cat could look like this</div></div>` : ''}
+          <div class="entry-share">
+            <p>Your voting link: <a href="${data.voteUrl}">${data.voteUrl}</a></p>
+            <button type="button" class="btn btn-primary" id="entryShareBtn">Share for votes</button>
+          </div>
           ${data.discount ? `
             <div class="entry-discount">
               <div class="pct">${data.discount.percent}% off</div>
@@ -161,6 +235,10 @@ if (entryForm) {
         </div>`;
       mockup.hidden = false;
       if (data.discount) renderCountdown(document.getElementById('entryDiscountCountdown'), data.discount.expiresAt);
+      const shareBtn = document.getElementById('entryShareBtn');
+      if (shareBtn) {
+        shareBtn.addEventListener('click', () => shareEntryCard(data.shareImageUrl, catNameValue, data.voteUrl, note));
+      }
 
       entryForm.reset();
       loadStatus();
@@ -291,15 +369,20 @@ loadReviews();
     discountBanner.textContent = `A time-limited discount is applied — order with the email ${activeDiscount.email} to use it.`;
   }
 
+  // The server already bakes real product cards into #customGrid on first
+  // paint (see renderProductCards in seo.js) — never blank that away while
+  // this fetch is in flight or if it fails; a visitor (or a crawler that
+  // doesn't run this script at all) should never see less than what the
+  // server already sent.
   async function loadProducts(species) {
-    grid.innerHTML = '<p style="color:#6b6552;">Loading…</p>';
+    if (!grid.children.length) grid.innerHTML = '<p style="color:#6b6552;">Loading…</p>';
     try {
       const res = await fetch(`/api/products?species=${encodeURIComponent(species)}`);
       const data = await res.json();
       products = data.products || [];
       renderGrid();
     } catch (err) {
-      grid.innerHTML = '<p style="color:#6b6552;">Could not load products right now.</p>';
+      if (!grid.children.length) grid.innerHTML = '<p style="color:#6b6552;">Could not load products right now.</p>';
     }
   }
 

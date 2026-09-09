@@ -136,6 +136,53 @@ async function storePhoto(file) {
   return `/uploads/${filename}`;
 }
 
+// Stores a raw buffer (not a multer file) under uploads/ the same way
+// storePhoto does — used for generated assets like the share card, which
+// don't come from an incoming form upload.
+async function storeBuffer(buffer, mimetype, filename) {
+  if (BLOB_CONFIGURED) {
+    const blob = await putBlob(`uploads/${filename}`, buffer, { access: 'public', contentType: mimetype });
+    return blob.url;
+  }
+  const uploadDir = path.join(__dirname, 'public', 'uploads');
+  fs.mkdirSync(uploadDir, { recursive: true });
+  fs.writeFileSync(path.join(uploadDir, filename), buffer);
+  return `/uploads/${filename}`;
+}
+
+// Composites a real, ready-to-post "vote for me" image from the entrant's
+// own photo — a square crop with the cat's name and the Whiskr wordmark
+// overlaid, so sharing is an actual image (Stories/feed/WhatsApp all
+// prefer an image over a bare link), not a fabricated render — same photo
+// they uploaded, just framed for sharing. Failure here never blocks an
+// entry; the caller treats a null return as "no share card this time."
+async function generateShareCard(photoBuffer, catName) {
+  const SIZE = 1080;
+  const BAR_HEIGHT = 190;
+  const safeName = seo.escapeHtml(catName);
+  // Plain text only, no emoji — this renders server-side via whatever font
+  // stack happens to be installed on the host, which reliably has a normal
+  // sans-serif face but not necessarily an emoji font, so an emoji here can
+  // silently come out as a broken tofu box on every single share card.
+  const svg = `
+    <svg width="${SIZE}" height="${SIZE}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="${SIZE - BAR_HEIGHT}" width="${SIZE}" height="${BAR_HEIGHT}" fill="rgba(27,36,48,0.85)" />
+      <text x="40" y="${SIZE - BAR_HEIGHT + 70}" font-family="sans-serif" font-size="54" font-weight="700" fill="#ffffff">Vote for ${safeName}!</text>
+      <text x="40" y="${SIZE - BAR_HEIGHT + 130}" font-family="sans-serif" font-size="32" fill="#E8A33D" font-weight="600">whiskr.lol</text>
+    </svg>`;
+  try {
+    const buffer = await sharp(photoBuffer)
+      .resize(SIZE, SIZE, { fit: 'cover' })
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .jpeg({ quality: 85 })
+      .toBuffer();
+    return await storeBuffer(buffer, 'image/jpeg', `share-${uuid()}.jpg`);
+  } catch (err) {
+    console.warn('[share-card] generation failed:', err.message);
+    return null;
+  }
+}
+
 // Reads real pixel dimensions and flags (never blocks — a business would
 // rather sell a slightly soft print than lose the sale) anything under
 // MIN_PRINT_DIMENSION_PX on either side. Falls back to "unknown, not
@@ -328,9 +375,10 @@ const CALENDAR_PATH = path.join(__dirname, 'public', 'calendar.html');
 async function renderIndexHtml() {
   let html = fs.readFileSync(INDEX_PATH, 'utf8');
 
-  const { statusText, lastWinner } = await getContestStatus();
+  const { statusText, lastWinner, contestId } = await getContestStatus();
   html = seo.fillEmpty(html, 'contestStatus', seo.escapeHtml(statusText));
   if (lastWinner) {
+    html = seo.fillEmpty(html, 'currentRibbon', seo.escapeHtml('Most recent Cat of the Month'));
     html = seo.fillEmpty(html, 'winnerName', seo.escapeHtml(lastWinner.cat_name));
     html = seo.setAttr(html, 'winnerPhoto', 'src', lastWinner.photo_path);
     html = seo.setAttr(html, 'winnerPhoto', 'alt', `${lastWinner.cat_name}, Cat of the Month`);
@@ -339,6 +387,18 @@ async function renderIndexHtml() {
       'winnerBlurb',
       seo.escapeHtml('Chosen as Cat of the Month by real public vote. Their calendar is in the shop below.')
     );
+  } else if (contestId) {
+    // No round has closed yet — instead of a dead-end "check back soon",
+    // show a few of this round's real entries (random, no vote counts —
+    // same hidden-tally rule as the vote page) so there's something to
+    // click on the very first round, not just an empty promise.
+    const teaserEntries = await db.all(
+      `SELECT id, cat_name, photo_path FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY RANDOM() LIMIT 6`,
+      [contestId]
+    );
+    if (teaserEntries.length > 0) {
+      html = seo.fillEmpty(html, 'currentTeaser', seo.renderEntryTeaser(teaserEntries));
+    }
   }
 
   const products = productCatalog.listProducts('all');
@@ -711,13 +771,14 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     const name = (catName || 'Anonymous Cat').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
     const { width, height, lowResolution } = await checkImageQuality(req.file.buffer);
     const photoPath = await storePhoto(req.file);
+    const shareImagePath = await generateShareCard(req.file.buffer, name);
     const now = new Date().toISOString();
     const contest = await getOrOpenCurrentContest();
 
     const info = await db.run(
-      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, name, photoPath, now, now, contest.id, width, height, lowResolution]
+      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution, share_image_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, name, photoPath, now, now, contest.id, width, height, lowResolution, shareImagePath]
     );
     const submissionId = info.rows[0].id;
     const voteUrl = `${BASE_URL}/vote.html?cat=${submissionId}`;
@@ -737,14 +798,14 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
 
     try {
       await mailer.sendEntryConfirmation({
-        email, catName: name, voteUrl, statusUrl, closesAt: contest.closes_at, discount,
+        email, catName: name, voteUrl, statusUrl, closesAt: contest.closes_at, discount, shareImageUrl: shareImagePath,
       });
       await db.run(`UPDATE submissions SET notified_entry = 1 WHERE id = ?`, [submissionId]);
     } catch (err) {
       console.error(`[mailer] entry confirmation failed for submission ${submissionId}:`, err.message);
     }
 
-    res.json({ ok: true, submissionId, voteUrl, statusUrl, lowResolution, width, height, discount });
+    res.json({ ok: true, submissionId, voteUrl, statusUrl, lowResolution, width, height, discount, shareImageUrl: shareImagePath });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong.' });
@@ -759,7 +820,7 @@ app.get('/api/contest/current', async (req, res) => {
   const contest = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
   if (!contest) return res.json({ contest: null, entries: [] });
   const entries = await db.all(
-    `SELECT id, cat_name, photo_path FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY RANDOM()`,
+    `SELECT id, cat_name, photo_path, share_image_path FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY RANDOM()`,
     [contest.id]
   );
   res.json({

@@ -41,6 +41,14 @@
     font-size: 0.85rem; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; z-index: 100;
   }
   .vote-toast.show { opacity: 1; }
+  .entry-nudge-banner, .entry-nudge-postvote {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    flex-wrap: wrap;
+    background: var(--forest); color: #fff;
+    padding: 14px 20px; border-radius: 6px; margin-bottom: 24px;
+  }
+  .entry-nudge-postvote { margin-top: 24px; margin-bottom: 0; }
+  .entry-nudge-banner span, .entry-nudge-postvote span { font-weight: 500; }
 </style>
 </head>
 <body>
@@ -57,11 +65,20 @@
   <div class="vote-header">
     <p class="ribbon-tag" id="voteContestLabel">Loading contest…</p>
     <h1>Vote for your favorite cat</h1>
-    <p class="vote-note">Free to vote, no purchase necessary. One vote per cat per person — see <a href="rules.html">official rules</a>. Vote totals stay hidden until this round closes, so it's a fair count, not a popularity snowball.</p>
+    <p class="vote-note">Free to vote, no purchase necessary. One vote per cat per person — see <a href="rules.html">official rules</a>. Vote totals stay hidden until this round closes, so it's a fair count, not a popularity snowball. Votes are checked for abuse; suspicious activity is removed.</p>
     <div id="turnstileWidget"></div>
   </div>
 
+  <div class="entry-nudge-banner">
+    <span>Have a cat? Entering takes 60 seconds — get your own voting link.</span>
+    <a href="index.html#enter" class="btn btn-primary">Enter my cat free</a>
+  </div>
+
   <div class="vote-grid" id="voteGrid"></div>
+  <div class="entry-nudge-postvote" id="postVoteNudge" hidden>
+    <span>Thanks for voting! Got a cat of your own? This round's still open.</span>
+    <a href="index.html#enter" class="btn btn-primary">Enter free</a>
+  </div>
   <p class="vote-empty" id="voteEmpty" style="display:none;">No entries yet this round — be the first to <a href="index.html#enter">enter your cat</a>.</p>
 </div>
 
@@ -210,6 +227,7 @@
       btn.textContent = 'Voted';
       btn.classList.add('voted');
       toast(`Vote counted for ${cat.cat_name}!`);
+      document.getElementById('postVoteNudge').hidden = false;
       if (turnstileWidgetId !== null && window.turnstile) {
         turnstileToken = null;
         window.turnstile.reset(turnstileWidgetId);
@@ -220,12 +238,27 @@
     }
   }
 
-  function shareCat(cat) {
+  async function shareCat(cat) {
     const url = `${window.location.origin}/vote.html?cat=${cat.id}`;
-    const text = `Vote for ${cat.cat_name} in Whiskr's free cat photo contest!`;
-    if (navigator.share) {
-      navigator.share({ title: text, url }).catch(() => {});
-    } else if (navigator.clipboard) {
+    const text = `Vote for ${cat.cat_name} in Whiskr's free cat photo contest! I'd owe you one:`;
+    try {
+      if (cat.share_image_path && navigator.canShare) {
+        const resp = await fetch(cat.share_image_path);
+        const blob = await resp.blob();
+        const file = new File([blob], 'vote-card.jpg', { type: blob.type || 'image/jpeg' });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: text, text, url });
+          return;
+        }
+      }
+      if (navigator.share) {
+        await navigator.share({ title: text, text, url });
+        return;
+      }
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+    }
+    if (navigator.clipboard) {
       navigator.clipboard.writeText(`${text} ${url}`).then(() => toast('Link copied — go paste it!'));
     } else {
       window.prompt('Copy this link:', url);

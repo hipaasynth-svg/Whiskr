@@ -56,6 +56,19 @@ function renderHeroSlides(imagePaths) {
   return imagePaths.map((src, i) => `<img src="${escapeHtml(src)}" alt="" loading="${i === 0 ? 'eager' : 'lazy'}" class="${i === 0 ? 'active' : ''}" />`).join('');
 }
 
+// A few of the current round's entries as social-proof teaser cards on the
+// homepage, for the (otherwise dead-end) window before any round has ever
+// closed — deliberately no vote counts or vote-ordering here, only who's
+// entered, matching the same hidden-tally principle the vote page states
+// outright. Callers pass an already-randomized, already-limited list.
+function renderEntryTeaser(entries) {
+  return entries.map((e) => `
+      <a class="teaser-card" href="vote.html?cat=${e.id}">
+        <img src="${escapeHtml(e.photo_path)}" alt="${escapeHtml(e.cat_name)}" loading="lazy" />
+        <span>${escapeHtml(e.cat_name)}</span>
+      </a>`).join('');
+}
+
 // Replace the content of the element carrying id="ID" with `inner` —
 // matches from the id through the rest of the opening tag to its `>`, then
 // everything up to the next closing tag. Works whether the element started
@@ -86,6 +99,7 @@ module.exports = {
   productsJsonLd,
   renderProductCards,
   renderHeroSlides,
+  renderEntryTeaser,
   fillEmpty,
   setAttr,
   injectIntoHead,

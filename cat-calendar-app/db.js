@@ -108,6 +108,11 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS last_notified_rank INTEGER;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS photo_width INTEGER;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS photo_height INTEGER;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL DEFAULT 0;
+-- A pre-composited "vote for me" image (photo + name + vote link, see
+-- generateShareCard in server.js) generated once at entry time so sharing
+-- is a real image an entrant can post, not just a bare link. Nullable —
+-- generation failure never blocks an entry.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS share_image_path TEXT;
 
 -- One row per (submission, voter) so a browser/cookie identity can't vote
 -- for the same cat twice — the UNIQUE constraint is the real enforcement,
