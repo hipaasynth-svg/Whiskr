@@ -97,6 +97,30 @@ async function loadStatus() {
 }
 loadStatus();
 
+// Cat of the Year only runs once annually and stays closed the rest of the
+// time — this banner stays hidden/empty whenever no award is open, never a
+// fake "coming soon" placeholder.
+async function loadYearAwardBanner() {
+  const banner = document.getElementById('yearAwardBanner');
+  if (!banner) return;
+  try {
+    const res = await fetch('/api/year-award/current');
+    const data = await res.json();
+    if (!data.award) { banner.hidden = true; banner.innerHTML = ''; return; }
+    const closes = new Date(data.award.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    banner.innerHTML = `
+      <div>
+        <h2>🏆 ${data.award.label} is open for voting</h2>
+        <p>Pick your favorite from this year's Cat of the Month winners — voting closes ${closes}.</p>
+      </div>
+      <a href="year-award.html" class="btn btn-primary">Vote for Cat of the Year</a>`;
+    banner.hidden = false;
+  } catch (err) {
+    console.error('year award banner load failed', err);
+  }
+}
+loadYearAwardBanner();
+
 // No round has closed yet — show a few of this round's real entries
 // (random order, no vote counts) instead of a dead-end "check back soon".
 // Same containers the server may have already prerendered (see seo.js's

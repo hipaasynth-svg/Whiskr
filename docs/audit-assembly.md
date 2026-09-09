@@ -836,3 +836,77 @@ column was set, and — critically — read the actual generated JPEG back as
 an image rather than just checking the file existed, which is what caught
 the broken-emoji defect above. Confirmed `node --check` passes on every
 changed JS file and the new/edited HTML files have balanced tags.
+
+## Update — 2026-09-09: sculpture prize moved from monthly to annual, Cat of the Year added
+
+Follow-up from the owner after the pass above: the wooden sculpture prize
+(handmade by Cody Carlson, confirmed valued under $5,000 — so no NY/FL/RI
+sweepstakes registration/bonding threshold is actually tripped, which the
+previous pass had flagged as a real risk to check) should be the prize for
+a new annual **Cat of the Year** award, not something promised every
+single month. That's also the operationally sane call independent of the
+legal question: commissioning a unique wooden sculpture every month for
+every monthly winner isn't a sustainable prize to fulfill; once a year is.
+
+**Built, a real second contest mechanic, not a copy-paste of the first:**
+Cat of the Year is a separate, admin-opened public vote among that year's
+monthly Cat of the Month winners (auto-populated from `groups` — no
+nomination step, every eligible winner is automatically a finalist),
+living in its own tables (`year_awards`, `year_award_finalists`,
+`year_award_votes`) rather than reusing the monthly `contests`/`votes`
+tables, because the actual voting rule is different: **one ballot per
+person for the whole award**, not repeatable daily voting over a 30-day
+window — enforced with `UNIQUE(year_award_id, voter_token)`, not
+`UNIQUE(finalist_id, voter_token)`, so a voter can't pick a favorite, get
+told "already voted," and just pick a second favorite instead. Verified
+this distinction actually holds by testing both cases directly: voting
+twice for the same finalist fails, and voting for a *different* finalist
+with the same voter cookie also fails.
+
+Deliberately admin-triggered on both ends (`/api/admin/year-award/open`
+and `/force-close`), never cron-automated — crowning Cat of the Year is a
+once-a-year, deliberate moment the operator should choose (and review the
+auto-populated finalist list for) rather than something that fires
+unattended on a schedule the way the monthly contest does.
+
+**Reverted the previous pass's monthly winner email and Prizes-page
+copy** — both had (correctly, at the time) promised the sculpture to every
+Cat of the Month, which is exactly the promise this update replaces.
+`sendWinnerEmail` no longer mentions a sculpture at all, only that the
+winner is "now in the running for Cat of the Year"; a new
+`sendCatOfYearEmail` carries the actual grand-prize notification and
+fulfillment ask (reply with a mailing address) once an award closes.
+`rules.html`'s Prizes section now states both tiers explicitly, including
+the under-$5,000 value cap and a plain description of the one-ballot
+voting rule, and a new "Cat of the Year" section explains it has no
+separate entry/nomination step.
+
+**New public surface**: `year-award.html` (mirrors `vote.html`'s look,
+different voting rule as above) and a homepage banner
+(`#yearAwardBanner`) that only renders anything while an award is
+actually open — most of the year `/api/year-award/current` returns
+`{award: null}` and the banner stays hidden/empty, same "never show a
+fake/empty state" rule this app has followed everywhere else. Added to
+`sitemap.xml` alongside the other static pages.
+
+**Verified against a real local Postgres instance**, using this repo's
+existing completed-round test data (three prior contest winners already
+in the dev DB from earlier sessions — no fixtures needed): opened a year
+award via the admin endpoint and confirmed it auto-populated exactly those
+three as finalists; confirmed the public endpoint returns finalists with
+no vote counts; cast a vote and confirmed both anti-double-vote cases
+above; confirmed the admin view shows real per-finalist vote counts;
+force-closed the award and confirmed it crowned the actual highest-vote
+finalist, sent the Cat of the Year email with the correct sculpture
+deadline text, and that `/api/year-award/current` correctly goes back to
+`{award: null}` once completed; separately force-closed a live monthly
+contest and confirmed its winner email no longer mentions a sculpture, to
+catch a regression on the reverted copy rather than assume it. A stray
+backtick inside a SQL comment inside `db.js`'s DDL template literal (fine
+as a comment, but backticks close a JS template string wherever they
+appear) broke `node --check db.js` immediately — caught and fixed before
+any of the above testing, not after.
+
+**Left open, not done here**: the marketing/ad-spend/ROAS tracking layer
+from the original Sentinel plan the owner referenced — that's a distinct
+follow-up pass, not folded into this one.

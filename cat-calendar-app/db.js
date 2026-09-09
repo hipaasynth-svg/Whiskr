@@ -129,6 +129,53 @@ CREATE TABLE IF NOT EXISTS votes (
 CREATE INDEX IF NOT EXISTS votes_ip_hash_created_idx ON votes(ip_hash, created_at);
 CREATE INDEX IF NOT EXISTS votes_voter_token_created_idx ON votes(voter_token, created_at);
 
+-- Annual "Cat of the Year" award: a separate, once-a-year public vote among
+-- that year's monthly Cat-of-the-Month winners for the one physical grand
+-- prize (a one-of-a-kind wooden sculpture of the winning cat, handmade by
+-- Cody Carlson) — moved here from monthly because commissioning a unique
+-- sculpture every single month isn't a sustainable prize to fulfill. Kept
+-- deliberately separate from the monthly contests/submissions/votes tables
+-- rather than reusing them, since the voting rule is different (one ballot
+-- per person for the whole award, not repeatable daily voting over 30
+-- days) and this only ever runs once a year. Admin-opened and
+-- admin-closed (see /api/admin/year-award/* in server.js) — not
+-- cron-automated, since this is a rare, deliberate moment the operator
+-- should choose, not something to fire on a schedule.
+CREATE TABLE IF NOT EXISTS year_awards (
+  id SERIAL PRIMARY KEY,
+  label TEXT NOT NULL,
+  opens_at TEXT NOT NULL,
+  closes_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',   -- open | completed
+  winner_submission_id INTEGER REFERENCES submissions(id),
+  sculpture_deadline TEXT,               -- the delivery commitment for this cycle's winner
+  created_at TEXT NOT NULL
+);
+-- One row per (year_award, that year's Cat-of-the-Month winner) — the
+-- finalist ballot. Auto-populated from the groups table when an admin
+-- opens an award (see the /api/admin/year-award/open handler).
+CREATE TABLE IF NOT EXISTS year_award_finalists (
+  id SERIAL PRIMARY KEY,
+  year_award_id INTEGER NOT NULL REFERENCES year_awards(id),
+  submission_id INTEGER NOT NULL REFERENCES submissions(id),
+  vote_count INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(year_award_id, submission_id)
+);
+-- UNIQUE is on (year_award_id, voter_token), not (finalist_id,
+-- voter_token) — this is a single ballot ("pick your one favorite of this
+-- year's winners"), so a voter_token can only ever have one row per award,
+-- never one per finalist the way monthly votes work.
+CREATE TABLE IF NOT EXISTS year_award_votes (
+  id SERIAL PRIMARY KEY,
+  year_award_id INTEGER NOT NULL REFERENCES year_awards(id),
+  finalist_id INTEGER NOT NULL REFERENCES year_award_finalists(id),
+  voter_token TEXT NOT NULL,
+  ip_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(year_award_id, voter_token)
+);
+CREATE INDEX IF NOT EXISTS year_award_votes_ip_hash_idx ON year_award_votes(year_award_id, ip_hash);
+
 CREATE TABLE IF NOT EXISTS orders (
   id SERIAL PRIMARY KEY,
   group_id INTEGER NOT NULL,

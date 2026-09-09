@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vote for Cat of the Year — Whiskr</title>
+<meta name="description" content="Vote free for Cat of the Year among this year's monthly Whiskr Cat of the Month winners. No purchase necessary. Winner receives a one-of-a-kind wooden sculpture." />
+<link rel="canonical" href="https://whiskr.lol/year-award.html" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<style>
+  .vote-wrap { max-width: 1080px; margin: 0 auto; padding: 50px 36px 100px; }
+  .vote-header { margin-bottom: 30px; }
+  .vote-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 18px;
+  }
+  .vote-card {
+    background: var(--paper-card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .vote-card img { width: 100%; aspect-ratio: 1/1; object-fit: cover; }
+  .vote-card-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .vote-card-name { font-family: var(--font-display); font-size: 1.05rem; }
+  .vote-btn.voted { background: var(--forest); color: #fff; cursor: default; }
+  .vote-empty, .vote-note { color: #55503f; }
+  .vote-toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 4px;
+    font-size: 0.85rem; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; z-index: 100;
+  }
+  .vote-toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <nav class="site-nav">
+    <a href="index.html#enter">Enter your cat</a>
+    <a href="vote.html">This round's vote</a>
+    <a href="rules.html">Rules</a>
+  </nav>
+</header>
+
+<div class="vote-wrap">
+  <div class="vote-header">
+    <p class="ribbon-tag" id="awardLabel">Loading…</p>
+    <h1>Vote for Cat of the Year</h1>
+    <p class="vote-note">Free to vote, no purchase necessary. This is one ballot — pick your single favorite among this year's monthly Cat of the Month winners. Vote totals stay hidden until the award closes. Winner receives a one-of-a-kind wooden sculpture of their cat, handmade by <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>.</p>
+  </div>
+
+  <div class="vote-grid" id="voteGrid"></div>
+  <p class="vote-empty" id="voteEmpty" style="display:none;"></p>
+</div>
+
+<div class="vote-toast" id="voteToast"></div>
+
+<footer class="site-footer">
+  <div>Whiskr — a free, real-public-vote cat photo contest.</div>
+  <div class="footer-links"><a href="index.html">Home</a></div>
+</footer>
+
+<script>
+  const grid = document.getElementById('voteGrid');
+  const empty = document.getElementById('voteEmpty');
+  const label = document.getElementById('awardLabel');
+  const toastEl = document.getElementById('voteToast');
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    setTimeout(() => toastEl.classList.remove('show'), 2500);
+  }
+
+  // One ballot for the whole award (not per-finalist, per-day like the
+  // monthly vote page) — once voted, every card locks, matching the
+  // server's own UNIQUE(year_award_id, voter_token) rule.
+  function votedFinalistId() {
+    try { return localStorage.getItem('whiskr_year_award_voted'); } catch (_) { return null; }
+  }
+  function markVoted(finalistId) {
+    try { localStorage.setItem('whiskr_year_award_voted', String(finalistId)); } catch (_) {}
+  }
+
+  async function loadAward() {
+    try {
+      const res = await fetch('/api/year-award/current');
+      const data = await res.json();
+      if (!data.award) {
+        label.textContent = 'No Cat of the Year award is open right now.';
+        empty.textContent = 'Check back once this year\'s award opens — see the homepage for the current monthly round.';
+        empty.style.display = 'block';
+        return;
+      }
+      const closes = new Date(data.award.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+      label.textContent = `${data.award.label} — voting closes ${closes}`;
+
+      if (data.finalists.length === 0) {
+        empty.textContent = 'No finalists yet.';
+        empty.style.display = 'block';
+        return;
+      }
+
+      const voted = votedFinalistId();
+      grid.innerHTML = '';
+      data.finalists.forEach((cat) => {
+        const card = document.createElement('div');
+        card.className = 'vote-card';
+
+        const img = document.createElement('img');
+        img.src = cat.photo_path;
+        img.alt = cat.cat_name;
+        card.appendChild(img);
+
+        const body = document.createElement('div');
+        body.className = 'vote-card-body';
+
+        const name = document.createElement('div');
+        name.className = 'vote-card-name';
+        name.textContent = cat.cat_name;
+        body.appendChild(name);
+
+        const voteBtn = document.createElement('button');
+        voteBtn.type = 'button';
+        voteBtn.className = 'btn btn-primary vote-btn';
+        const isThisOne = voted && String(cat.finalist_id) === voted;
+        if (voted) {
+          voteBtn.disabled = true;
+          voteBtn.textContent = isThisOne ? 'Your pick' : 'Voted';
+          if (isThisOne) voteBtn.classList.add('voted');
+        } else {
+          voteBtn.textContent = 'Vote for Cat of the Year';
+          voteBtn.addEventListener('click', () => castVote(cat, voteBtn));
+        }
+        body.appendChild(voteBtn);
+
+        card.appendChild(body);
+        grid.appendChild(card);
+      });
+    } catch (err) {
+      label.textContent = 'Could not load the award right now.';
+      console.error(err);
+    }
+  }
+
+  async function castVote(cat, btn) {
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/year-award/vote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ finalistId: cat.finalist_id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Vote failed.');
+      markVoted(cat.finalist_id);
+      toast(`Your vote for ${cat.cat_name} is in!`);
+      loadAward();
+    } catch (err) {
+      toast(err.message);
+      btn.disabled = false;
+    }
+  }
+
+  loadAward();
+</script>
+</body>
+</html>

@@ -59,8 +59,8 @@
   <div class="hero-content">
     <p class="ribbon-tag ribbon-fun">Free entry, real public voting — one epic prize</p>
     <h1 class="hero-fun-headline">Enter your sweet angel in my one-of-a-kind calendar photo contest!</h1>
-    <p class="hero-prize-callout">🏆 Winner receives a one-of-a-kind cat sculpture made by <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>!</p>
-    <p class="hero-sub">Enter free, then share your link for votes from friends, family, and followers. Top 12 by real public vote win this round's calendar — Cat of the Month also takes home the sculpture. No purchase necessary to enter or win.</p>
+    <p class="hero-prize-callout">🏆 Cat of the Year wins a one-of-a-kind wooden sculpture made by <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>!</p>
+    <p class="hero-sub">Enter free, then share your link for votes from friends, family, and followers. Top 12 by real public vote win this round's calendar. Once a year, the public crowns one Cat of the Year from that year's monthly winners — no purchase necessary to enter or win.</p>
     <div class="hero-actions">
       <a href="#enter" class="btn btn-primary">Enter your cat free</a>
       <a href="vote.html" class="btn btn-ghost">Vote for cats now</a>
@@ -89,10 +89,11 @@
     <li>
       <span class="step-num">3</span>
       <h3>Top 12 win the calendar</h3>
-      <p>When voting closes, the 12 most-voted cats make this round's calendar. Cat of the Month — the #1 spot — also wins a one-of-a-kind cat sculpture handmade by our favorite cat artist, <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>. Every entrant can still grab a solo print of their own cat.</p>
+      <p>When voting closes, the 12 most-voted cats make this round's calendar, and the #1 spot is Cat of the Month, cover and all. Every entrant can still grab a solo print of their own cat.</p>
     </li>
   </ol>
-  <p class="section-sub"><a href="rules.html">Official contest rules</a> — how votes are counted, eligibility, and what gets an entry disqualified. Prize sculptures made by <a href="https://codycarlson.art" target="_blank" rel="noopener">codycarlson.art</a>.</p>
+  <p class="section-sub">Once a year, the public votes again among that year's monthly Cat of the Month winners to crown one <strong>Cat of the Year</strong> — they win a one-of-a-kind wooden sculpture of their own cat, handmade by our favorite cat artist, <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>.</p>
+  <p class="section-sub"><a href="rules.html">Official contest rules</a> — how votes are counted, eligibility, and what gets an entry disqualified.</p>
 </section>
 
 <section id="current" class="section current">
@@ -103,13 +104,18 @@
     <div class="current-copy">
       <p class="ribbon-tag" id="currentRibbon">This round is live</p>
       <h2 id="winnerName">Meet this round's cats</h2>
-      <p id="winnerBlurb">Free to enter, free to vote — top 12 by real vote win the calendar, and Cat of the Month wins the sculpture too. Cast your vote below.</p>
+      <p id="winnerBlurb">Free to enter, free to vote — top 12 by real vote win the calendar. Cast your vote below.</p>
       <p class="contest-status" id="contestStatus"></p>
       <a href="vote.html" class="btn btn-primary current-vote-cta">Vote now</a>
     </div>
   </div>
   <div class="current-teaser" id="currentTeaser"></div>
 </section>
+
+<!-- Only shown while a Cat of the Year award is actually open (see
+     loadYearAwardBanner in script.js) — most of the year this section
+     stays empty/hidden, never a fake "coming soon" placeholder. -->
+<section id="yearAwardBanner" class="section year-award-banner" hidden></section>
 
 <section id="enter" class="section enter">
   <div class="enter-wrap">
