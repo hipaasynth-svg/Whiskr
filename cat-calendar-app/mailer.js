@@ -45,7 +45,14 @@ function unsubscribeUrl(email) {
 
 async function sendMail({ to, subject, html, text }) {
   const fromName = process.env.ZOHO_FROM_NAME || 'Whiskr';
-  const from = `"${fromName}" <${process.env.ZOHO_EMAIL}>`;
+  // Separate from ZOHO_EMAIL on purpose: if you're sending as a domain
+  // alias on a Zoho account rather than a dedicated mailbox (e.g.
+  // contests@whiskr.lol set up as an alias on a different login), SMTP
+  // still authenticates as the real mailbox (ZOHO_EMAIL), but mail should
+  // arrive From: the branded alias address. Defaults to ZOHO_EMAIL so a
+  // dedicated-mailbox setup needs no extra config.
+  const fromEmail = process.env.ZOHO_FROM_EMAIL || process.env.ZOHO_EMAIL;
+  const from = `"${fromName}" <${fromEmail}>`;
 
   if (await isSuppressed(to)) {
     console.log(`[mailer] skipped send to ${to} — address has unsubscribed`);
