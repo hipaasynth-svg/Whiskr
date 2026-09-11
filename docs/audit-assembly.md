@@ -1113,3 +1113,66 @@ discount emails, the existing paid-but-unfulfilled-calendar-orders
 question, and a heads-up email to entrants already in an open round about
 any prize change are all pre-existing open items, unrelated to this pass,
 not newly introduced by it.
+
+## Update — 2026-09-11: collapsed monthly + Cat of the Year into one automatic win, calendar dropped from all copy
+
+The owner asked for this made "super clear": every month the real public
+vote picks a winner, and that winner directly gets an original acrylic
+painting of their submitted photo — full stop, no calendar mentioned
+anywhere (not ready to promote), no separate second vote first.
+
+**What changed:** `tallyAndCloseContest` now calls a new `awardPainting`
+the instant a round's #1 is decided — it inserts an already-`completed`
+`year_awards` row (reusing that table/schema exactly as it was, just
+skipping the `'open'` state) and sends one merged email
+(`sendWinnerEmail`, rewritten) announcing both the win and the painting
+together. There is no longer a second, separate "Cat of the Year" vote
+among accumulated monthly winners — the round's own real vote already
+decided it. Ranks 2+ all get the same `sendFinalRankEmail` now (no more
+"featured" tier in between #1 and everyone else — `sendFeaturedEmail`
+was deleted). Every "top 12 win the calendar" / "calendar cover" promise
+was stripped from public copy (`index.html`, `vote.html`, `llms.txt`,
+every mailer.js template) and from `rules.html`'s Prizes section, which
+now states one prize, plainly.
+
+**Deliberately not deleted:** `tallyAndCloseYearAward` and its
+`/api/admin/year-award/open` + `/force-close` routes are dormant, not
+removed — kept only as a manual-override path (e.g. to hand-correct a
+past round) that nothing links to anymore. `year-award.html` is now
+noindexed and unlinked (its own award will just never be open). The
+homepage's `#yearAwardBanner` section and its `loadYearAwardBanner` JS
+were removed outright rather than left dormant, since they did a live
+fetch on every page load for a state (an open award) that can now never
+occur — dead network traffic, not just dead markup. The homepage's
+calendar-purchase section (already hidden in a prior pass) was deleted
+outright for the same reason "no calendar to mention" applies to code as
+much as prose; `calendar.html`, its Stripe checkout route, and
+`/api/calendar/:groupId` are left completely alone as dormant
+infrastructure — nothing currently links to them, but no reason to touch
+working code that isn't part of what changed. Admin.html's "Cat of the
+Year" section (open-a-vote form) was replaced with a read-only "Painting
+winners" list backed by a new `GET /api/admin/year-award` endpoint, since
+there's no longer anything to manually open.
+
+**Verified against a real local Postgres instance**, not just read for
+plausibility: submitted 3 entries, cast votes so a specific cat won 2-1,
+force-closed the contest, and confirmed in the mailer log that the
+winner got exactly one merged email ("Cat of the Month — you're getting
+an original painting!") with no calendar language, the two non-winners
+each got a real-placement + discount email with no calendar language,
+`GET /api/admin/year-award` showed the win recorded automatically with
+no manual step, `GET /api/year-award/current` correctly stayed
+`{award: null}` (nothing ever opens), `/api/status`'s homepage "recent
+winner" lookup still worked (unaffected — reads `groups`, not
+`year_awards`), and `/sitemap.xml` no longer lists `year-award.html` or
+per-round calendar pages. Screenshotted the homepage, rules.html, and
+admin.html with Playwright to confirm the rendered copy, not just the
+API responses. Caught and fixed one real bug in the process: a
+duplicated `async function tallyAndCloseYearAward(yearAwardId) {` line
+from an in-progress edit broke `node --check` before any of the above
+testing — caught immediately, not after.
+
+**Left open, not done here**: the small "Featured Originals" showcase +
+commission-to-codycarlson.art CTA and the Cody Carlson partnership
+copy upgrade are a separate, following pass — see the next update if one
+exists above this line, or the current session if not.

@@ -93,18 +93,11 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
-        <h2>Cat of the Year</h2>
-        <p class="sub">Roughly monthly: open a vote among recent Cat of the Month winners (auto-populated from completed rounds), let the public pick, then force-close to crown the winner and send the painting-claim email. Not automated — you choose when.</p>
+        <h2>Painting winners</h2>
+        <p class="sub">Every month's #1 vote-getter wins an original painting automatically the instant the round closes — nothing to open or pick here. This is just the record: reply to each winner's own email thread with a mailing address once they send one.</p>
       </div>
       <button class="btn btn-ghost refresh-btn" id="refreshYearAward" type="button">Refresh</button>
     </div>
-    <form id="yearAwardOpenForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px;">
-      <label style="font-size:0.8rem;">Label<br/><input type="text" id="yaLabel" placeholder="2026 Cat of the Year" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
-      <label style="font-size:0.8rem;">Voting closes<br/><input type="datetime-local" id="yaCloses" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
-      <label style="font-size:0.8rem;">Painting delivery target<br/><input type="date" id="yaDeadline" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
-      <label style="font-size:0.8rem;">Winners since (optional)<br/><input type="date" id="yaSince" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
-      <button class="btn btn-primary" type="submit" style="padding:9px 16px;font-size:0.85rem;">Open award</button>
-    </form>
     <div id="yearAwardList"><p class="empty">Enter your admin key and click Load.</p></div>
   </div>
 
@@ -283,7 +276,7 @@
       const res = await adminFetch('/api/admin/contest/force-close', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Force-close failed.');
-      alert(`Contest #${data.contestId} closed. Calendar group #${data.groupId} created.`);
+      alert(`Contest #${data.contestId} closed. Winner recorded (round #${data.groupId}).`);
       loadContest();
     } catch (err) {
       alert(err.message);
@@ -295,43 +288,33 @@
   async function loadYearAward() {
     yearAwardList.innerHTML = '<p class="empty">Loading…</p>';
     try {
-      const res = await adminFetch('/api/admin/year-award/current');
+      const res = await adminFetch('/api/admin/year-award');
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
 
-      if (!data.award) {
-        yearAwardList.innerHTML = '<p class="empty">No award is currently open. Use the form above to open one.</p>';
+      if (data.awards.length === 0) {
+        yearAwardList.innerHTML = '<p class="empty">No round has closed yet — the first winner will show up here automatically.</p>';
         return;
       }
 
-      const closes = new Date(data.award.closes_at).toLocaleString();
       yearAwardList.innerHTML = `
-        <div class="group-card">
-          <div class="group-head">
-            <h3>${escapeHtml(data.award.label)} (#${data.award.id})</h3>
-            <span class="deadline">${data.finalists.length} finalists · closes ${closes}</span>
-          </div>
-          <table class="orders">
-            <thead><tr><th>Cat</th><th>Votes</th></tr></thead>
-            <tbody>
-              ${data.finalists.map((f) => `<tr><td>${escapeHtml(f.cat_name)}</td><td>${f.vote_count}</td></tr>`).join('')}
-            </tbody>
-          </table>
-          <button type="button" id="forceCloseYearAward" class="btn btn-ghost refresh-btn" style="border-color:#b3261e;color:#b3261e;margin-top:14px;">Force-close &amp; crown winner</button>
-        </div>
+        <table class="orders">
+          <thead><tr><th>Date</th><th>Round</th><th>Cat</th><th>Email</th><th>Painting target</th></tr></thead>
+          <tbody>
+            ${data.awards.map((a) => `
+              <tr>
+                <td>${new Date(a.created_at).toLocaleDateString()}</td>
+                <td>${escapeHtml(a.label)}</td>
+                <td>${escapeHtml(a.cat_name || '—')}</td>
+                <td>${escapeHtml(a.email || '—')}</td>
+                <td>${a.sculpture_deadline ? new Date(a.sculpture_deadline).toLocaleDateString() : '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
       `;
-      document.getElementById('forceCloseYearAward').addEventListener('click', async () => {
-        if (!window.confirm('Close this award right now and crown the winner? This cannot be undone.')) return;
-        try {
-          const closeRes = await adminFetch('/api/admin/year-award/force-close', { method: 'POST' });
-          const closeData = await closeRes.json();
-          if (!closeRes.ok) throw new Error(closeData.error || 'Force-close failed.');
-          alert(`Award #${closeData.yearAwardId} closed. Winning submission #${closeData.winnerSubmissionId}.`);
-          loadYearAward();
-        } catch (err) {
-          alert(err.message);
-        }
-      });
     } catch (err) {
       keyStatus.textContent = err.message;
       keyStatus.className = 'key-status err';
@@ -339,32 +322,6 @@
     }
   }
 
-  document.getElementById('yearAwardOpenForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const label = document.getElementById('yaLabel').value.trim();
-    const closesAt = document.getElementById('yaCloses').value;
-    const sculptureDeadline = document.getElementById('yaDeadline').value;
-    const sinceDate = document.getElementById('yaSince').value;
-    if (!label || !closesAt) { alert('Label and voting-closes date are required.'); return; }
-    try {
-      const res = await adminFetch('/api/admin/year-award/open', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          label,
-          closesAt: new Date(closesAt).toISOString(),
-          sculptureDeadline: sculptureDeadline || null,
-          sinceDate: sinceDate ? new Date(sinceDate).toISOString() : null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Open failed.');
-      alert(`Award #${data.yearAwardId} opened with ${data.finalistCount} finalists.`);
-      loadYearAward();
-    } catch (err) {
-      alert(err.message);
-    }
-  });
   document.getElementById('refreshYearAward').addEventListener('click', loadYearAward);
 
   const marketingList = document.getElementById('marketingList');

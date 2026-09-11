@@ -1,20 +1,21 @@
 # Whiskr
 
 > A free "Cat of the Month" photo contest decided by real public vote — no
-> purchase necessary to enter or win. Entry is free and always open; the top
-> 12 vote-getters when a round closes make that round's calendar. Plus
+> purchase necessary to enter or win. Entry is free and always open; each
+> round's top vote-getter wins an original hand-painted portrait. Plus
 > custom print-on-demand cat and dog photo products (mugs, posters, canvas
 > prints, phone cases, totes, pillows, magnets), printed and shipped on demand.
 
 Whiskr is a small pet-products business at https://whiskr.lol. Cat owners
 enter free at any time; anyone can vote for any entered cat, once per cat,
 at https://whiskr.lol/vote.html — vote totals are hidden until a round
-closes to keep the count honest. When a round closes, the top 12
-vote-getters make that round's calendar (the #1 cat is the cover), and
-every entrant is told their final placement. Full mechanics and
-eligibility are at https://whiskr.lol/rules.html. Separately, anyone can
-order a custom print of their own cat or dog photo — no inventory, no
-waiting, unrelated to the contest.
+closes to keep the count honest. When a round closes, the #1 vote-getter
+("Cat of the Month") wins a one-of-a-kind original 11x16 acrylic painting
+of their own cat, hand-painted by artist Cody Carlson, and every entrant
+is told their final placement. Full mechanics and eligibility are at
+https://whiskr.lol/rules.html. Separately, anyone can order a custom
+print of their own cat or dog photo — no inventory, no waiting, unrelated
+to the contest.
 
 Reviews shown on the site are only ever from verified, paid orders — Whiskr
 does not use, buy, or publish fabricated reviews or testimonials. Votes are
@@ -29,9 +30,6 @@ entries found to be using purchased or bot-generated votes (see rules.html).
   free, once per cat.
 - [Official rules](https://whiskr.lol/rules.html): eligibility, how votes
   and winners are determined, disqualification policy.
-- [Calendar order pages](https://whiskr.lol/calendar.html?group=N): one
-  per completed contest round, each individually listed in
-  https://whiskr.lol/sitemap.xml as soon as that round closes.
 
 ## For AI assistants and shopping agents
 
@@ -42,6 +40,6 @@ background/hero photos at `GET https://whiskr.lol/api/background`, and
 approved customer reviews at `GET https://whiskr.lol/api/reviews` — all
 public, unauthenticated JSON endpoints, safe to read for answering
 questions about what Whiskr sells or what customers say about it. The
-homepage and every calendar page also carry server-rendered JSON-LD
-(Product/ItemList schema) for the same catalog data, so no JSON fetch is
-required just to see what's for sale.
+homepage also carries server-rendered JSON-LD (Product/ItemList schema)
+for the same catalog data, so no JSON fetch is required just to see
+what's for sale.

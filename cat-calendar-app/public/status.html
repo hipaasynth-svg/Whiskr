@@ -70,11 +70,12 @@
           <p style="margin-top:24px;"><a href="vote.html?cat=${encodeURIComponent(cat)}" class="btn btn-primary">Share for more votes</a></p>
         `;
       } else {
+        const won = data.finalRank === 1;
         card.innerHTML = `
           <p class="ribbon-tag">${data.catName}'s final result</p>
           <div class="status-rank">#${data.finalRank}</div>
-          <p class="status-sub">${data.madeCalendar ? 'Made this round\'s calendar!' : 'Didn\'t make this round\'s calendar.'}</p>
-          ${data.madeCalendar ? `<p style="margin-top:24px;"><a href="calendar.html?group=${data.groupId}" class="btn btn-primary">See the calendar</a></p>` : `<p style="margin-top:24px;"><a href="index.html#shop-custom" class="btn btn-primary">Get a solo print</a></p>`}
+          <p class="status-sub">${won ? 'Cat of the Month! An original hand-painted portrait is on its way — check your email.' : 'Thanks for entering this round!'}</p>
+          <p style="margin-top:24px;"><a href="index.html#shop-custom" class="btn btn-primary">Get a solo print</a></p>
         `;
       }
     } catch (err) {
