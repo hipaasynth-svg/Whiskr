@@ -95,6 +95,42 @@ captureUtmCampaign();
   init();
 })();
 
+// ---------- featured originals showcase ----------
+// Admin-controlled, from /api/originals (see admin.html's "Featured
+// originals" section). Zero uploaded there means the honest "still
+// drying" empty state, never a placeholder image. The server may have
+// already prerendered these into #originalsGrid for crawlers/first paint
+// (see seo.js); this rebuild is idempotent, same content either way.
+(function originalsShowcase() {
+  const grid = document.getElementById('originalsGrid');
+  const empty = document.getElementById('originalsEmpty');
+  if (!grid || !empty) return;
+
+  fetch('/api/originals')
+    .then((res) => res.json())
+    .then((data) => {
+      const originals = data.originals || [];
+      if (originals.length === 0) return;
+
+      grid.innerHTML = '';
+      originals.forEach((o) => {
+        const card = document.createElement('div');
+        card.className = 'teaser-card';
+        const img = document.createElement('img');
+        img.src = o.image_path;
+        img.alt = o.cat_name || 'An original portrait by Cody Carlson';
+        card.appendChild(img);
+        const span = document.createElement('span');
+        span.textContent = o.cat_name || 'Original portrait';
+        card.appendChild(span);
+        grid.appendChild(card);
+      });
+      grid.hidden = false;
+      empty.hidden = true;
+    })
+    .catch((err) => console.error('originals showcase load failed', err));
+})();
+
 // ---------- live contest status ----------
 async function loadStatus() {
   try {
@@ -123,29 +159,6 @@ async function loadStatus() {
 }
 loadStatus();
 
-// Cat of the Year only runs once annually and stays closed the rest of the
-// time — this banner stays hidden/empty whenever no award is open, never a
-// fake "coming soon" placeholder.
-async function loadYearAwardBanner() {
-  const banner = document.getElementById('yearAwardBanner');
-  if (!banner) return;
-  try {
-    const res = await fetch('/api/year-award/current');
-    const data = await res.json();
-    if (!data.award) { banner.hidden = true; banner.innerHTML = ''; return; }
-    const closes = new Date(data.award.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-    banner.innerHTML = `
-      <div>
-        <h2>🏆 ${data.award.label} is open for voting</h2>
-        <p>Pick your favorite from recent Cat of the Month winners — voting closes ${closes}.</p>
-      </div>
-      <a href="year-award.html" class="btn btn-primary">Vote for Cat of the Year</a>`;
-    banner.hidden = false;
-  } catch (err) {
-    console.error('year award banner load failed', err);
-  }
-}
-loadYearAwardBanner();
 
 // No round has closed yet — show a few of this round's real entries
 // (random order, no vote counts) instead of a dead-end "check back soon".

@@ -69,6 +69,18 @@ function renderEntryTeaser(entries) {
       </a>`).join('');
 }
 
+// The featured-originals showcase — a couple of Cody's completed grand-
+// prize portraits, or nothing at all (see the honest-empty-state rule on
+// featured_originals in db.js). Callers pass whatever admin.html has
+// uploaded so far, in position order.
+function renderOriginals(originals) {
+  return originals.map((o) => `
+      <div class="teaser-card">
+        <img src="${escapeHtml(o.image_path)}" alt="${escapeHtml(o.cat_name || 'An original portrait by Cody Carlson')}" loading="lazy" />
+        <span>${escapeHtml(o.cat_name || 'Original portrait')}</span>
+      </div>`).join('');
+}
+
 // Replace the content of the element carrying id="ID" with `inner` —
 // matches from the id through the rest of the opening tag to its `>`, then
 // everything up to the next closing tag. Works whether the element started
@@ -100,6 +112,7 @@ module.exports = {
   renderProductCards,
   renderHeroSlides,
   renderEntryTeaser,
+  renderOriginals,
   fillEmpty,
   setAttr,
   injectIntoHead,

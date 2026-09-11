@@ -435,6 +435,15 @@ async function renderIndexHtml() {
     html = seo.fillEmpty(html, 'heroSlides', seo.renderHeroSlides(slides.map((s) => s.image_path)));
   }
 
+  const originals = await db.all(
+    `SELECT image_path, cat_name FROM featured_originals ORDER BY position ASC, id ASC`
+  );
+  if (originals.length > 0) {
+    html = seo.fillEmpty(html, 'originalsGrid', seo.renderOriginals(originals));
+    html = html.replace('id="originalsGrid" hidden', 'id="originalsGrid"');
+    html = html.replace('id="originalsEmpty"', 'id="originalsEmpty" hidden');
+  }
+
   return html;
 }
 
@@ -497,22 +506,14 @@ app.get('/calendar.html', async (req, res, next) => {
   }
 });
 
-// Dynamic sitemap — every completed contest batch gets its own indexable
-// URL, not just the homepage. Regenerated per-request from the live groups
-// table (cheap: this table stays small), so a new batch is discoverable the
-// moment judging finishes, no redeploy needed.
+// Dynamic sitemap. year-award.html and per-round calendar.html pages are
+// deliberately left out — both are dormant (see the 2026-09-11
+// simplification note in docs/audit-assembly.md), nothing to index.
 app.get('/sitemap.xml', async (req, res) => {
-  const completed = await db.all(`SELECT id FROM groups WHERE status = 'completed' ORDER BY id ASC`);
   const urls = [
     { loc: `${BASE_URL}/`, changefreq: 'daily', priority: '1.0' },
     { loc: `${BASE_URL}/vote.html`, changefreq: 'hourly', priority: '0.9' },
-    { loc: `${BASE_URL}/year-award.html`, changefreq: 'weekly', priority: '0.4' },
     { loc: `${BASE_URL}/rules.html`, changefreq: 'monthly', priority: '0.3' },
-    ...completed.map((g) => ({
-      loc: `${BASE_URL}/calendar.html?group=${g.id}`,
-      changefreq: 'weekly',
-      priority: '0.8',
-    })),
   ];
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -545,10 +546,6 @@ function cleanUtmCampaign(raw) {
   return cleaned || null;
 }
 
-function calendarBuyUrl(groupId) {
-  return `${BASE_URL}/calendar.html?group=${groupId}`;
-}
-
 // ---------- contest lifecycle (open entry, real public voting) ----------
 
 // Anonymous voter identity: a random token in a long-lived first-party
@@ -578,10 +575,6 @@ function hashIp(ip) {
   return crypto.createHash('sha256').update(`${IP_HASH_SALT}:${ip}`).digest('hex');
 }
 
-function calendarBuyUrl(groupId) {
-  return `${BASE_URL}/calendar.html?group=${groupId}`;
-}
-
 // The one contest entries/votes currently attach to. Lazily opens the next
 // one the moment the previous closes (or on first-ever request) — entry
 // should never hit a dead end, same "always open" spirit as the print shop.
@@ -600,13 +593,14 @@ async function getOrOpenCurrentContest() {
   return db.get(`SELECT * FROM contests WHERE id = ?`, [info.rows[0].id]);
 }
 
-// Tally every non-disqualified entry by vote count (ties broken by earliest
-// entry — deterministic, no coin flips to dispute), rank all of them 1..N,
-// promote the top CONTEST_WINNERS_COUNT into a `groups` row so the existing
-// calendar/checkout/Stripe/PDF pipeline handles that part completely
-// unchanged, and email every entrant their outcome: winners get the
-// existing win/featured emails, everyone else gets their final placement
-// and a nudge toward a solo print of their own cat.
+// Every contest's own #1 vote-getter directly wins the grand prize — an
+// original hand-painted portrait — the instant the contest closes. No
+// separate vote: the real public vote that just decided the round IS the
+// decision, full stop (see awardPainting below). Ties broken by earliest
+// entry — deterministic, no coin flips to dispute. Everyone else gets
+// their real final placement and a nudge toward a solo print of their own
+// cat; there's no second "featured" tier anymore — see the 2026-09-11
+// simplification note in docs/audit-assembly.md for why.
 async function tallyAndCloseContest(contestId) {
   const contest = await db.get(`SELECT * FROM contests WHERE id = ?`, [contestId]);
   if (!contest || contest.status !== 'open') return null;
@@ -623,9 +617,13 @@ async function tallyAndCloseContest(contestId) {
     return null;
   }
 
+  // Internal record of "this round's results" — kept exactly as before
+  // (top CONTEST_WINNERS_COUNT grouped together, #1 as winner_submission_id)
+  // since /api/status's homepage "recent winner" lookup still reads it.
+  // Not a calendar product anymore — nothing public promotes or sells
+  // this grouping; it's just how a round's outcome is stored.
   const winnersCount = Math.min(CONTEST_WINNERS_COUNT, ranked.length);
   const winners = ranked.slice(0, winnersCount);
-  const now = new Date().toISOString();
 
   const groupId = await db.transaction(async (tx) => {
     for (let i = 0; i < ranked.length; i++) {
@@ -643,21 +641,13 @@ async function tallyAndCloseContest(contestId) {
     return gid;
   });
 
-  const buyUrl = calendarBuyUrl(groupId);
   for (let i = 0; i < ranked.length; i++) {
     const s = ranked[i];
     const rank = i + 1;
     try {
       if (rank === 1) {
-        await mailer.sendWinnerEmail({
-          email: s.email, catName: s.cat_name, groupId, buyUrl,
-          priceOne: PRICE_ONE.toFixed(2), priceMulti: PRICE_MULTI.toFixed(2),
-        });
-      } else if (rank <= winnersCount) {
-        await mailer.sendFeaturedEmail({
-          email: s.email, catName: s.cat_name, groupId, buyUrl,
-          priceOne: PRICE_ONE.toFixed(2), priceMulti: PRICE_MULTI.toFixed(2),
-        });
+        const { deadline } = await awardPainting(s, `${contest.label} winner`);
+        await mailer.sendWinnerEmail({ email: s.email, catName: s.cat_name, sculptureDeadline: deadline });
       } else {
         const discountExpiresAt = new Date(Date.now() + FINAL_RANK_DISCOUNT_HOURS * 60 * 60 * 1000).toISOString();
         await mailer.sendFinalRankEmail({
@@ -677,18 +667,45 @@ async function tallyAndCloseContest(contestId) {
     }
   }
 
-  console.log(`[contest] #${contestId} closed. ${ranked.length} entries, winner: ${winners[0].cat_name} (submission ${winners[0].id}), calendar group #${groupId}.`);
+  console.log(`[contest] #${contestId} closed. ${ranked.length} entries, winner: ${winners[0].cat_name} (submission ${winners[0].id}).`);
   await getOrOpenCurrentContest();
   return groupId;
 }
 
-// Tallies a Cat of the Year award: highest-vote finalist wins, ties broken
-// by whichever finalist row was created first (deterministic, same
-// principle as the monthly tie-break). Unlike tallyAndCloseContest, this
-// is only ever called from an admin action (POST
-// /api/admin/year-award/force-close) — never a cron — since crowning Cat
-// of the Year is a deliberate moment the owner chooses, not a scheduled
-// event, even now that it runs roughly monthly.
+// Records the grand-prize win the instant a contest's #1 is decided —
+// reuses the existing year_awards/year_award_finalists schema unchanged
+// (so admin history and any dormant tooling built against it still work)
+// but creates the row already 'completed' rather than 'open': there is no
+// second vote anymore, the monthly vote that just happened already
+// decided it. See tallyAndCloseYearAward below, kept only as a manual
+// override path (POST /api/admin/year-award/open + /force-close still
+// exist but nothing links to them anymore) in case a past round ever
+// needs a correction.
+async function awardPainting(winnerSubmission, label) {
+  const now = new Date().toISOString();
+  const deadline = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  const info = await db.run(
+    `INSERT INTO year_awards (label, opens_at, closes_at, status, winner_submission_id, sculpture_deadline, created_at)
+     VALUES (?, ?, ?, 'completed', ?, ?, ?) RETURNING id`,
+    [label, now, now, winnerSubmission.id, deadline, now]
+  );
+  await db.run(
+    `INSERT INTO year_award_finalists (year_award_id, submission_id, vote_count) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
+    [info.rows[0].id, winnerSubmission.id, winnerSubmission.vote_count]
+  );
+  return { yearAwardId: info.rows[0].id, deadline };
+}
+
+// DORMANT as of the 2026-09-11 simplification: every contest's #1 now
+// wins the painting automatically via awardPainting (see
+// tallyAndCloseContest above) — there's no separate vote to tally
+// anymore, so nothing calls this function or its /api/admin/year-award/
+// open + force-close routes from any linked UI. Left in place, unchanged,
+// only as a manual override an operator could still reach directly (e.g.
+// curl) if a past round ever needed hand-correcting; never re-link the
+// admin "open a vote" form to it without first confirming that's really
+// wanted, since it would create a confusing second vote alongside the
+// automatic one.
 async function tallyAndCloseYearAward(yearAwardId) {
   const award = await db.get(`SELECT * FROM year_awards WHERE id = ?`, [yearAwardId]);
   if (!award || award.status !== 'open') return null;
@@ -1139,6 +1156,16 @@ app.get('/api/background', async (req, res) => {
   res.json({ slides });
 });
 
+// Admin-managed showcase of a couple of Cody's completed originals — empty
+// means no gallery at all (honest "still drying" empty state), never a
+// placeholder image. See featured_originals in db.js.
+app.get('/api/originals', async (req, res) => {
+  const originals = await db.all(
+    `SELECT id, image_path, cat_name FROM featured_originals ORDER BY position ASC, id ASC`
+  );
+  res.json({ originals });
+});
+
 // Upload a pet photo, pick a product, pay — this is the evergreen storefront
 // (as opposed to the contest, which only runs in batches of 12). Fulfilled
 // through Printful once Stripe confirms payment via the webhook above.
@@ -1474,15 +1501,27 @@ app.post('/api/admin/contest/force-close', requireAdmin, async (req, res) => {
   res.json({ ok: true, contestId: contest.id, groupId });
 });
 
+// Read-only history of every painting awarded so far (one row per contest
+// round now — see awardPainting in tallyAndCloseContest) — this is what
+// admin.html's "Painting winners" section actually shows; there's no
+// "open a vote" step to manage anymore.
+app.get('/api/admin/year-award', requireAdmin, async (req, res) => {
+  const awards = await db.all(
+    `SELECT ya.*, s.cat_name, s.email, s.photo_path
+     FROM year_awards ya
+     LEFT JOIN submissions s ON s.id = ya.winner_submission_id
+     ORDER BY ya.created_at DESC`
+  );
+  res.json({ awards });
+});
+
+// DORMANT as of the 2026-09-11 simplification (see tallyAndCloseYearAward
+// above) — kept only as a manual override, not linked from any UI.
 // Opens a new Cat of the Year award: auto-populates finalists from every
 // completed monthly Cat-of-the-Month winner (groups.winner_submission_id)
 // sealed within [sinceDate, untilDate] — default sinceDate is "the
 // beginning of time" (covers the first cycle, before any award has ever
-// run) and default untilDate is now. Deliberately admin-triggered, not
-// cron-driven: the operator sets the date range and sculptureDeadline
-// (now delivering an original painting, not a sculpture — see db.js) each
-// time they choose to open one, roughly monthly, rather than this firing
-// unattended on a fixed schedule.
+// run) and default untilDate is now.
 app.post('/api/admin/year-award/open', requireAdmin, async (req, res) => {
   const { label, closesAt, sculptureDeadline, sinceDate, untilDate } = req.body;
   if (!label || !closesAt) return res.status(400).json({ error: 'label and closesAt are required.' });
@@ -1779,6 +1818,33 @@ app.post('/api/admin/background', requireAdmin, upload.single('photo'), async (r
 app.delete('/api/admin/background/:id', requireAdmin, async (req, res) => {
   const info = await db.run(`DELETE FROM background_slides WHERE id = ?`, [Number(req.params.id)]);
   if (info.changes === 0) return res.status(404).json({ error: 'Slide not found.' });
+  res.json({ ok: true });
+});
+
+// Featured-originals showcase management — see admin.html's "Featured
+// originals" section. Uploading the first photo turns the homepage
+// showcase on; deleting the last one returns it to the honest "still
+// drying" empty state.
+app.get('/api/admin/originals', requireAdmin, async (req, res) => {
+  const originals = await db.all(
+    `SELECT id, image_path, cat_name, position FROM featured_originals ORDER BY position ASC, id ASC`
+  );
+  res.json({ originals });
+});
+app.post('/api/admin/originals', requireAdmin, upload.single('photo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'A photo is required.' });
+  const catName = (req.body.catName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60) || null;
+  const imagePath = await storePhoto(req.file);
+  const maxPos = await db.get(`SELECT COALESCE(MAX(position), -1) AS m FROM featured_originals`);
+  const info = await db.run(
+    `INSERT INTO featured_originals (image_path, cat_name, position, created_at) VALUES (?, ?, ?, ?) RETURNING id`,
+    [imagePath, catName, Number(maxPos.m) + 1, new Date().toISOString()]
+  );
+  res.json({ id: info.rows[0].id, image_path: imagePath, cat_name: catName });
+});
+app.delete('/api/admin/originals/:id', requireAdmin, async (req, res) => {
+  const info = await db.run(`DELETE FROM featured_originals WHERE id = ?`, [Number(req.params.id)]);
+  if (info.changes === 0) return res.status(404).json({ error: 'Original not found.' });
   res.json({ ok: true });
 });
 

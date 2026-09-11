@@ -4,20 +4,20 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Whiskr — Free Cat Photo Contest, Win a One-of-a-Kind Original Painting</title>
-<meta name="description" content="Enter your sweet angel free, then get votes from friends, family, and followers. Cat of the Year wins a one-of-a-kind original painting hand-painted by Cody Carlson, plus the calendar cover. No purchase necessary." />
+<meta name="description" content="Enter your sweet angel free, then get votes from friends, family, and followers. Each month's top vote-getter wins a one-of-a-kind original painting hand-painted by Cody Carlson. No purchase necessary." />
 <link rel="canonical" href="https://whiskr.lol/" />
 
 <!-- Open Graph / link previews (iMessage, Slack, Facebook, etc.) -->
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Whiskr" />
 <meta property="og:title" content="Whiskr — Free Cat Photo Contest, Win a One-of-a-Kind Original Painting" />
-<meta property="og:description" content="Enter your sweet angel free, then get votes from friends, family, and followers. Cat of the Year wins a one-of-a-kind original painting hand-painted by Cody Carlson. No purchase necessary." />
+<meta property="og:description" content="Enter your sweet angel free, then get votes from friends, family, and followers. Each month's top vote-getter wins a one-of-a-kind original painting hand-painted by Cody Carlson. No purchase necessary." />
 <meta property="og:url" content="https://whiskr.lol/" />
 
 <!-- Twitter/X card -->
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="Whiskr — Free Cat Photo Contest, Win a One-of-a-Kind Original Painting" />
-<meta name="twitter:description" content="Enter your sweet angel free, then get votes. Cat of the Year wins a one-of-a-kind original painting by Cody Carlson. No purchase necessary." />
+<meta name="twitter:description" content="Enter your sweet angel free, then get votes. Each month's top vote-getter wins a one-of-a-kind original painting by Cody Carlson. No purchase necessary." />
 
 <!-- Structured data — helps Google show rich results and helps AI
      assistants/shopping agents understand what this business is and sells
@@ -61,8 +61,8 @@
   <div class="hero-content">
     <p class="ribbon-tag ribbon-fun">Free entry, real public voting — one epic prize</p>
     <h1 class="hero-fun-headline">Enter your sweet angel for a chance to win a hand-painted portrait!</h1>
-    <p class="hero-prize-callout">🏆 Cat of the Year wins a one-of-a-kind original painting made by <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>!</p>
-    <p class="hero-sub">Enter free, then share your link for votes from friends, family, and followers. Top 12 by real public vote win this round's calendar. Roughly every month, the public crowns one Cat of the Year from recent monthly winners — no purchase necessary to enter or win.</p>
+    <p class="hero-prize-callout">🏆 Cat of the Month wins a one-of-a-kind original painting made by <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>!</p>
+    <p class="hero-sub">Enter free, then share your link for votes from friends, family, and followers. Whoever gets the most votes when the round closes is Cat of the Month — and wins the original portrait, no purchase necessary to enter or win.</p>
     <div class="hero-actions">
       <a href="#enter" class="btn btn-primary">Enter your cat free</a>
       <a href="vote.html" class="btn btn-ghost">Vote for cats now</a>
@@ -90,12 +90,23 @@
     </li>
     <li>
       <span class="step-num">3</span>
-      <h3>Top 12 win the calendar</h3>
-      <p>When voting closes, the 12 most-voted cats make this round's calendar, and the #1 spot is Cat of the Month, cover and all. Every entrant can still grab a solo print of their own cat.</p>
+      <h3>#1 wins an original portrait</h3>
+      <p>When voting closes, whoever got the most votes is Cat of the Month — and wins a one-of-a-kind 11x16 acrylic portrait of their own cat, hand-painted by artist <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>, free. Every entrant can still grab a solo print of their own cat.</p>
     </li>
   </ol>
-  <p class="section-sub">Roughly every month, the public votes again among recent Cat of the Month winners to crown one <strong>Cat of the Year</strong> — they win a one-of-a-kind original painting of their own cat, hand-painted by our favorite cat artist, <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>.</p>
   <p class="section-sub"><a href="rules.html">Official contest rules</a> — how votes are counted, eligibility, and what gets an entry disqualified.</p>
+</section>
+
+<section id="originals" class="section originals">
+  <p class="ribbon-tag">A couple to choose from</p>
+  <h2>Originals by our contest artist</h2>
+  <div class="current-teaser" id="originalsGrid" hidden></div>
+  <div class="originals-empty" id="originalsEmpty">
+    <h3>The first one's still drying.</h3>
+    <p>Our first Cat of the Month portrait is being painted right now — check back soon to see it here.</p>
+  </div>
+  <p class="section-sub"><strong>Don't want to wait for the contest?</strong> Whiskr has partnered with artist Cody Carlson — skip the wait and commission your own original today.</p>
+  <a href="https://codycarlson.art" target="_blank" rel="noopener" class="btn btn-primary">Skip the wait — commission with our artist</a>
 </section>
 
 <section id="current" class="section current">
@@ -106,18 +117,13 @@
     <div class="current-copy">
       <p class="ribbon-tag" id="currentRibbon">This round is live</p>
       <h2 id="winnerName">Meet this round's cats</h2>
-      <p id="winnerBlurb">Free to enter, free to vote — top 12 by real vote win the calendar. Cast your vote below.</p>
+      <p id="winnerBlurb">Free to enter, free to vote — the month's top vote-getter wins an original hand-painted portrait. Cast your vote below.</p>
       <p class="contest-status" id="contestStatus"></p>
       <a href="vote.html" class="btn btn-primary current-vote-cta">Vote now</a>
     </div>
   </div>
   <div class="current-teaser" id="currentTeaser"></div>
 </section>
-
-<!-- Only shown while a Cat of the Year award is actually open (see
-     loadYearAwardBanner in script.js) — most of the year this section
-     stays empty/hidden, never a fake "coming soon" placeholder. -->
-<section id="yearAwardBanner" class="section year-award-banner" hidden></section>
 
 <section id="enter" class="section enter">
   <div class="enter-wrap">
@@ -148,44 +154,6 @@
       <p class="form-note" id="entryNote"></p>
       <div id="entryMockup" hidden></div>
     </form>
-  </div>
-</section>
-
-<section id="calendars" class="section shop" hidden>
-  <h2>Calendars from past rounds</h2>
-  <p class="section-sub">Every calendar holds that round's top 12 vote-getters — decided by the public, not picked by us.</p>
-  <div class="shop-grid">
-    <div class="product-card">
-      <div class="product-badge">Contest exclusive</div>
-      <h3>The 12-Cat Wall Calendar</h3>
-      <p>13 months, thick matte stock, spiral bound. Ships flat, hangs anywhere.</p>
-      <div class="price-row">
-        <div>
-          <span class="price" id="priceOne">$24.99</span>
-          <span class="price-note">one calendar</span>
-        </div>
-        <div>
-          <span class="price price-alt" id="priceMulti">$19.99</span>
-          <span class="price-note">each, for 2+</span>
-        </div>
-      </div>
-      <form id="checkoutForm" class="checkout-form">
-        <label>
-          Round number
-          <input type="number" id="checkoutGroup" min="1" placeholder="e.g. 3" required />
-        </label>
-        <label>
-          Quantity
-          <input type="number" id="checkoutQty" min="1" max="20" value="1" required />
-        </label>
-        <label>
-          Email for the receipt
-          <input type="email" id="checkoutEmail" placeholder="you@example.com" required />
-        </label>
-        <button type="submit" class="btn btn-primary">Go to checkout</button>
-        <p class="form-note" id="checkoutNote"></p>
-      </form>
-    </div>
   </div>
 </section>
 

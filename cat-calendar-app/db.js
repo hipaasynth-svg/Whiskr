@@ -293,6 +293,21 @@ CREATE TABLE IF NOT EXISTS background_slides (
   created_at TEXT NOT NULL
 );
 
+-- Admin-managed showcase of a couple of Cody Carlson's completed grand-
+-- prize originals — "a couple to choose from," not a shop: there's no
+-- checkout here, just photos plus a CTA linking out to codycarlson.art
+-- for real commissions/pricing (that stays entirely on his own site — see
+-- the "Skip the wait" section in index.html). Empty table = an honest
+-- "first one's still drying" state, same never-fake-a-placeholder rule
+-- background_slides and reviews already follow.
+CREATE TABLE IF NOT EXISTS featured_originals (
+  id SERIAL PRIMARY KEY,
+  image_path TEXT NOT NULL,
+  cat_name TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
 -- Reviews are only ever created against a real, paid order (calendar or
 -- custom-product) via a signed link emailed after fulfillment — see
 -- reviewLink.js and mailer.sendReviewRequest. There is no seed/fake data:
