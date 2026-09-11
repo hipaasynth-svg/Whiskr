@@ -79,6 +79,23 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
+        <h2>Featured originals</h2>
+        <p class="sub">A couple of your completed grand-prize paintings, shown on the homepage next to the "commission your own" link. Empty = an honest "first one's still drying" message, never a placeholder.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshOriginals" type="button">Refresh</button>
+    </div>
+    <form id="originalUploadForm" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+      <input type="file" id="originalPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
+      <input type="text" id="originalCatName" placeholder="Cat's name (optional)" maxlength="60" style="padding:8px;border:1px solid var(--line);border-radius:3px;" />
+      <button class="btn btn-primary" type="submit" style="padding:8px 16px;font-size:0.85rem;">Add photo</button>
+      <span class="form-note" id="originalUploadNote"></span>
+    </form>
+    <div id="originalsList" class="pick-grid"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
         <h2>Current contest — fraud review</h2>
         <p class="sub">Winners are decided by public vote automatically when the round closes — nothing to pick here. This is for spotting and disqualifying obviously fraudulent entries (bought/bot votes) before that happens. "Votes/hr" is votes in the last 60 minutes; a sudden spike on one entry is the signal to look closer.</p>
       </div>
@@ -643,8 +660,79 @@
     }
   });
 
+  const originalsList = document.getElementById('originalsList');
+  async function loadOriginals() {
+    originalsList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/originals');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load originals.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.originals.length === 0) {
+        originalsList.innerHTML = '<p class="empty">None yet — the homepage shows "the first one\'s still drying."</p>';
+        return;
+      }
+
+      originalsList.innerHTML = data.originals.map((o) => `
+        <div class="pick-cell" data-original="${o.id}">
+          <img src="${o.image_path}" alt="${escapeHtml(o.cat_name || '')}" />
+          <div class="name">${escapeHtml(o.cat_name || '—')}</div>
+          <button type="button" class="original-delete" data-id="${o.id}">Remove</button>
+        </div>
+      `).join('');
+
+      originalsList.querySelectorAll('.original-delete').forEach((btn) => {
+        btn.addEventListener('click', () => deleteOriginal(btn.dataset.id));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      originalsList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function deleteOriginal(id) {
+    try {
+      const res = await adminFetch(`/api/admin/originals/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Remove failed.');
+      loadOriginals();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  document.getElementById('originalUploadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById('originalPhoto');
+    const catName = document.getElementById('originalCatName');
+    const note = document.getElementById('originalUploadNote');
+    const file = fileInput.files[0];
+    if (!file) return;
+    note.classList.remove('error');
+    note.textContent = 'Uploading…';
+    const formData = new FormData();
+    formData.append('photo', file);
+    formData.append('catName', catName.value);
+    try {
+      const res = await adminFetch('/api/admin/originals', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed.');
+      note.textContent = 'Added.';
+      fileInput.value = '';
+      catName.value = '';
+      loadOriginals();
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+    }
+  });
+
   function loadAll() {
     loadBackground();
+    loadOriginals();
     loadContest();
     loadYearAward();
     loadMarketing();
@@ -655,6 +743,7 @@
 
   document.getElementById('loadBtn').addEventListener('click', loadAll);
   document.getElementById('refreshBackground').addEventListener('click', loadBackground);
+  document.getElementById('refreshOriginals').addEventListener('click', loadOriginals);
   document.getElementById('refreshContest').addEventListener('click', loadContest);
   document.getElementById('refreshOrders').addEventListener('click', loadOrders);
   document.getElementById('refreshCustomOrders').addEventListener('click', loadCustomOrders);

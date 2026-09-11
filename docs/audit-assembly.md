@@ -1176,3 +1176,55 @@ testing — caught immediately, not after.
 commission-to-codycarlson.art CTA and the Cody Carlson partnership
 copy upgrade are a separate, following pass — see the next update if one
 exists above this line, or the current session if not.
+
+## Update — 2026-09-11: featured-originals showcase + honest Cody Carlson partnership disclosure
+
+Follow-up from the pass above. Owner's direction, confirmed directly:
+no shop/checkout for original paintings on Whiskr — that stays on
+codycarlson.art, where his own commission pricing and intake live.
+Whiskr just shows "a couple to choose from" and drives commission
+traffic out with a clear CTA, and the existing "hand-painted by Cody
+Carlson" credit should read as an actual disclosed partnership rather
+than an unexplained personal touch — which it in fact is, since Cody
+Carlson is also the artist behind Whiskr itself (both HipAAsynth LLC
+brands, same as the Sponsor disclosure this doc already carries).
+
+**Built**: `featured_originals` (image_path, cat_name, position) mirrors
+`background_slides` exactly — same admin upload/delete pattern, same
+honest-empty-state rule (zero rows = "the first one's still drying,"
+never a placeholder image), same server-rendered-then-client-idempotent
+approach via a new `seo.renderOriginals` used both in `renderIndexHtml`
+and `public/script.js`'s `originalsShowcase()`. New homepage section
+(reusing the existing `.current-teaser`/`.teaser-card` grid styling
+rather than inventing new CSS) sits right after "how it works," since
+that's the moment someone's just learned about the prize and is the
+strongest point to offer "don't want to wait — commission your own."
+The CTA text states the HipAAsynth LLC affiliation plainly rather than
+implying an arms-length partnership that doesn't exist — added the same
+disclosure to `rules.html`'s Sponsor section (the formal document) and
+to `llms.txt` for AI assistants summarizing the site. New public
+`GET /api/originals` and admin `GET/POST/DELETE /api/admin/originals`
+endpoints, all following the exact shape of the background-photo routes
+they're modeled on. Admin.html's "Featured originals" section (upload +
+grid + remove) mirrors "Background slideshow" line for line.
+
+**Deliberately not built**: any purchase flow, pricing, or Printful
+integration for the originals themselves — that was the owner's own
+call to simplify, not a limitation worked around. Real photographed
+mockups (the painting shown on a framed print, etc.) aren't possible yet
+either, for the mundane reason that no painting has been made and
+photographed — the empty state is honest about that rather than faking
+a placeholder image, same principle this app has followed for reviews
+and the background slideshow from day one.
+
+**Verified against a real local Postgres instance**: confirmed
+`GET /api/originals` returns `[]` on a fresh database and the homepage
+renders the honest empty state with no console errors; uploaded a test
+photo through the real `POST /api/admin/originals` endpoint and
+confirmed it appears via both the public API and (server-rendered,
+checked against raw HTML — not just what script.js draws) the homepage
+itself, with the `hidden` attribute correctly removed from the grid and
+added to the empty state; confirmed the admin.html upload form and
+remove button work end to end; screenshotted both the empty and
+populated homepage states and the new admin section with Playwright.
+`node --check` passes on every changed JS file.

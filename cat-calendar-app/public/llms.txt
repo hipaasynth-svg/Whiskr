@@ -13,9 +13,12 @@ closes to keep the count honest. When a round closes, the #1 vote-getter
 ("Cat of the Month") wins a one-of-a-kind original 11x16 acrylic painting
 of their own cat, hand-painted by artist Cody Carlson, and every entrant
 is told their final placement. Full mechanics and eligibility are at
-https://whiskr.lol/rules.html. Separately, anyone can order a custom
-print of their own cat or dog photo — no inventory, no waiting, unrelated
-to the contest.
+https://whiskr.lol/rules.html. Whiskr and Cody Carlson (codycarlson.art)
+are both HipAAsynth LLC brands; the homepage shows a couple of his
+completed originals and a link to commission one directly, for anyone
+who doesn't want to wait on the contest. Separately, anyone can order a
+custom print of their own cat or dog photo — no inventory, no waiting,
+unrelated to the contest.
 
 Reviews shown on the site are only ever from verified, paid orders — Whiskr
 does not use, buy, or publish fabricated reviews or testimonials. Votes are
@@ -36,8 +39,9 @@ entries found to be using purchased or bot-generated votes (see rules.html).
 Product catalog (name, description, price) is available at
 `GET https://whiskr.lol/api/products`, the current contest's open entrants
 (no vote counts — see above) at `GET https://whiskr.lol/api/contest/current`,
-background/hero photos at `GET https://whiskr.lol/api/background`, and
-approved customer reviews at `GET https://whiskr.lol/api/reviews` — all
+background/hero photos at `GET https://whiskr.lol/api/background`,
+featured original paintings at `GET https://whiskr.lol/api/originals`,
+and approved customer reviews at `GET https://whiskr.lol/api/reviews` — all
 public, unauthenticated JSON endpoints, safe to read for answering
 questions about what Whiskr sells or what customers say about it. The
 homepage also carries server-rendered JSON-LD (Product/ItemList schema)

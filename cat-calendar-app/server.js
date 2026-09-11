@@ -435,6 +435,15 @@ async function renderIndexHtml() {
     html = seo.fillEmpty(html, 'heroSlides', seo.renderHeroSlides(slides.map((s) => s.image_path)));
   }
 
+  const originals = await db.all(
+    `SELECT image_path, cat_name FROM featured_originals ORDER BY position ASC, id ASC`
+  );
+  if (originals.length > 0) {
+    html = seo.fillEmpty(html, 'originalsGrid', seo.renderOriginals(originals));
+    html = html.replace('id="originalsGrid" hidden', 'id="originalsGrid"');
+    html = html.replace('id="originalsEmpty"', 'id="originalsEmpty" hidden');
+  }
+
   return html;
 }
 
@@ -1147,6 +1156,16 @@ app.get('/api/background', async (req, res) => {
   res.json({ slides });
 });
 
+// Admin-managed showcase of a couple of Cody's completed originals — empty
+// means no gallery at all (honest "still drying" empty state), never a
+// placeholder image. See featured_originals in db.js.
+app.get('/api/originals', async (req, res) => {
+  const originals = await db.all(
+    `SELECT id, image_path, cat_name FROM featured_originals ORDER BY position ASC, id ASC`
+  );
+  res.json({ originals });
+});
+
 // Upload a pet photo, pick a product, pay — this is the evergreen storefront
 // (as opposed to the contest, which only runs in batches of 12). Fulfilled
 // through Printful once Stripe confirms payment via the webhook above.
@@ -1799,6 +1818,33 @@ app.post('/api/admin/background', requireAdmin, upload.single('photo'), async (r
 app.delete('/api/admin/background/:id', requireAdmin, async (req, res) => {
   const info = await db.run(`DELETE FROM background_slides WHERE id = ?`, [Number(req.params.id)]);
   if (info.changes === 0) return res.status(404).json({ error: 'Slide not found.' });
+  res.json({ ok: true });
+});
+
+// Featured-originals showcase management — see admin.html's "Featured
+// originals" section. Uploading the first photo turns the homepage
+// showcase on; deleting the last one returns it to the honest "still
+// drying" empty state.
+app.get('/api/admin/originals', requireAdmin, async (req, res) => {
+  const originals = await db.all(
+    `SELECT id, image_path, cat_name, position FROM featured_originals ORDER BY position ASC, id ASC`
+  );
+  res.json({ originals });
+});
+app.post('/api/admin/originals', requireAdmin, upload.single('photo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'A photo is required.' });
+  const catName = (req.body.catName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60) || null;
+  const imagePath = await storePhoto(req.file);
+  const maxPos = await db.get(`SELECT COALESCE(MAX(position), -1) AS m FROM featured_originals`);
+  const info = await db.run(
+    `INSERT INTO featured_originals (image_path, cat_name, position, created_at) VALUES (?, ?, ?, ?) RETURNING id`,
+    [imagePath, catName, Number(maxPos.m) + 1, new Date().toISOString()]
+  );
+  res.json({ id: info.rows[0].id, image_path: imagePath, cat_name: catName });
+});
+app.delete('/api/admin/originals/:id', requireAdmin, async (req, res) => {
+  const info = await db.run(`DELETE FROM featured_originals WHERE id = ?`, [Number(req.params.id)]);
+  if (info.changes === 0) return res.status(404).json({ error: 'Original not found.' });
   res.json({ ok: true });
 });
 

@@ -372,6 +372,18 @@ h1, h2, h3, h4 {
 .reviews-empty h3 { font-size: 1.1rem; }
 .reviews-empty p { color: #55503f; font-size: 0.95rem; }
 
+.originals-empty {
+  margin-top: 24px;
+  background: var(--paper-card);
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  padding: 34px;
+  max-width: 560px;
+}
+.originals-empty h3 { font-size: 1.1rem; }
+.originals-empty p { color: #55503f; font-size: 0.95rem; }
+.section.originals .current-teaser { margin-top: 24px; margin-bottom: 24px; }
+
 /* ---------- custom pet product shop ---------- */
 .species-toggle { display: flex; gap: 10px; margin: 26px 0 6px; }
 .species-toggle button {

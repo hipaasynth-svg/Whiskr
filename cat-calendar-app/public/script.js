@@ -95,6 +95,42 @@ captureUtmCampaign();
   init();
 })();
 
+// ---------- featured originals showcase ----------
+// Admin-controlled, from /api/originals (see admin.html's "Featured
+// originals" section). Zero uploaded there means the honest "still
+// drying" empty state, never a placeholder image. The server may have
+// already prerendered these into #originalsGrid for crawlers/first paint
+// (see seo.js); this rebuild is idempotent, same content either way.
+(function originalsShowcase() {
+  const grid = document.getElementById('originalsGrid');
+  const empty = document.getElementById('originalsEmpty');
+  if (!grid || !empty) return;
+
+  fetch('/api/originals')
+    .then((res) => res.json())
+    .then((data) => {
+      const originals = data.originals || [];
+      if (originals.length === 0) return;
+
+      grid.innerHTML = '';
+      originals.forEach((o) => {
+        const card = document.createElement('div');
+        card.className = 'teaser-card';
+        const img = document.createElement('img');
+        img.src = o.image_path;
+        img.alt = o.cat_name || 'An original portrait by Cody Carlson';
+        card.appendChild(img);
+        const span = document.createElement('span');
+        span.textContent = o.cat_name || 'Original portrait';
+        card.appendChild(span);
+        grid.appendChild(card);
+      });
+      grid.hidden = false;
+      empty.hidden = true;
+    })
+    .catch((err) => console.error('originals showcase load failed', err));
+})();
+
 // ---------- live contest status ----------
 async function loadStatus() {
   try {
