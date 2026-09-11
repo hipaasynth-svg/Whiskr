@@ -98,7 +98,7 @@
       const data = await res.json();
       if (!data.award) {
         label.textContent = 'No Cat of the Year award is open right now.';
-        empty.textContent = 'Check back once this year\'s award opens — see the homepage for the current monthly round.';
+        empty.textContent = 'Check back once the next Cat of the Year award opens — see the homepage for the current monthly round.';
         empty.style.display = 'block';
         return;
       }
