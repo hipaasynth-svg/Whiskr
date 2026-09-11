@@ -94,14 +94,14 @@
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
         <h2>Cat of the Year</h2>
-        <p class="sub">Once a year: open a vote among that year's monthly Cat of the Month winners (auto-populated from completed rounds), let the public pick, then force-close to crown the winner and send the sculpture-claim email. Not automated — you choose when.</p>
+        <p class="sub">Roughly monthly: open a vote among recent Cat of the Month winners (auto-populated from completed rounds), let the public pick, then force-close to crown the winner and send the painting-claim email. Not automated — you choose when.</p>
       </div>
       <button class="btn btn-ghost refresh-btn" id="refreshYearAward" type="button">Refresh</button>
     </div>
     <form id="yearAwardOpenForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px;">
       <label style="font-size:0.8rem;">Label<br/><input type="text" id="yaLabel" placeholder="2026 Cat of the Year" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
       <label style="font-size:0.8rem;">Voting closes<br/><input type="datetime-local" id="yaCloses" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
-      <label style="font-size:0.8rem;">Sculpture delivery target<br/><input type="date" id="yaDeadline" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
+      <label style="font-size:0.8rem;">Painting delivery target<br/><input type="date" id="yaDeadline" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
       <label style="font-size:0.8rem;">Winners since (optional)<br/><input type="date" id="yaSince" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
       <button class="btn btn-primary" type="submit" style="padding:9px 16px;font-size:0.85rem;">Open award</button>
     </form>

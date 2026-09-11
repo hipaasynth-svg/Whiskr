@@ -137,7 +137,7 @@ async function loadYearAwardBanner() {
     banner.innerHTML = `
       <div>
         <h2>🏆 ${data.award.label} is open for voting</h2>
-        <p>Pick your favorite from this year's Cat of the Month winners — voting closes ${closes}.</p>
+        <p>Pick your favorite from recent Cat of the Month winners — voting closes ${closes}.</p>
       </div>
       <a href="year-award.html" class="btn btn-primary">Vote for Cat of the Year</a>`;
     banner.hidden = false;

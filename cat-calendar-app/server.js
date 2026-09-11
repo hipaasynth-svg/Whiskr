@@ -57,11 +57,12 @@ const MIN_PRINT_DIMENSION_PX = Number(process.env.MIN_PRINT_DIMENSION_PX || 2000
 // the winner zone) before sendRankDropAlerts emails them again.
 const RANK_DROP_THRESHOLD = Number(process.env.RANK_DROP_THRESHOLD || 5);
 
-// Cat of the Year: a once-a-year public vote among that year's monthly
-// Cat-of-the-Month winners for the one physical grand prize (a wooden
-// sculpture of the winning cat). This is a single ballot, not repeatable
-// daily voting, so the per-IP guard is a flat cap for the whole award
-// rather than a per-day rate — see year_award_votes in db.js.
+// Cat of the Year: a public vote (roughly monthly now, admin-paced — see
+// db.js) among Cat-of-the-Month winners for the one physical grand prize
+// (an original 11x16 acrylic painting of the winning cat). This is a
+// single ballot, not repeatable daily voting, so the per-IP guard is a
+// flat cap for the whole award rather than a per-day rate — see
+// year_award_votes in db.js.
 const YEAR_AWARD_VOTE_LIMIT_PER_IP = Number(process.env.YEAR_AWARD_VOTE_LIMIT_PER_IP || 5);
 
 // Marketing ledger: below this ROAS, an active campaign with real spend
@@ -686,7 +687,8 @@ async function tallyAndCloseContest(contestId) {
 // principle as the monthly tie-break). Unlike tallyAndCloseContest, this
 // is only ever called from an admin action (POST
 // /api/admin/year-award/force-close) — never a cron — since crowning Cat
-// of the Year is a rare, deliberate moment, not a scheduled event.
+// of the Year is a deliberate moment the owner chooses, not a scheduled
+// event, even now that it runs roughly monthly.
 async function tallyAndCloseYearAward(yearAwardId) {
   const award = await db.get(`SELECT * FROM year_awards WHERE id = ?`, [yearAwardId]);
   if (!award || award.status !== 'open') return null;
@@ -1078,7 +1080,7 @@ app.post('/api/year-award/vote', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     if (err.code === '23505') {
-      return res.status(400).json({ error: "You've already voted in this year's award." });
+      return res.status(400).json({ error: "You've already voted in this Cat of the Year award." });
     }
     console.error(err);
     res.status(500).json({ error: 'Something went wrong.' });
@@ -1475,10 +1477,12 @@ app.post('/api/admin/contest/force-close', requireAdmin, async (req, res) => {
 // Opens a new Cat of the Year award: auto-populates finalists from every
 // completed monthly Cat-of-the-Month winner (groups.winner_submission_id)
 // sealed within [sinceDate, untilDate] — default sinceDate is "the
-// beginning of time" (covers year one, before any award has ever run) and
-// default untilDate is now. Deliberately admin-triggered, not cron-driven:
-// the operator should set the date range and sculptureDeadline
-// deliberately once a year, not have this fire unattended.
+// beginning of time" (covers the first cycle, before any award has ever
+// run) and default untilDate is now. Deliberately admin-triggered, not
+// cron-driven: the operator sets the date range and sculptureDeadline
+// (now delivering an original painting, not a sculpture — see db.js) each
+// time they choose to open one, roughly monthly, rather than this firing
+// unattended on a fixed schedule.
 app.post('/api/admin/year-award/open', requireAdmin, async (req, res) => {
   const { label, closesAt, sculptureDeadline, sinceDate, untilDate } = req.body;
   if (!label || !closesAt) return res.status(400).json({ error: 'label and closesAt are required.' });
