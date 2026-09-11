@@ -39,6 +39,25 @@
   table.orders th, table.orders td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
   table.orders th { color: #6b6552; font-weight: 600; }
   .refresh-btn { font-size: 0.8rem; padding: 6px 12px; }
+  .product-row { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+  .product-row:last-child { border-bottom: none; }
+  .product-row .preview { width: 90px; flex-shrink: 0; }
+  .product-row .preview img { width: 100%; aspect-ratio: 1/1; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
+  .product-row .preview .none { width: 100%; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.68rem; color: #6b6552; border: 1px dashed var(--line); border-radius: 4px; padding: 4px; }
+  .product-row .body { flex: 1; min-width: 0; }
+  .product-row .title-line { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+  .product-row .title-line strong { font-size: 0.95rem; }
+  .product-row .title-line .price { font-size: 0.82rem; color: #6b6552; }
+  .product-row .aspect-hint { font-size: 0.74rem; color: #6b6552; margin-bottom: 10px; }
+  .product-row form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .product-row form .full { grid-column: 1 / -1; }
+  .product-row label { display: flex; flex-direction: column; gap: 3px; font-size: 0.74rem; color: #6b6552; }
+  .product-row input[type=text], .product-row textarea { padding: 7px 8px; border: 1px solid var(--line); border-radius: 3px; font-family: var(--font-body); font-size: 0.85rem; }
+  .product-row textarea { resize: vertical; min-height: 44px; }
+  .product-row .row-actions { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; margin-top: 2px; }
+  .product-row .row-actions button { font-size: 0.8rem; padding: 7px 14px; }
+  .product-row .remove-photo { border: 1px solid #b3261e; color: #b3261e; background: transparent; border-radius: 3px; cursor: pointer; }
+  .product-row .row-note { font-size: 0.78rem; }
 </style>
 </head>
 <body>
@@ -91,6 +110,17 @@
       <span class="form-note" id="originalUploadNote"></span>
     </form>
     <div id="originalsList" class="pick-grid"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Shop product photos</h2>
+        <p class="sub">One fixed spot per product — not a free-add list. Upload a real photo of that product (recommended aspect ratio shown per row, matching what actually ships) plus its alt text, SEO title/description, and an optional description override. Empty = the card shows text only, same as today — never a placeholder image.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshProducts" type="button">Refresh</button>
+    </div>
+    <div id="productsList"><p class="empty">Enter your admin key and click Load.</p></div>
   </div>
 
   <div class="admin-section">
@@ -730,9 +760,95 @@
     }
   });
 
+  function aspectHint(ratio) {
+    const parts = String(ratio || '1/1').split('/').map(Number);
+    const w = parts[0], h = parts[1];
+    const baseW = 1000;
+    const baseH = Math.round((h / w) * baseW);
+    const label = w === h ? 'Square' : (h > w ? 'Portrait' : 'Landscape');
+    return `${label} photo, ${w}:${h} — e.g. ${baseW}×${baseH}px`;
+  }
+
+  const productsList = document.getElementById('productsList');
+  async function loadProducts() {
+    productsList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/products');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load products.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      productsList.innerHTML = data.products.map((p) => `
+        <div class="product-row">
+          <div class="preview">
+            ${p.imagePath ? `<img src="${p.imagePath}" alt="" />` : `<div class="none">No photo yet</div>`}
+          </div>
+          <div class="body">
+            <div class="title-line"><strong>${escapeHtml(p.name)}</strong><span class="price">$${p.priceUsd.toFixed(2)}</span></div>
+            <div class="aspect-hint">${aspectHint(p.mockupAspect)}</div>
+            <form class="product-form" data-id="${p.id}">
+              <input type="file" name="photo" accept="image/png,image/jpeg,image/webp,image/gif" class="full" />
+              <label>Alt text<input type="text" name="imageAlt" value="${escapeHtml(p.imageAlt || '')}" placeholder="${escapeHtml(p.name)}" maxlength="200" /></label>
+              <label>SEO title<input type="text" name="seoTitle" value="${escapeHtml(p.seoTitle || '')}" placeholder="${escapeHtml(p.name)}" maxlength="200" /></label>
+              <label class="full">SEO description<textarea name="seoDescription" placeholder="${escapeHtml(p.description)}" maxlength="500">${escapeHtml(p.seoDescription || '')}</textarea></label>
+              <label class="full">Description override<textarea name="description" placeholder="${escapeHtml(p.description)}" maxlength="500">${escapeHtml(p.descriptionOverride || '')}</textarea></label>
+              <div class="row-actions">
+                <button type="submit" class="btn btn-primary">Save</button>
+                ${p.imagePath ? `<button type="button" class="remove-photo" data-id="${p.id}">Remove photo</button>` : ''}
+                <span class="row-note" data-note></span>
+              </div>
+            </form>
+          </div>
+        </div>
+      `).join('');
+
+      productsList.querySelectorAll('.product-form').forEach((form) => {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const id = form.dataset.id;
+          const note = form.querySelector('[data-note]');
+          note.classList.remove('error');
+          note.textContent = 'Saving…';
+          const formData = new FormData(form);
+          try {
+            const res = await adminFetch(`/api/admin/products/${id}`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Save failed.');
+            note.textContent = 'Saved.';
+            loadProducts();
+          } catch (err) {
+            note.textContent = err.message;
+            note.classList.add('error');
+          }
+        });
+      });
+
+      productsList.querySelectorAll('.remove-photo').forEach((btn) => {
+        btn.addEventListener('click', () => deleteProductPhoto(btn.dataset.id));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      productsList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function deleteProductPhoto(id) {
+    try {
+      const res = await adminFetch(`/api/admin/products/${id}/photo`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Remove failed.');
+      loadProducts();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
   function loadAll() {
     loadBackground();
     loadOriginals();
+    loadProducts();
     loadContest();
     loadYearAward();
     loadMarketing();
@@ -744,6 +860,7 @@
   document.getElementById('loadBtn').addEventListener('click', loadAll);
   document.getElementById('refreshBackground').addEventListener('click', loadBackground);
   document.getElementById('refreshOriginals').addEventListener('click', loadOriginals);
+  document.getElementById('refreshProducts').addEventListener('click', loadProducts);
   document.getElementById('refreshContest').addEventListener('click', loadContest);
   document.getElementById('refreshOrders').addEventListener('click', loadOrders);
   document.getElementById('refreshCustomOrders').addEventListener('click', loadCustomOrders);

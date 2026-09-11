@@ -521,6 +521,16 @@ loadReviews();
       card.className = 'custom-card';
       if (p.id === productField.value) card.classList.add('selected');
 
+      if (p.imagePath) {
+        const img = document.createElement('img');
+        img.className = 'custom-card-photo';
+        img.src = p.imagePath;
+        img.alt = p.imageAlt || p.name;
+        img.loading = 'lazy';
+        img.style.aspectRatio = p.mockupAspect || '1/1';
+        card.appendChild(img);
+      }
+
       const h4 = document.createElement('h4');
       h4.textContent = p.name;
       card.appendChild(h4);

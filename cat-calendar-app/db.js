@@ -317,6 +317,24 @@ CREATE TABLE IF NOT EXISTS featured_originals (
   created_at TEXT NOT NULL
 );
 
+-- Admin-managed catalog photo + copy for a product in products.js, keyed by
+-- that product's fixed id (not a SERIAL — the row set is bounded by the
+-- real catalog, not freely created). A product with no row here yet, or one
+-- with image_path still NULL, just renders text-only on the site — same
+-- honest-empty-state rule as everywhere else, never a placeholder image.
+-- image_alt/seo_title/seo_description/description_override are each NULL
+-- until the owner sets them, and every read falls back to the products.js
+-- default (name/description) rather than showing an empty string.
+CREATE TABLE IF NOT EXISTS product_media (
+  product_id TEXT PRIMARY KEY,
+  image_path TEXT,
+  image_alt TEXT,
+  seo_title TEXT,
+  seo_description TEXT,
+  description_override TEXT,
+  updated_at TEXT NOT NULL
+);
+
 -- Reviews are only ever created against a real, paid order (calendar or
 -- custom-product) via a signed link emailed after fulfillment — see
 -- reviewLink.js and mailer.sendReviewRequest. There is no seed/fake data:
