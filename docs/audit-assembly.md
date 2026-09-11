@@ -1228,3 +1228,32 @@ added to the empty state; confirmed the admin.html upload form and
 remove button work end to end; screenshotted both the empty and
 populated homepage states and the new admin section with Playwright.
 `node --check` passes on every changed JS file.
+
+## Update — 2026-09-11: "HipAAsynth LLC" removed from all public-facing copy
+
+The previous entry above added an explicit "Whiskr and Cody Carlson are
+both HipAAsynth LLC brands" disclosure — on the homepage originals CTA,
+in `rules.html`'s Sponsor section and Eligibility list, and in
+`llms.txt` — reasoning it was the more cautious call on shared corporate
+ownership between Whiskr and codycarlson.art. The owner overrode that:
+they don't want HipAAsynth LLC named anywhere on the site, and consider
+the common ownership between the two properties immaterial to disclose.
+That's a legal/business call within the owner's judgment, not a case
+this app's own reasoning treats as a hard violation if left unstated, so
+it's implemented as asked rather than re-argued.
+
+Removed every "HipAAsynth LLC" mention from public copy: the homepage
+originals CTA, `rules.html` (Sponsor paragraph and the Eligibility
+"employees of Whiskr/HipAAsynth LLC" line), and `llms.txt`. In each spot
+the surrounding sentence was rewritten rather than just deleting the
+clause, so the copy still reads as a deliberate, explicit partnership
+("Whiskr has partnered with artist Cody Carlson...") instead of leaving
+an awkward gap. Per this doc's own no-rewrite-history rule, the prior
+entry above is left as-is — it accurately records what was built and why
+at the time; this entry records the reversal rather than editing that
+one.
+
+Not touched: `cat-calendar-app/README.md`'s references to the
+`hipaasynth-svg/Whiskr` GitHub repo path — that's the actual org/repo
+name for deployment instructions, not a public-facing business-entity
+disclosure, so it's out of scope here.
