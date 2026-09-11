@@ -27,12 +27,8 @@
 <style>
   .vote-wrap { max-width: 1080px; margin: 0 auto; padding: 50px 36px 100px; }
   .vote-header { margin-bottom: 30px; }
-  .vote-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 18px;
-  }
   .vote-card {
+    width: 230px;
     background: var(--paper-card);
     border: 1px solid var(--line);
     border-radius: 6px;
@@ -67,6 +63,7 @@
 </style>
 </head>
 <body>
+<div id="siteBackdrop" aria-hidden="true"></div>
 
 <header class="site-header">
   <a href="index.html" class="brand">Whiskr</a>
@@ -92,7 +89,11 @@
     <a href="index.html#enter" class="btn btn-primary">Enter my cat free</a>
   </div>
 
-  <div class="vote-grid" id="voteGrid"></div>
+  <div class="rolodex-wrap">
+    <button type="button" class="rolodex-nav prev" aria-label="Previous cats">‹</button>
+    <div class="rolodex" id="voteGrid"></div>
+    <button type="button" class="rolodex-nav next" aria-label="More cats">›</button>
+  </div>
   <div class="entry-nudge-postvote" id="postVoteNudge" hidden>
     <span>Thanks for voting! Got a cat of your own? This round's still open.</span>
     <a href="index.html#enter" class="btn btn-primary">Enter free</a>

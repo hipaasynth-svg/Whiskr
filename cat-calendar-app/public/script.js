@@ -66,6 +66,67 @@ captureUtmCampaign();
     .catch(() => {});
 })();
 
+// ---------- rolodex nav arrows ----------
+// Shared by the vote page's cat cards and the homepage's product cards —
+// the track's own content is filled in later by whichever page-specific
+// code owns it (loadContest(), customShop()); this only needs the wrap/
+// track/buttons to exist, which they do at parse time either way.
+(function rolodexNav() {
+  document.querySelectorAll('.rolodex-wrap').forEach((wrap) => {
+    const track = wrap.querySelector('.rolodex');
+    const prev = wrap.querySelector('.rolodex-nav.prev');
+    const next = wrap.querySelector('.rolodex-nav.next');
+    if (!track || !prev || !next) return;
+    const step = () => Math.min(track.clientWidth * 0.9, 600);
+    prev.addEventListener('click', () => track.scrollBy({ left: -step(), behavior: 'smooth' }));
+    next.addEventListener('click', () => track.scrollBy({ left: step(), behavior: 'smooth' }));
+  });
+})();
+
+// ---------- site-wide background ----------
+// Same /api/background data the homepage hero slideshow uses, cross-faded
+// behind every page via #siteBackdrop (see style.css) — one shared photo
+// backdrop for the whole site instead of a hero-only feature. Runs
+// independently of heroSlideshow() below so a page can have either,
+// neither, or (the homepage) both at once without one depending on the
+// other's DOM.
+(function siteBackdrop() {
+  const el = document.getElementById('siteBackdrop');
+  if (!el) return;
+  (async () => {
+    let slides = [];
+    try {
+      const res = await fetch('/api/background');
+      const data = await res.json();
+      slides = data.slides || [];
+    } catch (err) {
+      console.error('site backdrop load failed', err);
+    }
+    if (slides.length === 0) return;
+
+    slides.forEach((s, i) => {
+      const img = document.createElement('img');
+      img.src = s.image_path;
+      img.alt = '';
+      img.loading = i === 0 ? 'eager' : 'lazy';
+      if (i === 0) img.classList.add('active');
+      el.appendChild(img);
+    });
+    const scrim = document.createElement('div');
+    scrim.className = 'scrim';
+    el.appendChild(scrim);
+
+    if (slides.length < 2) return;
+    const imgs = el.querySelectorAll('img');
+    let index = 0;
+    setInterval(() => {
+      imgs[index].classList.remove('active');
+      index = (index + 1) % imgs.length;
+      imgs[index].classList.add('active');
+    }, 7000);
+  })();
+})();
+
 // ---------- hero slideshow ----------
 // Admin-controlled, from /api/background (see admin.html's "Background
 // slideshow" section). Zero photos uploaded there means no slideshow at
