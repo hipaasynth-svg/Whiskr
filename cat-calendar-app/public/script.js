@@ -113,7 +113,7 @@ async function loadStatus() {
       nameEl.textContent = data.lastWinner.cat_name;
       photoEl.src = data.lastWinner.photo_path;
       photoEl.alt = `${data.lastWinner.cat_name}, Cat of the Month`;
-      if (blurbEl) blurbEl.textContent = 'Chosen as Cat of the Month by real public vote. Their calendar is in the shop below.';
+      if (blurbEl) blurbEl.textContent = 'Chosen as Cat of the Month by real public vote.';
     } else if (data.contestId) {
       loadCurrentTeaser();
     }

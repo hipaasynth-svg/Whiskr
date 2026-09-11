@@ -407,7 +407,7 @@ async function renderIndexHtml() {
     html = seo.fillEmpty(
       html,
       'winnerBlurb',
-      seo.escapeHtml('Chosen as Cat of the Month by real public vote. Their calendar is in the shop below.')
+      seo.escapeHtml('Chosen as Cat of the Month by real public vote.')
     );
   } else if (contestId) {
     // No round has closed yet — instead of a dead-end "check back soon",
