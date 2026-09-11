@@ -113,6 +113,11 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL
 -- is a real image an entrant can post, not just a bare link. Nullable —
 -- generation failure never blocks an entry.
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS share_image_path TEXT;
+-- sha256(ip + salt), never the raw IP — same anti-fraud pattern as
+-- votes.ip_hash below, used to rate-limit entries per connection per day
+-- (see SUBMISSION_LIMIT_PER_IP_PER_DAY in server.js). Nullable so existing
+-- rows from before this column existed don't need a backfill.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS ip_hash TEXT;
 
 -- One row per (submission, voter) so a browser/cookie identity can't vote
 -- for the same cat twice — the UNIQUE constraint is the real enforcement,
@@ -210,7 +215,7 @@ CREATE TABLE IF NOT EXISTS custom_orders (
   quantity INTEGER NOT NULL DEFAULT 1,
   amount_usd REAL NOT NULL,
   stripe_session_id TEXT,
-  status TEXT NOT NULL DEFAULT 'pending',   -- pending | paid | submitted_to_printful | failed
+  status TEXT NOT NULL DEFAULT 'pending',   -- pending | paid | submitted_to_printful | failed | refunded | disputed
   printful_order_id TEXT,
   photo_rights_consent_at TEXT,
   created_at TEXT NOT NULL,
@@ -222,6 +227,10 @@ ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_height INTEGER;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+-- Same anti-fraud pattern as submissions.ip_hash/votes.ip_hash — rate-limits
+-- custom orders per connection per day (see CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY
+-- in server.js). Nullable so pre-existing rows don't need a backfill.
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS ip_hash TEXT;
 -- Printful variant ID chosen at order time for products that don't have one
 -- fixed variant in products.js (currently just phone-case, sized per exact
 -- device — see phoneCases.js). NULL for every other product, which falls

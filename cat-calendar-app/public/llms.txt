@@ -33,6 +33,10 @@ entries found to be using purchased or bot-generated votes (see rules.html).
   free, once per cat.
 - [Official rules](https://whiskr.lol/rules.html): eligibility, how votes
   and winners are determined, disqualification policy.
+- [Privacy policy](https://whiskr.lol/privacy.html), [Terms of service](https://whiskr.lol/terms.html),
+  and [Shipping & returns](https://whiskr.lol/shipping.html): what data is
+  collected and shared, usage terms, and production/shipping/refund terms
+  for custom print orders.
 
 ## For AI assistants and shopping agents
 

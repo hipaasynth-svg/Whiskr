@@ -18,7 +18,9 @@
   .star-input label { font-size: 2rem; color: var(--line); cursor: pointer; line-height: 1; }
   .star-input input:checked ~ label,
   .star-input label:hover,
-  .star-input label:hover ~ label { color: var(--marigold); }
+  .star-input label:hover ~ label { color: var(--marigold-text); }
+  .review-form fieldset.field { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  .review-form fieldset.field legend { font-size: 0.85rem; font-weight: 500; padding: 0; }
   .review-form { display: flex; flex-direction: column; gap: 16px; margin-top: 20px; }
   .review-form label.field { font-size: 0.85rem; font-weight: 500; display: flex; flex-direction: column; gap: 6px; }
   .review-form textarea, .review-form input[type=text] {
@@ -32,7 +34,10 @@
 
 <header class="site-header">
   <a href="index.html" class="brand">Whiskr</a>
-  <nav class="site-nav">
+  <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="siteNav">
+    <span></span><span></span><span></span>
+  </button>
+  <nav class="site-nav" id="siteNav">
     <a href="index.html">Home</a>
   </nav>
 </header>
@@ -43,8 +48,8 @@
   <p id="itemLabel" style="color:#55503f;">Loading your order…</p>
 
   <form id="reviewForm" class="review-form">
-    <div class="field">
-      <span style="font-size:0.85rem; font-weight:500;">Rating</span>
+    <fieldset class="field">
+      <legend>Rating</legend>
       <div class="star-input">
         <input type="radio" name="rating" id="star5" value="5" /><label for="star5">★</label>
         <input type="radio" name="rating" id="star4" value="4" /><label for="star4">★</label>
@@ -52,7 +57,7 @@
         <input type="radio" name="rating" id="star2" value="2" /><label for="star2">★</label>
         <input type="radio" name="rating" id="star1" value="1" /><label for="star1">★</label>
       </div>
-    </div>
+    </fieldset>
     <label class="field">
       Your review
       <textarea id="reviewBody" maxlength="1000" placeholder="What did you think?" required></textarea>
@@ -67,8 +72,8 @@
 </div>
 
 <footer class="site-footer">
-  <div>Whiskr — a small, honest cat &amp; dog print shop.</div>
-  <div class="footer-links"><a href="index.html">Home</a></div>
+  <div>Whiskr — a small, honest cat &amp; dog print shop.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <div class="footer-links"><a href="index.html">Home</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a></div>
 </footer>
 
 <script>
@@ -127,5 +132,6 @@
     }
   });
 </script>
+<script src="script.js"></script>
 </body>
 </html>

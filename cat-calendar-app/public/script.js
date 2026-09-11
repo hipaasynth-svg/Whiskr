@@ -24,6 +24,48 @@ function getUtmCampaign() {
 }
 captureUtmCampaign();
 
+// ---------- mobile nav ----------
+// Every page shares the same header markup (#navToggle + #siteNav) — this
+// runs once per page load and no-ops if either element is missing, same
+// guard pattern as the other page-agnostic sections below.
+(function mobileNav() {
+  const toggle = document.getElementById('navToggle');
+  const nav = document.getElementById('siteNav');
+  if (!toggle || !nav) return;
+  toggle.addEventListener('click', () => {
+    const open = nav.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  nav.querySelectorAll('a').forEach((a) => {
+    a.addEventListener('click', () => {
+      nav.classList.remove('open');
+      toggle.setAttribute('aria-expanded', 'false');
+    });
+  });
+})();
+
+// ---------- business address ----------
+// Same honest-empty-state rule as everything else on this site: /api/business-info
+// returns null until BUSINESS_MAILING_ADDRESS is actually set, and the line
+// stays hidden rather than showing a broken-looking placeholder to a real
+// visitor. Used in the shared footer and the Contact section of the policy
+// pages (privacy.html/terms.html/shipping.html) — every page carries its own
+// #businessAddressLine/#businessAddress pair, so this fills whichever exist.
+(function businessAddress() {
+  const lines = document.querySelectorAll('#businessAddressLine, .business-address-line');
+  if (lines.length === 0) return;
+  fetch('/api/business-info')
+    .then((res) => res.json())
+    .then((data) => {
+      if (!data.address) return;
+      document.querySelectorAll('#businessAddress, .business-address').forEach((el) => {
+        el.textContent = data.address;
+      });
+      lines.forEach((el) => { el.hidden = false; });
+    })
+    .catch(() => {});
+})();
+
 // ---------- hero slideshow ----------
 // Admin-controlled, from /api/background (see admin.html's "Background
 // slideshow" section). Zero photos uploaded there means no slideshow at

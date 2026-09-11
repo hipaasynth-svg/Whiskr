@@ -3,21 +3,21 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Whiskr — Free Cat Photo Contest, Win a One-of-a-Kind Original Painting</title>
-<meta name="description" content="Enter your sweet angel free, then get votes from friends, family, and followers. Each month's top vote-getter wins a one-of-a-kind original painting hand-painted by Cody Carlson. No purchase necessary." />
+<title>Free Cat Photo Contest, Win an Original Painting — Whiskr</title>
+<meta name="description" content="Enter your cat free, get votes from friends and family, and each month's top vote-getter wins a one-of-a-kind original painting by Cody Carlson." />
 <link rel="canonical" href="https://whiskr.lol/" />
 
 <!-- Open Graph / link previews (iMessage, Slack, Facebook, etc.) -->
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Whiskr" />
-<meta property="og:title" content="Whiskr — Free Cat Photo Contest, Win a One-of-a-Kind Original Painting" />
-<meta property="og:description" content="Enter your sweet angel free, then get votes from friends, family, and followers. Each month's top vote-getter wins a one-of-a-kind original painting hand-painted by Cody Carlson. No purchase necessary." />
+<meta property="og:title" content="Free Cat Photo Contest, Win an Original Painting — Whiskr" />
+<meta property="og:description" content="Enter your cat free, get votes from friends and family, and each month's top vote-getter wins a one-of-a-kind original painting by Cody Carlson." />
 <meta property="og:url" content="https://whiskr.lol/" />
 
 <!-- Twitter/X card -->
 <meta name="twitter:card" content="summary" />
-<meta name="twitter:title" content="Whiskr — Free Cat Photo Contest, Win a One-of-a-Kind Original Painting" />
-<meta name="twitter:description" content="Enter your sweet angel free, then get votes. Each month's top vote-getter wins a one-of-a-kind original painting by Cody Carlson. No purchase necessary." />
+<meta name="twitter:title" content="Free Cat Photo Contest, Win an Original Painting — Whiskr" />
+<meta name="twitter:description" content="Enter your cat free, get votes, and each month's top vote-getter wins an original painting by Cody Carlson." />
 
 <!-- Structured data — helps Google show rich results and helps AI
      assistants/shopping agents understand what this business is and sells
@@ -46,7 +46,10 @@
 
 <header class="site-header">
   <a href="#top" class="brand">Whiskr</a>
-  <nav class="site-nav">
+  <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="siteNav">
+    <span></span><span></span><span></span>
+  </button>
+  <nav class="site-nav" id="siteNav">
     <a href="#how">Contest</a>
     <a href="vote.html">Vote</a>
     <a href="#shop-custom">Prints</a>
@@ -276,8 +279,8 @@
 </section>
 
 <footer class="site-footer">
-  <div>Whiskr — a free, real-public-vote cat photo contest, plus custom cat &amp; dog prints.</div>
-  <div class="footer-links"><a href="rules.html">Official rules</a> · <a href="#top">Back to top</a></div>
+  <div>Whiskr — a free, real-public-vote cat photo contest, plus custom cat &amp; dog prints.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <div class="footer-links"><a href="rules.html">Official rules</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a> · <a href="#top">Back to top</a></div>
 </footer>
 
 <script src="script.js"></script>

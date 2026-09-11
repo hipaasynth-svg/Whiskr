@@ -300,4 +300,5 @@ module.exports = {
   sendMail,
   isSuppressed,
   unsubscribeUrl,
+  MAILING_ADDRESS,
 };
