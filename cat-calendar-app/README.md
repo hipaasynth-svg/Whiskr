@@ -43,8 +43,9 @@ section surfaces vote velocity per entry and lets you disqualify one
 - `db.js` — Postgres (via the `pg` package), through a thin get/all/run
   shim so the rest of the app didn't need a query-by-query rewrite. Needs
   `POSTGRES_URL` — see Deployment below.
-- `products.js` — the custom-print catalog. **Every `printfulVariantId` in
-  here is a placeholder** — see Printful setup below.
+- `products.js` — the custom-print catalog, with real Printful catalog
+  variant IDs already set. `phoneCases.js` holds the per-device variant
+  list for the phone case product — see Printful setup below.
 - `printful.js` — submits paid custom orders to Printful for printing +
   shipping. Dry-run/logs if `PRINTFUL_API_KEY` isn't set, same pattern as
   Stripe/Zoho elsewhere in this app.
@@ -129,22 +130,32 @@ configured), but `printful.js` only logs what it would have submitted —
 nothing gets printed or shipped.
 
 1. Create a [Printful](https://www.printful.com/) account (it's free — you
-   only pay per order, no upfront cost or inventory).
-2. In your Printful store, add each product from `products.js` (11oz mug,
-   12x16 poster, 12x12 canvas, phone case, tote bag, 16x16 pillow) — or
-   substitute your own picks, just keep `products.js` in sync.
-3. For each one, find its **variant ID** (Printful dashboard → your product
-   → Variants tab, or `GET /store/products` on their API) and paste it into
-   the matching `printfulVariantId` in `products.js`. Every one ships as
-   `null` in this repo — orders for a product with no variant ID configured
-   will fail at the Printful-submission step (visible in `/admin.html`
-   under Custom print orders, status `failed`), not silently.
-4. Get a **Private Token** from Printful → Settings → Stores → API, and put
-   it in `.env` as `PRINTFUL_API_KEY`.
-5. Set your real prices in `products.js` (`priceUsd`) — above Printful's
-   base cost + shipping for that product/destination (check current
-   pricing in your Printful dashboard; it varies), or every sale loses
-   money.
+   only pay per order, no upfront cost or inventory), and add a payment
+   method under Settings → Billing — without one, real orders fail even
+   with a valid API key, since Printful charges you for cost + shipping
+   per order.
+2. Get a **Private Token**: Settings → Stores → your store → API → create
+   a token (scope it to a single store, not the whole account, and check
+   Orders + Products + Webhooks). Put it in `.env` / your host's
+   environment variables as `PRINTFUL_API_KEY`.
+3. That's it for the catalog — `products.js` already has real Printful
+   catalog `variant_id`s for every product except the phone case (which
+   has no single variant; see below), verified directly against
+   Printful's catalog API. Nothing needs to be created in the Printful
+   dashboard, since this app orders directly against Printful's public
+   catalog rather than synced store products.
+4. Phone cases are sized per exact device, so there's no single variant
+   ID for "a phone case." The checkout form has a phone-model picker
+   (`GET /api/phone-models`, backed by `phoneCases.js`) that resolves to
+   a real Printful variant server-side — never trust a variant ID
+   straight off a request. Currently covers the Tough Case line for
+   iPhone 11–18 and Samsung Galaxy S20–S26; re-run the same catalog
+   lookup against product IDs 601 (iPhone) / 686 (Samsung) to add newer
+   models as Printful adds them.
+5. Re-check pricing whenever you touch `products.js` — `priceUsd` needs
+   to clear Printful's base cost *and* shipping (which is billed
+   separately, varies by product/destination, and isn't included in the
+   catalog's per-item price) for every sale to be profitable.
 
 Real on-product mockups (showing the customer's photo ON the mug/poster
 before they buy) aren't built — that needs Printful's async Mockup
@@ -295,8 +306,8 @@ not just a trust problem.
 - Hero photos are pulled live from `cataas.com` (a free public cat-photo
   API) in `public/script.js` — swap in your own photography whenever
   you're ready.
-- Every `printfulVariantId` in `products.js` is a placeholder — see
-  Printful setup above.
+- `products.js`'s Printful variant IDs are real — see Printful setup above
+  if you swap in different products.
 - Affiliate links in `index.html` under `#picks` are real URLs but not
   tagged with your affiliate IDs — swap in your real, tracked affiliate
   URLs (Chewy, Amazon Associates, etc.) before driving traffic to them.

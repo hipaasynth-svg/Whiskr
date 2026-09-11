@@ -222,6 +222,11 @@ ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_height INTEGER;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+-- Printful variant ID chosen at order time for products that don't have one
+-- fixed variant in products.js (currently just phone-case, sized per exact
+-- device — see phoneCases.js). NULL for every other product, which falls
+-- back to its products.js printfulVariantId at fulfillment time.
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS variant_id TEXT;
 
 -- Which ad campaign/geo a contest entry's first visit came from (captured
 -- client-side from a ?utm_campaign= link into a cookie, see script.js) —
