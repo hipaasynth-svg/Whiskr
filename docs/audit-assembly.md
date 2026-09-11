@@ -1056,3 +1056,60 @@ integrates only Meta, per what was actually asked for; the same
 `ad_campaigns.platform` free-text field and revenue-attribution logic
 would support another platform's own read-only module later without
 schema changes.
+
+## Update — 2026-09-11: two sessions diverged on the same contest redesign; Cat of the Year prize swapped from sculpture to painting, cadence to monthly
+
+A separate concurrent Claude Code session, working from a stale local
+checkout that predated PRs #6–#16, spent this session building an entire
+parallel, incompatible contest redesign (sealed batches of 40, a human
+judge instead of public voting, a new bi-weekly hand-painted-original
+prize) — none of which was aware that public voting, `CONTEST_WINNERS_COUNT`,
+`RANK_DROP_THRESHOLD`, and the Cat of the Year sculpture award described
+in that session's own task brief were already real, shipped features on
+`main`. That work was closed unmerged (PR #17) once the divergence was
+caught — worth recording here as a real process failure, not swept under
+the rug: **always `git fetch origin` before concluding a described feature
+doesn't exist**, especially when multiple sessions may be working the same
+repo concurrently. Nothing under this update touches contest mechanics,
+voting, or judging — those are exactly as the prior updates above left
+them.
+
+What the owner did want, confirmed directly: hide the homepage
+calendar-purchase section for now (section kept intact, just `hidden` —
+zero-cost to re-enable), and change the Cat of the Year grand prize from
+a wooden sculpture to an **original 11x16 acrylic painting**, still
+hand-painted by Cody Carlson, still free to the winner, still capped
+well under the $5,000 sweepstakes-registration threshold (approximate
+value used in `rules.html`: $160). The owner also wants this award to run
+**roughly monthly instead of annually** going forward.
+
+**Deliberately not restructured for the cadence change**: `/api/admin/year-award/open`
+and `/force-close` were already fully admin-triggered with a free `label`
+and a `[sinceDate, untilDate]` window — nothing in the code actually
+enforced "once a year," that was purely how often the owner had been
+opening one. So the cadence change is a copy/operational change, not a
+schema or endpoint change: `year_awards`/`year_award_finalists`/
+`year_award_votes`, the `sculpture_deadline` column, and the
+`sculptureDeadline` variable/param names throughout `server.js`/`mailer.js`/
+`admin.html` were all kept as-is for continuity with existing routes and
+the sitemap — only user-facing copy changed (site pages, emails, rules,
+`.env.example` comments) to say "painting"/"hand-painted" instead of
+"sculpture"/"handmade," and "roughly monthly"/"recent winners" instead of
+"once a year"/"that year's winners." Also fixed a pre-existing bug caught
+in the process: `index.html`'s `<title>`/meta description wrongly credited
+the grand prize to "Cat of the Month" instead of "Cat of the Year" —
+corrected as part of this pass.
+
+**Verified**: `node --check` on every changed file; ran the real app
+locally against a fresh Postgres instance (confirmed schema/migrations
+untouched and unaffected); confirmed via headless-browser screenshot that
+the homepage renders correctly with the calendar section hidden, the nav
+link removed, and no new console/page errors. Did not re-run the full
+contest/voting/year-award test suite from the prior updates above, since
+no code paths in those flows were touched — only string literals.
+
+**Left open, not done here**: the `RANK_DROP_THRESHOLD`/final-placement
+discount emails, the existing paid-but-unfulfilled-calendar-orders
+question, and a heads-up email to entrants already in an open round about
+any prize change are all pre-existing open items, unrelated to this pass,
+not newly introduced by it.

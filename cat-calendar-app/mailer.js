@@ -151,7 +151,7 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
     `
     <p>Hi there,</p>
     <p><strong>${safeName} got the most votes and is this month's Cat of the Month.</strong></p>
-    <p>${safeName} is the cover star of this round's calendar, sharing the pages with the other top vote-getters. ${safeName} is also now in the running for Cat of the Year — a public vote among this year's monthly winners, once a year, for a one-of-a-kind wooden sculpture prize.</p>
+    <p>${safeName} is the cover star of this round's calendar, sharing the pages with the other top vote-getters. ${safeName} is also now in the running for Cat of the Year — a public vote among recent monthly winners for a one-of-a-kind original painting prize.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Get ${safeName}'s calendar — $${priceOne}
@@ -170,23 +170,24 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
   });
 }
 
-// Sent once a year when the Cat of the Year award closes (see
-// tallyAndCloseYearAward in server.js) — this is the actual grand-prize
-// notification, the one that carries a real fulfillment commitment
-// (sculptureDeadline), separate from the monthly Cat of the Month email
-// above, which no longer promises a sculpture.
+// Sent when a Cat of the Year award closes (see tallyAndCloseYearAward in
+// server.js) — this is the actual grand-prize notification, the one that
+// carries a real fulfillment commitment (sculptureDeadline — kept as the
+// param/column name for continuity with existing code; it now names when
+// the painting ships, not a sculpture), separate from the monthly Cat of
+// the Month email above, which no longer promises anything physical itself.
 async function sendCatOfYearEmail({ email, catName, sculptureDeadline }) {
   const safeName = escapeHtml(catName);
   const deadlineText = sculptureDeadline
     ? new Date(sculptureDeadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
-    : 'in the coming months';
+    : 'in the coming weeks';
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p><strong>${safeName} is Cat of the Year!</strong> Out of all of this year's monthly Cat of the Month winners, ${safeName} got the most votes in the year-end vote.</p>
-    <p><strong>${safeName} wins a one-of-a-kind wooden sculpture of ${safeName}, handmade by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. We're aiming to have it delivered by ${deadlineText}.</p>
+    <p><strong>${safeName} is Cat of the Year!</strong> Out of the recent Cat of the Month winners up for it, ${safeName} got the most votes.</p>
+    <p><strong>${safeName} wins a one-of-a-kind original 11x16 acrylic painting of ${safeName}, hand-painted by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. We're aiming to have it delivered by ${deadlineText}.</p>
     <p>Reply to this email with a mailing address and we'll get started.</p>
-    <p>Congratulations, and thank you for being part of Whiskr this year.</p>
+    <p>Congratulations, and thank you for being part of Whiskr.</p>
     <p>— Whiskr</p>
   `,
     { showUnsubscribe: true, email, tagline: 'Cat of the Year' }
@@ -195,7 +196,7 @@ async function sendCatOfYearEmail({ email, catName, sculptureDeadline }) {
     to: email,
     subject: `${catName} is Cat of the Year!`,
     html,
-    text: `${catName} is Cat of the Year! ${catName} wins a one-of-a-kind wooden sculpture of ${catName}, handmade by Cody Carlson, aiming for delivery by ${deadlineText}. Reply to this email with a mailing address.\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} is Cat of the Year! ${catName} wins a one-of-a-kind original 11x16 acrylic painting of ${catName}, hand-painted by Cody Carlson, aiming for delivery by ${deadlineText}. Reply to this email with a mailing address.\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 

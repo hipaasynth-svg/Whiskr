@@ -129,18 +129,18 @@ CREATE TABLE IF NOT EXISTS votes (
 CREATE INDEX IF NOT EXISTS votes_ip_hash_created_idx ON votes(ip_hash, created_at);
 CREATE INDEX IF NOT EXISTS votes_voter_token_created_idx ON votes(voter_token, created_at);
 
--- Annual "Cat of the Year" award: a separate, once-a-year public vote among
--- that year's monthly Cat-of-the-Month winners for the one physical grand
--- prize (a one-of-a-kind wooden sculpture of the winning cat, handmade by
--- Cody Carlson) — moved here from monthly because commissioning a unique
--- sculpture every single month isn't a sustainable prize to fulfill. Kept
+-- "Cat of the Year" award: a separate public vote among monthly
+-- Cat-of-the-Month winners for the one physical grand prize (a one-of-a-kind
+-- 11x16 acrylic painting of the winning cat, hand-painted by Cody Carlson —
+-- table/column names below kept as "sculpture"/"year" for continuity with
+-- existing routes and the sitemap; only the prize medium changed). Runs
+-- roughly monthly now (previously annual) — still admin-opened and
+-- admin-closed (see /api/admin/year-award/* in server.js), never
+-- cron-automated, so the owner controls pacing and finalist-pool size
+-- directly rather than a fixed interval forcing a near-empty vote. Kept
 -- deliberately separate from the monthly contests/submissions/votes tables
 -- rather than reusing them, since the voting rule is different (one ballot
--- per person for the whole award, not repeatable daily voting over 30
--- days) and this only ever runs once a year. Admin-opened and
--- admin-closed (see /api/admin/year-award/* in server.js) — not
--- cron-automated, since this is a rare, deliberate moment the operator
--- should choose, not something to fire on a schedule.
+-- per person for the whole award, not repeatable daily voting over 30 days).
 CREATE TABLE IF NOT EXISTS year_awards (
   id SERIAL PRIMARY KEY,
   label TEXT NOT NULL,
