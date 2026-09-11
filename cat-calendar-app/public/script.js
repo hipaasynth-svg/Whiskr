@@ -371,9 +371,31 @@ loadReviews();
   const orderNote = document.getElementById('customOrderNote');
   const emailField = document.getElementById('customEmail');
   const discountBanner = document.getElementById('customDiscountBanner');
+  const phoneModelLabel = document.getElementById('customPhoneModelLabel');
+  const phoneModelSelect = document.getElementById('customPhoneModel');
 
   let currentSpecies = 'cat';
   let products = [];
+
+  // Phone cases are sized per exact device (see phoneCases.js server-side)
+  // — this list is only ever used to populate the picker; the choice is
+  // re-validated against the real Printful catalog when the order posts.
+  async function loadPhoneModels() {
+    if (!phoneModelSelect) return;
+    try {
+      const res = await fetch('/api/phone-models');
+      const data = await res.json();
+      (data.models || []).forEach((m) => {
+        const opt = document.createElement('option');
+        opt.value = m.variantId;
+        opt.textContent = m.label;
+        phoneModelSelect.appendChild(opt);
+      });
+    } catch (err) {
+      console.error('phone model list load failed', err);
+    }
+  }
+  loadPhoneModels();
 
   // A discount can arrive two ways: a link from the entry-confirmation or
   // final-placement email (?discountEmail=&discountExpires=&discountToken=
@@ -473,6 +495,12 @@ loadReviews();
     selectedNote.textContent = `You picked: ${p.name} — $${p.priceUsd.toFixed(2)} each`;
     submitBtn.disabled = false;
     submitBtn.textContent = `Continue to checkout`;
+    if (phoneModelLabel && phoneModelSelect) {
+      const isPhoneCase = p.id === 'phone-case';
+      phoneModelLabel.hidden = !isPhoneCase;
+      phoneModelSelect.required = isPhoneCase;
+      if (!isPhoneCase) phoneModelSelect.value = '';
+    }
     renderGrid();
   }
 
@@ -486,6 +514,11 @@ loadReviews();
       submitBtn.disabled = true;
       submitBtn.textContent = 'Choose a product first';
       selectedNote.textContent = 'Pick a product above to get started.';
+      if (phoneModelLabel && phoneModelSelect) {
+        phoneModelLabel.hidden = true;
+        phoneModelSelect.required = false;
+        phoneModelSelect.value = '';
+      }
       loadProducts(currentSpecies);
     });
   });

@@ -17,6 +17,7 @@ const discountToken = require('./discountToken');
 const statusToken = require('./statusToken');
 const productCatalog = require('./products');
 const printful = require('./printful');
+const phoneCases = require('./phoneCases');
 const metaAds = require('./metaAds');
 const seo = require('./seo');
 
@@ -242,7 +243,7 @@ async function submitCustomOrderToPrintful(orderId) {
   try {
     const result = await printful.submitOrder({
       externalId: `custom-${order.id}`,
-      variantId: product ? product.printfulVariantId : null,
+      variantId: order.variant_id || (product ? product.printfulVariantId : null),
       quantity: order.quantity,
       photoUrl: order.photo_path.startsWith('http') ? order.photo_path : `${BASE_URL}${order.photo_path}`,
       recipient,
@@ -1118,6 +1119,10 @@ app.get('/api/products', (req, res) => {
   res.json({ products: list });
 });
 
+app.get('/api/phone-models', (req, res) => {
+  res.json({ models: phoneCases.listPhoneCaseModels() });
+});
+
 // Public, non-secret config the client needs — currently just whether
 // Turnstile CAPTCHA is enabled and, if so, its public site key (the secret
 // key never leaves the server; see verifyTurnstile).
@@ -1163,6 +1168,18 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
       return res.status(400).json({ error: 'Unknown product.' });
     }
 
+    // Phone cases are sized per exact device — there's no single Printful
+    // variant for "a phone case," so the customer's model choice must
+    // resolve to a real catalog variant here, never trusted as a raw ID
+    // from the client (see phoneCases.js for why).
+    let variantId = null;
+    if (product.id === 'phone-case') {
+      if (!phoneCases.isValidPhoneCaseVariant(req.body.phoneVariantId)) {
+        return res.status(400).json({ error: 'Please choose your phone model.' });
+      }
+      variantId = Number(req.body.phoneVariantId);
+    }
+
     const qty = Math.max(1, Math.min(10, Number(quantity) || 1));
     const petNameClean = (petName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
     const { width, height, lowResolution } = await checkImageQuality(req.file.buffer);
@@ -1185,9 +1202,9 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     const amount = unitPrice * qty;
 
     const info = await db.run(
-      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at, photo_width, photo_height, low_resolution, discount_percent, utm_campaign)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now, width, height, lowResolution, discountPercent, utmCampaign]
+      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at, photo_width, photo_height, low_resolution, discount_percent, utm_campaign, variant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now, width, height, lowResolution, discountPercent, utmCampaign, variantId]
     );
     const orderId = info.rows[0].id;
 
