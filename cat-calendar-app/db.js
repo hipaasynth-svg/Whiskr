@@ -58,6 +58,30 @@ CREATE TABLE IF NOT EXISTS groups (
   winner_submission_id INTEGER
 );
 
+-- Original-painting grand prize: every completed batch's cover cat is
+-- eligible; roughly every two months the owner personally picks one
+-- eligible batch to paint for (see /api/admin/grand-prize/* in server.js).
+-- Entirely human-fulfilled — these columns exist to track status and
+-- collect what's needed (a good reference photo, a shipping address), not
+-- to automate production or printing of anything.
+CREATE TABLE IF NOT EXISTS grand_prizes (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES groups(id),
+  submission_id INTEGER NOT NULL,
+  email TEXT NOT NULL,
+  cat_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'claim_pending', -- claim_pending | photo_submitted | in_progress | shipped
+  reference_photo_path TEXT,
+  photo_rights_consent_at TEXT,
+  shipping_address TEXT,             -- JSON: name/address1/address2/city/state/zip/country
+  tracking_number TEXT,
+  notes TEXT,
+  created_at TEXT NOT NULL,
+  claimed_at TEXT,
+  shipped_at TEXT,
+  UNIQUE(group_id)
+);
+
 CREATE TABLE IF NOT EXISTS submissions (
   id SERIAL PRIMARY KEY,
   email TEXT NOT NULL,
@@ -138,13 +162,26 @@ CREATE TABLE IF NOT EXISTS reviews (
 // the ensureDbReady middleware in server.js, which awaits this before
 // handling any request. IF NOT EXISTS makes repeat calls (e.g. a second
 // cold start) safe and cheap.
+// Column additions to tables that may already exist in a live database —
+// CREATE TABLE IF NOT EXISTS above is a no-op on a table that already
+// exists, so a new column on an existing table has to arrive as an
+// explicit, idempotent ALTER TABLE instead. Runs after the DDL above.
+const MIGRATIONS = `
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS completed_at TEXT;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS bimonthly_nudged INTEGER NOT NULL DEFAULT 0;
+UPDATE groups SET completed_at = sealed_at WHERE status = 'completed' AND completed_at IS NULL;
+`;
+
 let initialized = null;
 function initDb() {
   if (!initialized) {
-    initialized = pool.query(DDL).catch((err) => {
-      initialized = null; // allow retry on next request if this failed
-      throw err;
-    });
+    initialized = pool
+      .query(DDL)
+      .then(() => pool.query(MIGRATIONS))
+      .catch((err) => {
+        initialized = null; // allow retry on next request if this failed
+        throw err;
+      });
   }
   return initialized;
 }

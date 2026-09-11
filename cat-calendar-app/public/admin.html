@@ -71,6 +71,19 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
+        <h2>Bi-monthly grand prize — original painting</h2>
+        <p class="sub">Every completed batch's cover cat is eligible. Pick one roughly every 2 weeks to paint for — this is your call, never automated.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshGrandPrize" type="button">Refresh</button>
+    </div>
+    <div id="grandPrizeEligible"><p class="empty">Enter your admin key and click Load.</p></div>
+    <h3 style="font-size:0.95rem;margin:24px 0 10px;">Claims in progress</h3>
+    <div id="grandPrizeList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
         <h2>Paid calendar orders</h2>
         <p class="sub">What actually needs printing and shipping.</p>
       </div>
@@ -185,6 +198,129 @@
     } catch (err) {
       alert(err.message);
       card.querySelectorAll('button').forEach((b) => (b.disabled = false));
+    }
+  }
+
+  const grandPrizeEligible = document.getElementById('grandPrizeEligible');
+  const grandPrizeList = document.getElementById('grandPrizeList');
+
+  async function loadGrandPrizeEligible() {
+    grandPrizeEligible.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/grand-prize/eligible');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.eligible.length === 0) {
+        grandPrizeEligible.innerHTML = '<p class="empty">No eligible batches waiting on a pick right now.</p>';
+        return;
+      }
+
+      grandPrizeEligible.innerHTML = `
+        <div class="pick-grid">
+          ${data.eligible.map((e) => `
+            <div class="pick-cell">
+              <img src="${e.photo_path}" alt="${escapeHtml(e.cat_name)}" />
+              <div class="name">${escapeHtml(e.cat_name)} — Batch #${e.group_id}</div>
+              <button type="button" class="grand-choose-btn" data-group="${e.group_id}">Paint this cat</button>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      grandPrizeEligible.querySelectorAll('.grand-choose-btn').forEach((btn) => {
+        btn.addEventListener('click', () => chooseGrandPrize(btn.dataset.group, btn));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      grandPrizeEligible.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function chooseGrandPrize(groupId, btn) {
+    if (!confirm(`Pick this cat's batch (#${groupId}) as the bi-monthly grand-prize winner? This emails them right away.`)) return;
+    btn.disabled = true;
+    try {
+      const res = await adminFetch('/api/admin/grand-prize/choose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupId: Number(groupId) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed.');
+      loadGrandPrizeEligible();
+      loadGrandPrizeList();
+    } catch (err) {
+      alert(err.message);
+      btn.disabled = false;
+    }
+  }
+
+  const STATUS_LABEL = {
+    claim_pending: 'Awaiting photo & address',
+    photo_submitted: 'Ready to review',
+    in_progress: 'Painting in progress',
+    shipped: 'Shipped',
+  };
+
+  async function loadGrandPrizeList() {
+    grandPrizeList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/grand-prize');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.prizes.length === 0) {
+        grandPrizeList.innerHTML = '<p class="empty">No grand-prize picks yet.</p>';
+        return;
+      }
+
+      grandPrizeList.innerHTML = data.prizes.map((p) => `
+        <div class="group-card" data-prize="${p.id}">
+          <div class="group-head">
+            <h3>${escapeHtml(p.cat_name)} — Batch #${p.group_id}</h3>
+            <span class="deadline">${STATUS_LABEL[p.status] || escapeHtml(p.status)}</span>
+          </div>
+          ${p.reference_photo_path ? `<img src="${p.reference_photo_path}" alt="${escapeHtml(p.cat_name)}" style="max-width:160px;border-radius:4px;border:1px solid var(--line);margin-bottom:10px;" />` : ''}
+          ${p.shipping_address ? `<p style="font-size:0.82rem;color:#6b6552;margin-bottom:10px;">Ship to: ${escapeHtml((() => { try { const a = JSON.parse(p.shipping_address); return `${a.name}, ${a.address1}${a.address2 ? ', ' + a.address2 : ''}, ${a.city}, ${a.state_code} ${a.zip}, ${a.country_code}`; } catch (_) { return 'unavailable'; } })())}</p>` : ''}
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <select class="grand-status-select" data-id="${p.id}">
+              ${['claim_pending', 'photo_submitted', 'in_progress', 'shipped'].map((s) => `<option value="${s}" ${s === p.status ? 'selected' : ''}>${STATUS_LABEL[s]}</option>`).join('')}
+            </select>
+            <input type="text" class="grand-tracking-input" data-id="${p.id}" placeholder="Tracking number (optional)" value="${escapeHtml(p.tracking_number || '')}" style="padding:6px 8px;border:1px solid var(--line);border-radius:3px;font-size:0.8rem;" />
+            <button type="button" class="btn btn-primary grand-save-btn" data-id="${p.id}" style="padding:8px 14px;font-size:0.8rem;">Save</button>
+          </div>
+        </div>
+      `).join('');
+
+      grandPrizeList.querySelectorAll('.grand-save-btn').forEach((btn) => {
+        btn.addEventListener('click', () => saveGrandPrizeStatus(btn.dataset.id));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      grandPrizeList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function saveGrandPrizeStatus(id) {
+    const status = grandPrizeList.querySelector(`.grand-status-select[data-id="${id}"]`).value;
+    const trackingNumber = grandPrizeList.querySelector(`.grand-tracking-input[data-id="${id}"]`).value;
+    try {
+      const res = await adminFetch(`/api/admin/grand-prize/${id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, trackingNumber }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed.');
+      loadGrandPrizeList();
+    } catch (err) {
+      alert(err.message);
     }
   }
 
@@ -324,6 +460,8 @@
 
   function loadAll() {
     loadGroups();
+    loadGrandPrizeEligible();
+    loadGrandPrizeList();
     loadOrders();
     loadCustomOrders();
     loadPendingReviews();
@@ -331,6 +469,7 @@
 
   document.getElementById('loadBtn').addEventListener('click', loadAll);
   document.getElementById('refreshGroups').addEventListener('click', loadGroups);
+  document.getElementById('refreshGrandPrize').addEventListener('click', () => { loadGrandPrizeEligible(); loadGrandPrizeList(); });
   document.getElementById('refreshOrders').addEventListener('click', loadOrders);
   document.getElementById('refreshCustomOrders').addEventListener('click', loadCustomOrders);
   document.getElementById('refreshReviews').addEventListener('click', loadPendingReviews);

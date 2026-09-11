@@ -11,13 +11,25 @@ const db = require('./db');
 const mailer = require('./mailer');
 const unsubscribe = require('./unsubscribe');
 const reviewLink = require('./reviewLink');
+const prizeLink = require('./prizeLink');
 const productCatalog = require('./products');
 const printful = require('./printful');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const GROUP_SIZE = Number(process.env.GROUP_SIZE || 12);
+const GROUP_SIZE = Number(process.env.GROUP_SIZE || 40);
 const VOTING_PERIOD_DAYS = Number(process.env.VOTING_PERIOD_DAYS || 21);
+// Safety net for the OPEN (not-yet-sealed) batch: if it hasn't reached
+// GROUP_SIZE within this many days of its first entry, seal it anyway with
+// whoever's in it and judge normally — see sealOverdueOpenBatch below.
+// Nobody should wonder for months whether they're even in a batch yet.
+const GROUP_FILL_DEADLINE_DAYS = Number(process.env.GROUP_FILL_DEADLINE_DAYS || 21);
+// How often (in days) the owner is nudged to pick the next bi-monthly
+// (every 14 days) grand-prize (original painting) winner from eligible
+// batch cover cats — see checkGrandPrizeOverdue below. Purely a reminder;
+// there's no random-fallback pick for this one, since it's the owner's
+// artistic choice of what to paint next, not something blocking any entrant.
+const GRAND_PRIZE_CYCLE_DAYS = Number(process.env.GRAND_PRIZE_CYCLE_DAYS || 14);
 const BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const PRICE_ONE = Number(process.env.CALENDAR_PRICE_USD || 24.99);
 const PRICE_MULTI = Number(process.env.CALENDAR_2PLUS_PRICE_USD || 19.99);
@@ -213,14 +225,12 @@ function calendarBuyUrl(groupId) {
   return `${BASE_URL}/calendar.html?group=${groupId}`;
 }
 
-// Seal a group once GROUP_SIZE ungrouped submissions exist, and email entrants.
-async function maybeSealGroup() {
-  const pending = await db.all(
-    `SELECT id, email, cat_name FROM submissions WHERE group_id IS NULL ORDER BY id ASC LIMIT ?`,
-    [GROUP_SIZE]
-  );
-
-  if (pending.length < GROUP_SIZE) return null;
+// Shared by maybeSealGroup (fires the moment GROUP_SIZE is reached) and
+// sealOverdueOpenBatch (fires on a time cap even if the batch never fills)
+// — either way, sealing means: create the group, assign these submissions
+// to it, and confirm-email each entrant.
+async function sealSubmissions(pending) {
+  if (pending.length === 0) return null;
 
   const now = new Date();
   const votingEnds = new Date(now.getTime() + VOTING_PERIOD_DAYS * 24 * 60 * 60 * 1000);
@@ -239,7 +249,7 @@ async function maybeSealGroup() {
 
   for (const row of pending) {
     try {
-      await mailer.sendEntryConfirmation({ email: row.email, catName: row.cat_name, groupId });
+      await mailer.sendEntryConfirmation({ email: row.email, catName: row.cat_name, groupId, groupSize: GROUP_SIZE });
       await db.run(`UPDATE submissions SET notified_entry = 1 WHERE id = ?`, [row.id]);
     } catch (err) {
       console.error(`[mailer] entry confirmation failed for submission ${row.id}:`, err.message);
@@ -248,6 +258,43 @@ async function maybeSealGroup() {
 
   console.log(`[groups] Sealed group #${groupId} with ${pending.length} cats. Judging deadline ${votingEnds.toISOString()}`);
   return groupId;
+}
+
+// Seal a group once GROUP_SIZE ungrouped submissions exist, and email entrants.
+async function maybeSealGroup() {
+  const pending = await db.all(
+    `SELECT id, email, cat_name FROM submissions WHERE group_id IS NULL ORDER BY id ASC LIMIT ?`,
+    [GROUP_SIZE]
+  );
+  if (pending.length < GROUP_SIZE) return null;
+  return sealSubmissions(pending);
+}
+
+// Safety net for a batch that's taking too long to fill: if the oldest
+// still-ungrouped submission has been waiting longer than
+// GROUP_FILL_DEADLINE_DAYS, seal the open batch anyway with however many
+// cats are actually in it (as few as 1) rather than make early entrants
+// wait indefinitely for GROUP_SIZE to fill. Costs nothing — the "prize" for
+// a small batch is exactly the same as for a full one (one judged cover
+// cat; nobody gets anything free just for the batch being small) — so this
+// only trades away batch size, never money.
+async function sealOverdueOpenBatch() {
+  const oldest = await db.get(`SELECT MIN(created_at) AS oldest FROM submissions WHERE group_id IS NULL`);
+  if (!oldest || !oldest.oldest) return null;
+
+  const cutoff = Date.now() - GROUP_FILL_DEADLINE_DAYS * 24 * 60 * 60 * 1000;
+  if (new Date(oldest.oldest).getTime() > cutoff) return null; // not overdue yet
+
+  const pending = await db.all(
+    `SELECT id, email, cat_name FROM submissions WHERE group_id IS NULL ORDER BY id ASC LIMIT ?`,
+    [GROUP_SIZE]
+  );
+  if (pending.length === 0) return null;
+
+  console.log(
+    `[groups] Open batch overdue (oldest entry ${oldest.oldest}) — sealing with ${pending.length}/${GROUP_SIZE} cats instead of waiting for a full batch.`
+  );
+  return sealSubmissions(pending);
 }
 
 // Finalize a group with a specific cover cat: mark it completed, email every
@@ -260,12 +307,14 @@ async function completeGroup(groupId, winnerId) {
   const winner = submissions.find((s) => s.id === winnerId);
   if (!winner) throw new Error(`Submission ${winnerId} is not in group ${groupId}`);
 
-  await db.run(`UPDATE groups SET status = 'completed', winner_submission_id = ? WHERE id = ?`, [
+  await db.run(`UPDATE groups SET status = 'completed', winner_submission_id = ?, completed_at = ? WHERE id = ?`, [
     winnerId,
+    new Date().toISOString(),
     groupId,
   ]);
 
   const buyUrl = calendarBuyUrl(groupId);
+  const batchSize = submissions.length;
   for (const s of submissions) {
     try {
       if (s.id === winner.id) {
@@ -276,6 +325,7 @@ async function completeGroup(groupId, winnerId) {
           buyUrl,
           priceOne: PRICE_ONE.toFixed(2),
           priceMulti: PRICE_MULTI.toFixed(2),
+          batchSize,
         });
       } else {
         await mailer.sendFeaturedEmail({
@@ -285,6 +335,7 @@ async function completeGroup(groupId, winnerId) {
           buyUrl,
           priceOne: PRICE_ONE.toFixed(2),
           priceMulti: PRICE_MULTI.toFixed(2),
+          batchSize,
         });
       }
       await db.run(`UPDATE submissions SET notified_result = 1 WHERE id = ?`, [s.id]);
@@ -328,6 +379,40 @@ async function runDueJudging() {
       } catch (err) {
         console.error('[mailer] admin fallback-notify failed:', err.message);
       }
+    }
+  }
+}
+
+// Reminds the owner (once per eligible group, not daily) when it's been
+// GRAND_PRIZE_CYCLE_DAYS since a completed batch's cover cat became
+// eligible for the bi-monthly original-painting grand prize and nobody's
+// been chosen yet. No random fallback here — picking who to paint next is
+// the owner's call, and nothing blocks an entrant while it waits.
+async function checkGrandPrizeOverdue() {
+  const cutoff = new Date(Date.now() - GRAND_PRIZE_CYCLE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const overdue = await db.all(
+    `SELECT g.id FROM groups g
+     WHERE g.status = 'completed' AND g.bimonthly_nudged = 0 AND g.completed_at <= ?
+       AND NOT EXISTS (SELECT 1 FROM grand_prizes gp WHERE gp.group_id = g.id)
+     ORDER BY g.completed_at ASC`,
+    [cutoff]
+  );
+  if (overdue.length === 0) return;
+
+  for (const g of overdue) {
+    await db.run(`UPDATE groups SET bimonthly_nudged = 1 WHERE id = ?`, [g.id]);
+  }
+
+  if (process.env.ADMIN_EMAIL) {
+    try {
+      await mailer.sendMail({
+        to: process.env.ADMIN_EMAIL,
+        subject: `Time to pick the next bi-monthly grand-prize painting`,
+        text: `${overdue.length} completed batch(es) have been eligible for ${GRAND_PRIZE_CYCLE_DAYS}+ days with no grand-prize pick yet. Choose one in admin.html: ${BASE_URL}/admin.html`,
+        html: `<p>${overdue.length} completed batch(es) have been eligible for ${GRAND_PRIZE_CYCLE_DAYS}+ days with no grand-prize pick yet.</p><p>Choose one in <a href="${BASE_URL}/admin.html">admin.html</a>.</p>`,
+      });
+    } catch (err) {
+      console.error('[mailer] grand-prize nudge failed:', err.message);
     }
   }
 }
@@ -430,7 +515,7 @@ app.get('/api/products', (req, res) => {
 });
 
 // Upload a pet photo, pick a product, pay — this is the evergreen storefront
-// (as opposed to the contest, which only runs in batches of 12). Fulfilled
+// (as opposed to the contest, which only runs in sealed batches). Fulfilled
 // through Printful once Stripe confirms payment via the webhook above.
 app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
   try {
@@ -520,8 +605,15 @@ app.get('/api/status', async (req, res) => {
     openCount,
     groupSize: GROUP_SIZE,
     spotsLeft: Math.max(0, GROUP_SIZE - openCount),
+    fillDeadlineDays: GROUP_FILL_DEADLINE_DAYS,
     lastWinner: winnerCat,
   });
+});
+
+// Small public config surface for pages that need it (e.g. the grand-prize
+// claim form's shipping-country dropdown) without hardcoding it client-side.
+app.get('/api/config', (req, res) => {
+  res.json({ shippingCountries: SHIPPING_COUNTRIES, groupSize: GROUP_SIZE, fillDeadlineDays: GROUP_FILL_DEADLINE_DAYS });
 });
 
 // Calendar landing/checkout page for a specific completed group
@@ -678,6 +770,112 @@ app.post('/api/reviews', async (req, res) => {
   }
 });
 
+// Look up a grand-prize claim (reference-photo + shipping-address form) —
+// only reachable via the signed link in sendGrandPrizeWinEmail. Returns
+// enough to prefill/confirm the form; never anything about other prizes.
+app.get('/api/grand-prize/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const { email, token } = req.query;
+  if (!prizeLink.verify(id, email, token)) {
+    return res.status(400).json({ error: 'Invalid or expired link.' });
+  }
+  const prize = await db.get(`SELECT * FROM grand_prizes WHERE id = ?`, [id]);
+  if (!prize || prize.email.toLowerCase() !== String(email).toLowerCase()) {
+    return res.status(404).json({ error: 'Not found.' });
+  }
+  res.json({
+    id: prize.id,
+    catName: prize.cat_name,
+    status: prize.status,
+    hasReferencePhoto: Boolean(prize.reference_photo_path),
+    hasShippingAddress: Boolean(prize.shipping_address),
+  });
+});
+
+// Submit (or update, while still awaiting review) a reference photo +
+// shipping address for a grand-prize claim. Same photo-rights requirement
+// as every other photo upload in this app — the reference photo gets
+// painted from, so the same rights confirmation applies.
+app.post('/api/grand-prize/:id/claim', upload.single('photo'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { email, token, photoRights, name, address1, address2, city, state, zip, country } = req.body;
+    if (!prizeLink.verify(id, email, token)) {
+      return res.status(400).json({ error: 'Invalid or expired link.' });
+    }
+    const prize = await db.get(`SELECT * FROM grand_prizes WHERE id = ?`, [id]);
+    if (!prize || prize.email.toLowerCase() !== String(email).toLowerCase()) {
+      return res.status(404).json({ error: 'Not found.' });
+    }
+    if (prize.status !== 'claim_pending' && prize.status !== 'photo_submitted') {
+      return res.status(400).json({ error: 'This prize has already moved past the claim step — contact us if that seems wrong.' });
+    }
+    if (!name || !address1 || !city || !state || !zip || !country) {
+      return res.status(400).json({ error: 'Please fill in your full shipping address.' });
+    }
+    if (!SHIPPING_COUNTRIES.includes(String(country).toUpperCase())) {
+      return res.status(400).json({ error: 'We can only ship to: ' + SHIPPING_COUNTRIES.join(', ') });
+    }
+
+    let photoPath = prize.reference_photo_path;
+    let rightsAt = prize.photo_rights_consent_at;
+    if (req.file) {
+      if (photoRights !== 'on' && photoRights !== 'true') {
+        return res.status(400).json({ error: 'You must confirm you own the rights to this photo.' });
+      }
+      photoPath = await storePhoto(req.file);
+      rightsAt = new Date().toISOString();
+    }
+    // No new upload and nothing on file yet — fall back to the winning
+    // cat's original contest entry photo (already rights-cleared at entry
+    // time), matching what the claim page tells the winner will happen.
+    if (!photoPath) {
+      const originalSubmission = await db.get(`SELECT photo_path, photo_rights_consent_at FROM submissions WHERE id = ?`, [
+        prize.submission_id,
+      ]);
+      if (originalSubmission) {
+        photoPath = originalSubmission.photo_path;
+        rightsAt = originalSubmission.photo_rights_consent_at || rightsAt;
+      }
+    }
+    if (!photoPath) {
+      return res.status(400).json({ error: 'A reference photo is required.' });
+    }
+
+    const shipping = JSON.stringify({
+      name: String(name).replace(/[\r\n]+/g, ' ').trim().slice(0, 120),
+      address1: String(address1).replace(/[\r\n]+/g, ' ').trim().slice(0, 200),
+      address2: String(address2 || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 200),
+      city: String(city).replace(/[\r\n]+/g, ' ').trim().slice(0, 100),
+      state_code: String(state).replace(/[\r\n]+/g, ' ').trim().slice(0, 50),
+      zip: String(zip).replace(/[\r\n]+/g, ' ').trim().slice(0, 20),
+      country_code: String(country).toUpperCase().trim().slice(0, 2),
+      email: prize.email,
+    });
+
+    await db.run(
+      `UPDATE grand_prizes SET reference_photo_path = ?, photo_rights_consent_at = ?, shipping_address = ?, status = 'photo_submitted', claimed_at = ? WHERE id = ?`,
+      [photoPath, rightsAt, shipping, new Date().toISOString(), id]
+    );
+
+    if (process.env.ADMIN_EMAIL) {
+      mailer
+        .sendMail({
+          to: process.env.ADMIN_EMAIL,
+          subject: `Grand-prize claim ready for ${prize.cat_name}`,
+          text: `${prize.cat_name}'s owner submitted a reference photo and shipping address. Review it in admin.html: ${BASE_URL}/admin.html`,
+          html: `<p><strong>${prize.cat_name}</strong>'s owner submitted a reference photo and shipping address.</p><p>Review it in <a href="${BASE_URL}/admin.html">admin.html</a>.</p>`,
+        })
+        .catch(() => {});
+    }
+
+    res.json({ ok: true, message: "Thanks! We've got your photo and address — you'll get an email once it ships." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Something went wrong.' });
+  }
+});
+
 // ---------- admin / ops ----------
 function requireAdmin(req, res, next) {
   const provided = Buffer.from(String(req.headers['x-admin-key'] || req.query.key || ''));
@@ -692,7 +890,7 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// List sealed groups (12 cats) that are awaiting a manual pick — this is
+// List sealed groups that are awaiting a manual pick — this is
 // your judging queue. See public/admin.html for the screen that uses this.
 app.get('/api/admin/groups/pending', requireAdmin, async (req, res) => {
   const groups = await db.all(`SELECT * FROM groups WHERE status = 'voting' ORDER BY sealed_at ASC`);
@@ -729,6 +927,92 @@ app.post('/api/admin/groups/:groupId/pick', requireAdmin, async (req, res) => {
 
   const winner = await completeGroup(groupId, submissionId);
   res.json({ ok: true, groupId, winner: { id: winner.id, catName: winner.cat_name } });
+});
+
+// Completed batches whose cover cat hasn't been picked (or ruled out) for
+// the bi-monthly grand prize yet — the pool POST .../choose picks from.
+app.get('/api/admin/grand-prize/eligible', requireAdmin, async (req, res) => {
+  const rows = await db.all(
+    `SELECT g.id AS group_id, g.completed_at, s.id AS submission_id, s.cat_name, s.email, s.photo_path
+     FROM groups g
+     JOIN submissions s ON s.id = g.winner_submission_id
+     WHERE g.status = 'completed' AND NOT EXISTS (SELECT 1 FROM grand_prizes gp WHERE gp.group_id = g.id)
+     ORDER BY g.completed_at ASC`
+  );
+  res.json({ eligible: rows });
+});
+
+// The owner's actual pick: this batch's cover cat gets the original
+// painting. Creates the grand_prizes row and sends the signed claim link —
+// there is no automated/random path to this, unlike the per-batch cover-cat
+// fallback, because it's a real one-of-a-kind prize the owner hand-makes.
+app.post('/api/admin/grand-prize/choose', requireAdmin, async (req, res) => {
+  const groupId = Number(req.body.groupId);
+  const group = await db.get(`SELECT * FROM groups WHERE id = ? AND status = 'completed'`, [groupId]);
+  if (!group) return res.status(404).json({ error: 'Completed group not found.' });
+
+  const existing = await db.get(`SELECT id FROM grand_prizes WHERE group_id = ?`, [groupId]);
+  if (existing) return res.status(400).json({ error: 'This batch already has a grand-prize entry.' });
+
+  const winner = await db.get(`SELECT * FROM submissions WHERE id = ?`, [group.winner_submission_id]);
+  if (!winner) return res.status(400).json({ error: 'This batch has no cover cat on record.' });
+
+  const info = await db.run(
+    `INSERT INTO grand_prizes (group_id, submission_id, email, cat_name, status, created_at) VALUES (?, ?, ?, ?, 'claim_pending', ?) RETURNING id`,
+    [groupId, winner.id, winner.email, winner.cat_name, new Date().toISOString()]
+  );
+  const prizeId = info.rows[0].id;
+
+  const token = prizeLink.tokenFor(prizeId, winner.email);
+  const claimUrl = `${BASE_URL}/grand-prize.html?id=${prizeId}&email=${encodeURIComponent(winner.email)}&token=${token}`;
+  try {
+    await mailer.sendGrandPrizeWinEmail({ email: winner.email, catName: winner.cat_name, claimUrl });
+  } catch (err) {
+    console.error(`[mailer] grand-prize win email failed for prize ${prizeId}:`, err.message);
+  }
+
+  res.json({ ok: true, prizeId, catName: winner.cat_name });
+});
+
+// Tracking dashboard for every grand-prize pick ever made, newest first.
+app.get('/api/admin/grand-prize', requireAdmin, async (req, res) => {
+  const rows = await db.all(`SELECT * FROM grand_prizes ORDER BY created_at DESC`);
+  res.json({ prizes: rows });
+});
+
+// Manual status update as the owner actually paints and ships the piece —
+// nothing here is automated, this just keeps a record so a claim can't
+// silently fall through the cracks. Moving to 'shipped' with a tracking
+// number emails the winner.
+app.post('/api/admin/grand-prize/:id/status', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const { status, trackingNumber, notes } = req.body;
+  const allowed = ['claim_pending', 'photo_submitted', 'in_progress', 'shipped'];
+  if (!allowed.includes(status)) {
+    return res.status(400).json({ error: `Status must be one of: ${allowed.join(', ')}` });
+  }
+  const prize = await db.get(`SELECT * FROM grand_prizes WHERE id = ?`, [id]);
+  if (!prize) return res.status(404).json({ error: 'Not found.' });
+
+  const shippedAt = status === 'shipped' ? new Date().toISOString() : prize.shipped_at;
+  await db.run(
+    `UPDATE grand_prizes SET status = ?, tracking_number = ?, notes = ?, shipped_at = ? WHERE id = ?`,
+    [status, trackingNumber || prize.tracking_number || null, notes || prize.notes || null, shippedAt, id]
+  );
+
+  if (status === 'shipped' && prize.status !== 'shipped') {
+    try {
+      await mailer.sendGrandPrizeShippedEmail({
+        email: prize.email,
+        catName: prize.cat_name,
+        trackingNumber: trackingNumber || prize.tracking_number || null,
+      });
+    } catch (err) {
+      console.error(`[mailer] grand-prize shipped email failed for prize ${id}:`, err.message);
+    }
+  }
+
+  res.json({ ok: true });
 });
 
 // Orders, for fulfillment. ?status=paid to see what actually needs printing;
@@ -788,6 +1072,20 @@ app.post('/api/admin/run-review-requests', requireAdmin, async (req, res) => {
   await sendDueReviewRequests();
   res.json({ ok: true });
 });
+// Force the open (not-yet-full) batch's fill deadline, for testing —
+// in normal operation the daily cron enforces GROUP_FILL_DEADLINE_DAYS.
+app.post('/api/admin/force-seal-open', requireAdmin, async (req, res) => {
+  await db.run(`UPDATE submissions SET created_at = ? WHERE group_id IS NULL`, [
+    new Date(Date.now() - (GROUP_FILL_DEADLINE_DAYS + 1) * 24 * 60 * 60 * 1000).toISOString(),
+  ]);
+  const groupId = await sealOverdueOpenBatch();
+  res.json({ sealed: groupId || null });
+});
+// Runs the grand-prize nudge check immediately, for testing.
+app.post('/api/admin/run-grand-prize-nudge', requireAdmin, async (req, res) => {
+  await checkGrandPrizeOverdue();
+  res.json({ ok: true });
+});
 // Force a specific group's judging deadline to right now (testing only —
 // in production the daily cron is what enforces the deadline).
 app.post('/api/admin/force-close/:groupId', requireAdmin, async (req, res) => {
@@ -822,7 +1120,9 @@ app.get('/api/cron/daily', async (req, res) => {
   }
 
   try {
+    await sealOverdueOpenBatch();
     await runDueJudging();
+    await checkGrandPrizeOverdue();
     await sendDueReviewRequests();
     res.json({ ok: true });
   } catch (err) {
@@ -838,7 +1138,9 @@ if (require.main === module) {
   // pointless and never reached.
   app.listen(PORT, () => {
     console.log(`Whiskr server running on ${BASE_URL}`);
-    console.log(`Judging deadline: ${VOTING_PERIOD_DAYS} days | Group size: ${GROUP_SIZE}`);
+    console.log(
+      `Judging deadline: ${VOTING_PERIOD_DAYS} days | Group size: ${GROUP_SIZE} | Fill deadline: ${GROUP_FILL_DEADLINE_DAYS} days | Grand-prize cycle: ${GRAND_PRIZE_CYCLE_DAYS} days`
+    );
     if (!stripe) console.warn('[stripe] STRIPE_SECRET_KEY not set — checkout endpoint disabled.');
     if (stripe && !process.env.STRIPE_WEBHOOK_SECRET) {
       console.warn('[stripe] STRIPE_WEBHOOK_SECRET not set — paid orders will never be marked paid.');

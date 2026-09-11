@@ -106,7 +106,7 @@
         statusEl.textContent = 'This batch is still being judged — check back once a cover cat is picked.';
       } else {
         title.textContent = 'The calendar from this round';
-        statusEl.textContent = '12 cats, one cover star, thirteen months of good mornings.';
+        statusEl.textContent = `${data.cats.length} cats, one cover star, thirteen months of good mornings.`;
       }
 
       data.cats.forEach((cat) => {

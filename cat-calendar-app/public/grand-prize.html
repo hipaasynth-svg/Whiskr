@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Claim your painting — Whiskr</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<style>
+  .prize-wrap { max-width: 560px; margin: 0 auto; padding: 60px 36px 100px; }
+  .prize-form { display: flex; flex-direction: column; gap: 16px; margin-top: 20px; }
+  .prize-form label.field { font-size: 0.85rem; font-weight: 500; display: flex; flex-direction: column; gap: 6px; }
+  .prize-form input[type=text], .prize-form input[type=email], .prize-form select {
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px;
+    font-family: var(--font-body); font-size: 0.95rem;
+  }
+  .addr-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 500px) { .addr-row { grid-template-columns: 1fr; } }
+  .consent-label { display: flex; align-items: flex-start; gap: 8px; font-size: 0.85rem; }
+  .status-note { background: var(--paper-card); border: 1px solid var(--line); border-radius: 6px; padding: 16px; font-size: 0.9rem; margin-top: 20px; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <nav class="site-nav">
+    <a href="index.html">Home</a>
+  </nav>
+</header>
+
+<div class="prize-wrap">
+  <p class="ribbon-tag">Bi-monthly grand prize</p>
+  <h1 id="heading">Loading…</h1>
+  <p id="intro" style="color:#55503f;"></p>
+
+  <form id="prizeForm" class="prize-form" enctype="multipart/form-data" style="display:none;">
+    <label class="field file-label">
+      Reference photo (optional — a closer, well-lit shot helps most; we'll use your original contest photo if you skip this)
+      <input type="file" id="photo" name="photo" accept="image/png, image/jpeg, image/webp, image/gif" />
+    </label>
+    <label class="consent-label">
+      <input type="checkbox" id="photoRights" name="photoRights" />
+      I own this photo and grant Whiskr a license to paint from and photograph it.
+    </label>
+
+    <label class="field">
+      Full name
+      <input type="text" id="name" maxlength="120" required />
+    </label>
+    <label class="field">
+      Address line 1
+      <input type="text" id="address1" maxlength="200" required />
+    </label>
+    <label class="field">
+      Address line 2 (optional)
+      <input type="text" id="address2" maxlength="200" />
+    </label>
+    <div class="addr-row">
+      <label class="field">
+        City
+        <input type="text" id="city" maxlength="100" required />
+      </label>
+      <label class="field">
+        State
+        <input type="text" id="state" maxlength="50" required />
+      </label>
+    </div>
+    <div class="addr-row">
+      <label class="field">
+        ZIP / postal code
+        <input type="text" id="zip" maxlength="20" required />
+      </label>
+      <label class="field">
+        Country
+        <select id="country" required></select>
+      </label>
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="submitBtn">Send it in</button>
+    <p class="form-note" id="prizeNote"></p>
+  </form>
+
+  <div id="alreadyDone" class="status-note" style="display:none;"></div>
+</div>
+
+<footer class="site-footer">
+  <div>Whiskr — a small, honest cat &amp; dog print shop.</div>
+  <div class="footer-links"><a href="index.html">Home</a></div>
+</footer>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('id');
+  const email = params.get('email');
+  const token = params.get('token');
+
+  const heading = document.getElementById('heading');
+  const intro = document.getElementById('intro');
+  const form = document.getElementById('prizeForm');
+  const alreadyDone = document.getElementById('alreadyDone');
+  const note = document.getElementById('prizeNote');
+  const submitBtn = document.getElementById('submitBtn');
+  const countrySelect = document.getElementById('country');
+
+  async function loadCountries() {
+    try {
+      const res = await fetch('/api/config');
+      const data = await res.json();
+      (data.shippingCountries || ['US']).forEach((c) => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        countrySelect.appendChild(opt);
+      });
+    } catch (_) {
+      const opt = document.createElement('option');
+      opt.value = 'US';
+      opt.textContent = 'US';
+      countrySelect.appendChild(opt);
+    }
+  }
+
+  async function load() {
+    if (!id || !email || !token) {
+      heading.textContent = 'Link incomplete';
+      intro.textContent = 'This link looks incomplete — use the link from your email.';
+      return;
+    }
+    await loadCountries();
+    try {
+      const res = await fetch(`/api/grand-prize/${id}?email=${encodeURIComponent(email)}&token=${token}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not load this prize.');
+
+      heading.textContent = `Congratulations, ${data.catName}! 🎨`;
+      if (data.status === 'claim_pending' || data.status === 'photo_submitted') {
+        intro.textContent = "You've been chosen for our bi-monthly grand prize: an original 11x16 acrylic painting of the photo you entered and won with, hand-painted just for you and mailed within 2 weeks. Confirm your shipping address below — send a different reference photo only if you'd rather we paint from something else.";
+        form.style.display = 'flex';
+      } else {
+        intro.textContent = "We've already got everything we need for this one.";
+        alreadyDone.style.display = 'block';
+        alreadyDone.textContent = data.status === 'in_progress'
+          ? "Your painting is in progress — we'll email you the moment it ships."
+          : data.status === 'shipped'
+          ? 'Your painting has already shipped — check your email for tracking.'
+          : 'This claim has already been submitted.';
+      }
+    } catch (err) {
+      heading.textContent = 'Something went wrong';
+      intro.textContent = err.message;
+    }
+  }
+  load();
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const photoInput = document.getElementById('photo');
+    if (photoInput.files[0] && !document.getElementById('photoRights').checked) {
+      note.textContent = 'Please confirm you own the rights to the photo you uploaded.';
+      note.classList.add('error');
+      return;
+    }
+    note.classList.remove('error');
+    note.textContent = 'Sending…';
+    submitBtn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('email', email);
+    formData.append('token', token);
+    if (photoInput.files[0]) {
+      formData.append('photo', photoInput.files[0]);
+      formData.append('photoRights', document.getElementById('photoRights').checked ? 'on' : '');
+    }
+    formData.append('name', document.getElementById('name').value);
+    formData.append('address1', document.getElementById('address1').value);
+    formData.append('address2', document.getElementById('address2').value);
+    formData.append('city', document.getElementById('city').value);
+    formData.append('state', document.getElementById('state').value);
+    formData.append('zip', document.getElementById('zip').value);
+    formData.append('country', countrySelect.value);
+
+    try {
+      const res = await fetch(`/api/grand-prize/${id}/claim`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      note.textContent = data.message || "Thanks! We've got what we need.";
+      form.querySelectorAll('input, select, button').forEach((el) => (el.disabled = true));
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

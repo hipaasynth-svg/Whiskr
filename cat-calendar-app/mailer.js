@@ -86,29 +86,30 @@ function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = '
   </div>`;
 }
 
-async function sendEntryConfirmation({ email, catName, groupId }) {
+async function sendEntryConfirmation({ email, catName, groupId, groupSize }) {
   const safeName = escapeHtml(catName);
   const html = wrapLayout(`
     <p>Hi there,</p>
-    <p><strong>${safeName}</strong> is officially entered in this month's group of 12. Our judging table reviews the full batch over the next few weeks before picking a cover cat.</p>
-    <p>We'll email you the moment results are in — win or place, your cat's photo may still make the calendar.</p>
+    <p><strong>${safeName}</strong> is officially entered in this round's group (up to ${groupSize} cats). Our judging table reviews the full batch — sealing either once it fills or after 3 weeks, whichever comes first, so you're never left waiting indefinitely — before picking a cover cat.</p>
+    <p>We'll email you the moment results are in — win or place, your cat's photo may still make the calendar. Every batch's cover cat is also automatically in the running for our bi-monthly grand prize: an original 11x16 acrylic painting of their photo, hand-painted by our artist.</p>
     <p>— The Whiskr judging table</p>
   `);
   return sendMail({
     to: email,
     subject: `${catName} is entered! 🐾 (Group #${groupId})`,
     html,
-    text: `${catName} is entered in group #${groupId}. Our judging table reviews the batch over the next few weeks — we'll email you when the cover cat is picked.`,
+    text: `${catName} is entered in group #${groupId}. Our judging table reviews the batch (sealing once it fills or after 3 weeks, whichever comes first) — we'll email you when the cover cat is picked.`,
   });
 }
 
-async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, priceMulti }) {
+async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, priceMulti, batchSize }) {
   const safeName = escapeHtml(catName);
+  const others = Math.max(0, (batchSize || 1) - 1);
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p><strong>${safeName} is so cute — and has been selected as this month's Cat of the Month! 🏆</strong></p>
-    <p>${safeName} is the cover star of this batch's 12-month calendar, sharing the pages with 11 other very good cats.</p>
+    <p><strong>${safeName} is so cute — and has been selected as this round's Cat of the Month! 🏆</strong></p>
+    <p>${safeName} is the cover star of this batch's calendar, sharing the pages with ${others} other very good cats. ${safeName} is also now automatically entered for our bi-monthly grand prize — an original 11x16 acrylic painting, hand-painted from your cat's photo.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Get ${safeName}'s calendar — $${priceOne}
@@ -123,16 +124,17 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
     to: email,
     subject: `${catName} is Cat of the Month! 🏆`,
     html,
-    text: `${catName} is so cute — and has been selected as Cat of the Month! Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} is so cute — and has been selected as Cat of the Month! ${safeName} is also now entered for our bi-monthly original-painting grand prize. Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
-async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, priceMulti }) {
+async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, priceMulti, batchSize }) {
   const safeName = escapeHtml(catName);
+  const count = batchSize || 1;
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p>Judging's closed for this group, and while another cat took the cover this round, <strong>${safeName} made the calendar</strong> as one of the 12 featured cats.</p>
+    <p>Judging's closed for this group, and while another cat took the cover this round, <strong>${safeName} made the calendar</strong> as one of the ${count} featured cats.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Get the calendar featuring ${safeName} — $${priceOne}
@@ -148,7 +150,63 @@ async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, pr
     to: email,
     subject: `${catName} made the calendar! 📅`,
     html,
-    text: `${catName} made this round's calendar as one of 12 featured cats. Get it here: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} made this round's calendar as one of ${count} featured cats. Get it here: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+  });
+}
+
+// Sent when the owner personally picks a batch's cover cat for the
+// bi-monthly grand prize (POST /api/admin/grand-prize/choose in
+// server.js) — a real, one-of-a-kind original painting, hand-painted by
+// the owner, not anything Printful/automated. claimUrl carries a signed,
+// order-specific token (see prizeLink.js) so only the actual winner can
+// submit a reference photo and shipping address.
+async function sendGrandPrizeWinEmail({ email, catName, claimUrl }) {
+  const safeName = escapeHtml(catName);
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p><strong>Huge news — ${safeName} has been chosen for our bi-monthly grand prize! 🎨</strong></p>
+    <p>Out of every cover cat from the last couple months, we picked ${safeName} to be the subject of an original 11x16 acrylic-on-canvas painting, hand-painted (not printed) by our artist — and it's yours, free.</p>
+    <p style="text-align:center;margin:24px 0;">
+      <a href="${claimUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
+        Send a reference photo &amp; shipping address
+      </a>
+    </p>
+    <p style="font-size:13px;color:#555;">A closer, well-lit photo of ${safeName} helps the painting come out great — your original contest photo works too if that's easier. This link is just for you.</p>
+    <p>We'll mail your painting within 2 weeks — you'll get an email the moment it ships.</p>
+    <p>— The Whiskr judging table</p>
+  `,
+    { showUnsubscribe: true, email }
+  );
+  return sendMail({
+    to: email,
+    subject: `${catName} won the original painting! 🎨`,
+    html,
+    text: `${catName} has been chosen for our bi-monthly grand prize — an original 11x16 acrylic painting, hand-painted just for you. Send a reference photo and shipping address here: ${claimUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+  });
+}
+
+// Sent once the owner marks a grand-prize painting shipped in admin.html.
+async function sendGrandPrizeShippedEmail({ email, catName, trackingNumber }) {
+  const safeName = escapeHtml(catName);
+  const trackingLine = trackingNumber
+    ? `<p>Tracking number: <strong>${escapeHtml(trackingNumber)}</strong></p>`
+    : '';
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p><strong>${safeName}'s original painting is on its way! 🎉</strong></p>
+    ${trackingLine}
+    <p>Thanks for being part of Whiskr — we hope you love it.</p>
+    <p>— The Whiskr judging table</p>
+  `,
+    { showUnsubscribe: true, email }
+  );
+  return sendMail({
+    to: email,
+    subject: `${catName}'s painting has shipped! 🎉`,
+    html,
+    text: `${safeName}'s original painting is on its way!${trackingNumber ? ` Tracking number: ${trackingNumber}` : ''}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -185,6 +243,8 @@ module.exports = {
   sendWinnerEmail,
   sendFeaturedEmail,
   sendReviewRequest,
+  sendGrandPrizeWinEmail,
+  sendGrandPrizeShippedEmail,
   sendMail,
   isSuppressed,
   unsubscribeUrl,
