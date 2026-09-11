@@ -391,17 +391,50 @@ h1, h2, h3, h4 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
+  row-gap: 34px;
 }
+/* Rolodex look: each card sits at a slight alternating tilt with a
+   colored index tab peeking above it, like cards fanned in a card file.
+   Straightens flat on hover/selection so it's clear which one you're
+   looking at — the tilt is decorative, never a barrier to comparing or
+   picking a product. */
 .custom-card {
+  position: relative;
   background: var(--paper-card);
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 22px;
+  padding: 26px 22px 22px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  transform: rotate(var(--tilt, 0deg));
+  box-shadow: 0 3px 8px rgba(27,36,48,0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
-.custom-card.selected { border-color: var(--marigold); box-shadow: 0 0 0 2px rgba(232,163,61,0.35) inset; }
+.custom-card::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: 22px;
+  width: 44px;
+  height: 16px;
+  background: var(--tab-color, var(--marigold));
+  border-radius: 3px 3px 0 0;
+}
+.custom-card:nth-child(3n+1) { --tilt: -1.4deg; --tab-color: var(--marigold); }
+.custom-card:nth-child(3n+2) { --tilt: 1deg; --tab-color: var(--blush); }
+.custom-card:nth-child(3n+3) { --tilt: -0.6deg; --tab-color: var(--forest); }
+.custom-card:hover {
+  transform: rotate(0deg) translateY(-4px);
+  box-shadow: 0 10px 18px rgba(27,36,48,0.18);
+  z-index: 2;
+}
+.custom-card.selected {
+  transform: rotate(0deg) translateY(-4px);
+  border-color: var(--marigold);
+  box-shadow: 0 0 0 2px rgba(232,163,61,0.35) inset, 0 10px 18px rgba(27,36,48,0.18);
+  z-index: 2;
+}
 .custom-card h4 { font-size: 1.05rem; margin-bottom: 0; }
 .custom-card p { font-size: 0.88rem; color: #55503f; flex: 1; margin: 0; }
 .custom-card .price { font-family: var(--font-display); font-size: 1.3rem; }
