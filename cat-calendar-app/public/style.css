@@ -441,6 +441,13 @@ h1, h2, h3, h4 {
   gap: 8px;
 }
 .custom-card.selected { border-color: var(--marigold); box-shadow: 0 0 0 2px rgba(232,163,61,0.35) inset; }
+.custom-card-photo {
+  width: calc(100% + 44px);
+  margin: -22px -22px 4px;
+  display: block;
+  object-fit: cover;
+  border-radius: 6px 6px 0 0;
+}
 .custom-card h4 { font-size: 1.05rem; margin-bottom: 0; }
 .custom-card p { font-size: 0.88rem; color: #55503f; flex: 1; margin: 0; }
 .custom-card .price { font-family: var(--font-display); font-size: 1.3rem; }

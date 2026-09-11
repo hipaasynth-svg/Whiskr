@@ -1444,3 +1444,77 @@ changed JS file.
 - A lawyer hasn't reviewed `terms.html`/`privacy.html`/`shipping.html`
   or the existing `rules.html` — worth doing before scaling ad spend,
   same caveat this log has carried since the first legal-adjacent entry.
+
+## Update — 2026-09-11: admin-managed shop product photos
+
+(Governing law, the real contact email on every legal page, and
+independently DNS-verified SPF/DKIM — with DMARC confirmed still
+missing and the exact record handed to the owner — were also closed
+out today, in the two commits/PR right before this one. Not re-detailed
+here; see that PR's own description.)
+
+**New: admin-managed shop product photos.** Every product card was
+text-only from day one — no image field existed anywhere in the
+catalog, admin, or rendering pipeline. The owner asked for each of the
+7 real products (mug/poster/canvas/phone-case/tote/pillow/magnet) to
+get its own upload spot in admin for a real photo plus alt text, SEO
+title/description, and a description override — sized correctly for
+what that specific product actually is, not a one-size-fits-all crop.
+
+- `products.js` gained a `mockupAspect` field per product, derived from
+  each product's real physical dimensions where it has them (12x16
+  poster → 3/4, 12x12 canvas → 1/1, 16x16 pillow → 1/1, 4x4 magnet →
+  1/1; mug and tote/phone-case given sensible defaults since they don't
+  carry a print-dimension name).
+- New `product_media` table (db.js), keyed by the fixed `product_id`
+  from `products.js` — not a free-add list, exactly one row per real
+  product, upserted rather than freshly created. A product with no row
+  yet, or `image_path` still NULL, renders exactly as it always has
+  (text-only) — same honest-empty-state rule as backgrounds/originals/
+  reviews, never a placeholder image.
+- New `GET/POST /api/admin/products` and `DELETE
+  /api/admin/products/:id/photo` — the POST validates `:id` against the
+  real catalog (`productCatalog.getProduct`) before accepting anything,
+  and a photo is optional on every save (COALESCE keeps the existing
+  `image_path` when a save only changes text, so editing alt/SEO copy
+  never silently wipes a photo).
+- New shared `getProductsWithMedia()` in server.js merges the catalog
+  with `product_media` and resolves every override down to one
+  effective value (`description`, `imageAlt`, `seoName`,
+  `seoDescription`) — used by both the public `/api/products` and
+  `renderIndexHtml`'s SSR pass, so a crawler and a real visitor's
+  client-side re-render never disagree. The admin endpoint keeps the
+  raw override fields separately (not resolved), so the admin form can
+  correctly show an empty field with the code default as a *placeholder*
+  hint, rather than pre-filling the default as if it were a real saved
+  value.
+- `seo.renderProductCards`/`productsJsonLd` and `script.js`'s client-side
+  `renderGrid()` both render the photo (when one exists) at the
+  product's own `mockupAspect`, and the JSON-LD now carries a real
+  `image` field once a photo is uploaded — real product structured data
+  for AI shopping agents and rich results, not just name/price/offer.
+- New admin.html section, "Shop product photos" — one fixed row per
+  product (current photo or an honest "No photo yet" box, the
+  recommended aspect ratio spelled out in plain language, and a form for
+  photo/alt/SEO title/SEO description/description). Mirrors the existing
+  background-slideshow/featured-originals admin sections' conventions
+  (`adminFetch`, `escapeHtml`, the same upload-then-reload pattern).
+
+**Verified against a real local Postgres instance**: uploaded a real
+photo + full field set for one product through the actual admin.html
+form (not just the API directly) with Playwright, confirmed it flows
+through unchanged to the public API, the JSON-LD, and the raw
+server-rendered homepage HTML; confirmed a text-only edit (no new file)
+leaves an existing photo untouched; confirmed deleting just the photo
+reverts that product to text-only; confirmed an unknown product id is
+rejected with 404 rather than silently creating a new row. Full page
+and API sweep across the whole site came back clean. `node --check`
+passes on every changed JS file.
+
+Also produced two mockup boards (published as a separate design-canvas
+artifact, not part of this codebase) showing painting-on-product
+presentations for the Featured Originals section and pet-photo-on-merch
+mockups for the real shop catalog — illustrated placeholders throughout
+since no real painting has been photographed yet and no image-generation
+tool is available in this session; used to inform the product-photo
+sizing work above, not merged into the site itself.

@@ -495,7 +495,7 @@ async function renderIndexHtml() {
     }
   }
 
-  const products = productCatalog.listProducts('all');
+  const products = await getProductsWithMedia('all');
   html = seo.fillEmpty(html, 'customGrid', seo.renderProductCards(products));
   html = seo.injectIntoHead(
     html,
@@ -1243,16 +1243,37 @@ async function verifyTurnstile(token, remoteIp) {
 }
 
 // Public catalog of custom cat/dog print products (see products.js).
-app.get('/api/products', (req, res) => {
+// Merges the fixed products.js catalog with whatever admin-uploaded photo/
+// copy exists in product_media (see /api/admin/products), resolving each
+// optional override down to the one effective value a consumer actually
+// needs — callers here (the public API, and renderIndexHtml's SSR pass)
+// shouldn't have to know an override even exists. A product nobody has
+// photographed yet just comes back with imagePath: null — the honest
+// empty state, same as everywhere else — never a placeholder image.
+async function getProductsWithMedia(species) {
+  const media = await db.all(`SELECT * FROM product_media`);
+  const byId = Object.fromEntries(media.map((m) => [m.product_id, m]));
+  return productCatalog.listProducts(species).map((p) => {
+    const m = byId[p.id];
+    const description = (m && m.description_override) || p.description;
+    return {
+      id: p.id,
+      name: p.name,
+      species: p.species,
+      description,
+      priceUsd: p.priceUsd,
+      mockupAspect: p.mockupAspect,
+      imagePath: m ? m.image_path : null,
+      imageAlt: (m && m.image_alt) || p.name,
+      seoName: (m && m.seo_title) || p.name,
+      seoDescription: (m && m.seo_description) || description,
+    };
+  });
+}
+
+app.get('/api/products', async (req, res) => {
   const species = typeof req.query.species === 'string' ? req.query.species : null;
-  const list = productCatalog.listProducts(species).map((p) => ({
-    id: p.id,
-    name: p.name,
-    species: p.species,
-    description: p.description,
-    priceUsd: p.priceUsd,
-  }));
-  res.json({ products: list });
+  res.json({ products: await getProductsWithMedia(species) });
 });
 
 app.get('/api/phone-models', (req, res) => {
@@ -2016,6 +2037,71 @@ app.post('/api/admin/originals', requireAdmin, upload.single('photo'), async (re
 app.delete('/api/admin/originals/:id', requireAdmin, async (req, res) => {
   const info = await db.run(`DELETE FROM featured_originals WHERE id = ?`, [Number(req.params.id)]);
   if (info.changes === 0) return res.status(404).json({ error: 'Original not found.' });
+  res.json({ ok: true });
+});
+
+// Admin-managed catalog photo + copy for the fixed product set in
+// products.js — see product_media in db.js. Not a free-add list: :id must
+// be a real catalog id, and there's exactly one row per product, upserted
+// rather than freshly created each time a photo or field changes.
+app.get('/api/admin/products', requireAdmin, async (req, res) => {
+  const media = await db.all(`SELECT * FROM product_media`);
+  const byId = Object.fromEntries(media.map((m) => [m.product_id, m]));
+  const products = productCatalog.listProducts('all').map((p) => {
+    const m = byId[p.id];
+    return {
+      id: p.id,
+      name: p.name,
+      species: p.species,
+      priceUsd: p.priceUsd,
+      description: p.description,
+      mockupAspect: p.mockupAspect,
+      imagePath: m ? m.image_path : null,
+      imageAlt: m ? m.image_alt : null,
+      seoTitle: m ? m.seo_title : null,
+      seoDescription: m ? m.seo_description : null,
+      descriptionOverride: m ? m.description_override : null,
+    };
+  });
+  res.json({ products });
+});
+
+app.post('/api/admin/products/:id', requireAdmin, upload.single('photo'), async (req, res) => {
+  const product = productCatalog.getProduct(req.params.id);
+  if (!product) return res.status(404).json({ error: 'Unknown product.' });
+
+  // A photo isn't required on every save — this same endpoint also saves
+  // just-edited text fields. COALESCE below keeps the existing image_path
+  // when no new file comes in, instead of wiping a photo on a text-only edit.
+  const imagePath = req.file ? await storePhoto(req.file) : null;
+  const imageAlt = String(req.body.imageAlt || '').trim().slice(0, 200) || null;
+  const seoTitle = String(req.body.seoTitle || '').trim().slice(0, 200) || null;
+  const seoDescription = String(req.body.seoDescription || '').trim().slice(0, 500) || null;
+  const descriptionOverride = String(req.body.description || '').trim().slice(0, 500) || null;
+
+  await db.run(
+    `INSERT INTO product_media (product_id, image_path, image_alt, seo_title, seo_description, description_override, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (product_id) DO UPDATE SET
+       image_path = COALESCE(EXCLUDED.image_path, product_media.image_path),
+       image_alt = EXCLUDED.image_alt,
+       seo_title = EXCLUDED.seo_title,
+       seo_description = EXCLUDED.seo_description,
+       description_override = EXCLUDED.description_override,
+       updated_at = EXCLUDED.updated_at`,
+    [product.id, imagePath, imageAlt, seoTitle, seoDescription, descriptionOverride, new Date().toISOString()]
+  );
+  res.json({ ok: true });
+});
+
+// Clears just the photo, keeping alt/SEO/description text intact — reverts
+// that product to the honest text-only card until a new photo is uploaded.
+app.delete('/api/admin/products/:id/photo', requireAdmin, async (req, res) => {
+  const product = productCatalog.getProduct(req.params.id);
+  if (!product) return res.status(404).json({ error: 'Unknown product.' });
+  await db.run(`UPDATE product_media SET image_path = NULL, updated_at = ? WHERE product_id = ?`, [
+    new Date().toISOString(), product.id,
+  ]);
   res.json({ ok: true });
 });
 

@@ -22,8 +22,12 @@ function productsJsonLd(products, baseUrl) {
     position: i + 1,
     item: {
       '@type': 'Product',
-      name: p.name,
-      description: p.description,
+      name: p.seoName || p.name,
+      description: p.seoDescription || p.description,
+      // Absolute URL required for a valid ImageObject/Product image — only
+      // set once an admin-uploaded photo exists (see product_media in
+      // db.js); omitted entirely otherwise rather than pointing at nothing.
+      ...(p.imagePath ? { image: p.imagePath.startsWith('http') ? p.imagePath : `${baseUrl}${p.imagePath}` } : {}),
       url: `${baseUrl}/#shop-custom`,
       offers: {
         '@type': 'Offer',
@@ -45,6 +49,7 @@ function productsJsonLd(products, baseUrl) {
 function renderProductCards(products) {
   return products.map((p) => `
       <div class="custom-card" data-product-id="${escapeHtml(p.id)}" data-species="${escapeHtml(p.species)}">
+        ${p.imagePath ? `<img class="custom-card-photo" src="${escapeHtml(p.imagePath)}" alt="${escapeHtml(p.imageAlt || p.name)}" style="aspect-ratio:${escapeHtml(p.mockupAspect || '1/1')}" loading="lazy" />` : ''}
         <h4>${escapeHtml(p.name)}</h4>
         <p>${escapeHtml(p.description)}</p>
         <div class="price">$${p.priceUsd.toFixed(2)}</div>
