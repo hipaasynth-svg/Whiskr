@@ -3,6 +3,15 @@
   --paper: #EFE6D8;
   --paper-card: #FFFDF8;
   --marigold: #E8A33D;
+  /* --marigold itself stays bright for fills (buttons, active dots, tags,
+     borders) — those pair it with dark ink text on top, which is fine.
+     But used AS text color against --paper/--paper-card, --marigold only
+     computes to ~1.8:1 contrast, well under WCAG AA's 4.5:1 minimum. This
+     darker variant is for every case where marigold IS the text/glyph
+     color: the ribbon-tag label on every page, review stars, pick-card
+     headings. ~4.75:1 against --paper, ~5.8:1 against the lighter
+     --paper-card — both clear the 4.5:1 minimum. */
+  --marigold-text: #8B5A16;
   --blush: #E4626F;
   --forest: #2F5D50;
   --line: #d8cdb5;
@@ -60,7 +69,7 @@ h1, h2, h3, h4 {
 .ribbon-tag {
   font-family: var(--font-display);
   font-style: italic;
-  color: var(--marigold);
+  color: var(--marigold-text);
   font-size: 1.05rem;
   margin: 0 0 0.5em;
 }
@@ -100,6 +109,30 @@ h1, h2, h3, h4 {
   border-radius: 3px;
 }
 .nav-cta:hover { background: #2c384a; color: var(--paper) !important; }
+
+/* Hidden on desktop — .site-nav shows inline there. Only appears once the
+   media query below turns it on, at the same breakpoint that hides the
+   inline nav. */
+.nav-toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.nav-toggle span {
+  display: block;
+  width: 22px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ink);
+}
 
 /* ---------- hero ---------- */
 .hero {
@@ -281,24 +314,18 @@ h1, h2, h3, h4 {
 .teaser-card img { width: 100%; aspect-ratio: 1/1; object-fit: cover; }
 .teaser-card span { padding: 6px 8px; font-size: 0.82rem; font-weight: 500; }
 
-/* ---------- shop ---------- */
-.shop-grid { margin-top: 34px; display: grid; grid-template-columns: minmax(0, 460px); }
+/* ---------- shop ----------
+   .product-card/.price-row/.price below are only used by the dormant
+   calendar.html template (see CALENDAR_CHECKOUT_ENABLED in server.js) —
+   kept for that reason. .shop-grid and .product-badge were part of the
+   same old layout but nothing references them anymore, dormant template
+   included, so those two are gone rather than kept unused. */
 .product-card {
   position: relative;
   background: var(--paper-card);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 32px;
-}
-.product-badge {
-  position: absolute;
-  top: -12px; left: 28px;
-  background: var(--blush);
-  color: #fff;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 3px;
 }
 .price-row { display: flex; gap: 30px; margin: 20px 0 24px; }
 .price { font-family: var(--font-display); font-size: 1.9rem; display: block; }
@@ -351,7 +378,7 @@ h1, h2, h3, h4 {
   border-radius: 6px;
   padding: 22px;
 }
-.review-card .stars { color: var(--marigold); font-size: 1rem; letter-spacing: 2px; margin-bottom: 10px; }
+.review-card .stars { color: var(--marigold-text); font-size: 1rem; letter-spacing: 2px; margin-bottom: 10px; }
 .review-card p.body { font-size: 0.95rem; color: #33301f; margin-bottom: 12px; }
 .review-card .who { font-size: 0.82rem; color: #6b6552; font-weight: 600; }
 .review-card .verified {
@@ -462,27 +489,11 @@ h1, h2, h3, h4 {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .pick-card:hover { border-color: var(--marigold); background: rgba(232,163,61,0.08); }
-.pick-card h4 { font-size: 1rem; color: var(--marigold); margin-bottom: 6px; }
+.pick-card h4 { font-size: 1rem; color: var(--marigold-text); margin-bottom: 6px; }
 .pick-card p { font-size: 0.88rem; color: rgba(239,230,216,0.75); margin: 0; }
 .affiliate-disclosure { margin-top: 26px; font-size: 0.78rem; color: rgba(239,230,216,0.5); }
 
 /* ---------- entry form ---------- */
-.year-award-banner {
-  background: var(--candy-teal);
-  color: var(--ink);
-  border-radius: 8px;
-  max-width: 1000px;
-  margin: 0 auto 40px;
-  padding: 32px 36px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-.year-award-banner:empty { display: none; }
-.year-award-banner h2 { font-family: var(--font-fun); font-size: 1.6rem; margin: 0 0 6px; }
-.year-award-banner p { margin: 0; max-width: 50ch; }
 
 .enter { background: var(--forest); color: #fff; }
 .enter-wrap {
@@ -587,7 +598,27 @@ h1, h2, h3, h4 {
 .footer-links a { text-decoration: none; }
 
 @media (max-width: 860px) {
-  .site-nav { display: none; }
+  .nav-toggle { display: flex; }
+  .site-nav {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+    padding: 4px 20px 14px;
+  }
+  .site-nav.open { display: flex; }
+  .site-nav a {
+    padding: 13px 4px;
+    border-top: 1px solid var(--line);
+    font-size: 1rem;
+  }
+  .site-nav .nav-cta { text-align: center; margin-top: 10px; border-top: none; }
   .steps { grid-template-columns: 1fr; }
   .current-card { grid-template-columns: 1fr; }
   .enter-wrap { grid-template-columns: 1fr; }

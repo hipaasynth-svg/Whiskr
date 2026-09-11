@@ -1257,3 +1257,190 @@ Not touched: `cat-calendar-app/README.md`'s references to the
 `hipaasynth-svg/Whiskr` GitHub repo path — that's the actual org/repo
 name for deployment instructions, not a public-facing business-entity
 disclosure, so it's out of scope here.
+
+## Update — 2026-09-11: full-stack audit, then a punch-list pass through it
+
+Ran a from-scratch audit of the whole app — backend (server.js, db.js,
+mailer.js, the Printful/Stripe integration), every public page, the npm
+dependency tree, and this entire log read cover to cover for previously
+flagged but never-closed items — and published it as a standalone report
+(28 findings, Critical/High/Medium/Low, with a suggested fix sequence).
+The owner then asked to work straight down the list. What follows is
+everything actually fixed in that pass; a handful of items need the
+owner's own input or a live account and are called out as still open at
+the end.
+
+**Money-losing failure modes, closed:**
+- Stripe webhook idempotency: `checkout.session.completed` for both
+  `orders` and `custom_orders` now guards its `UPDATE` with
+  `WHERE status = 'pending'` and only calls `submitCustomOrderToPrintful`
+  if that update actually changed a row. Before this, a retried webhook
+  delivery reset an already-`submitted_to_printful` order back to `'paid'`,
+  which defeated that function's own status check and re-submitted the
+  same order to Printful a second time.
+- Added `charge.refunded`/`charge.dispute.created` handling: looks the
+  order up by `payment_intent` via `stripe.checkout.sessions.list`, marks
+  it `refunded`/`disputed`, and emails the owner (new shared `alertAdmin`
+  helper, also now used for the existing failed-Printful-submission
+  alert). Before this, a refund or dispute never touched order status and
+  never notified anyone — a refunded item could still ship.
+- The old "calendar" checkout — retired from every page's copy months ago
+  but still a fully live, unauthenticated Stripe checkout — is now gated
+  behind `CALENDAR_CHECKOUT_ENABLED` (default false). `/calendar.html`,
+  `/api/calendar/:groupId`, and `/api/checkout` all return 410 while it's
+  off, `/calendar.html` serving a small on-brand "no longer available"
+  page instead of falling through to the stale static file. The dormant
+  template itself (`calendar.html`) is kept, not deleted — its own stale
+  "cat calendar company" footer and a dead `#calendars` anchor were fixed
+  so it isn't self-contradictory if the flag is ever flipped back on —
+  same treatment `year-award.html` already got. This closes both the
+  live-payment risk and the stale-content/crawl risk in one change.
+- `/api/submissions` and `/api/custom-orders` had no rate limiting at all
+  (only voting did). Added the same per-IP-per-day pattern, backed by a
+  new `ip_hash` column on both tables (same salted-hash, never-the-raw-IP
+  approach `votes.ip_hash` already uses).
+- The vote rate-limit's count-then-insert had a real TOCTOU race under
+  concurrent requests. Fixed by moving the checks inside the existing
+  transaction and serializing per voter/IP with
+  `pg_advisory_xact_lock(hashtext(...))` — scoped to just this one
+  transaction, not a global lock, and nothing to clean up since it
+  auto-releases at commit/rollback.
+
+**Dormant-but-reachable routes, closed:**
+- The old two-vote "Cat of the Year" public routes
+  (`/api/year-award/current`, `/api/year-award/vote`) and the admin route
+  that's the only way to create an `'open'` award row
+  (`/api/admin/year-award/open`) are now gated behind
+  `YEAR_AWARD_MANUAL_VOTE_ENABLED` (default false, 501 while off). Same
+  reasoning as the calendar gate above: nothing links to this anymore,
+  but the code could still be triggered manually without it.
+
+**Admin auth hardened:**
+- Dropped the `?key=` query-string fallback — header-only now.
+  `admin.html` never used it; it just meant a real key could end up in
+  logs, browser history, and Referer headers for no reason.
+- Added a per-IP in-memory throttle (20 failed attempts / 5 min → 429).
+  Explicitly documented as best-effort, not durable (resets on a
+  serverless cold start) — real defense is still key entropy, this is
+  defense-in-depth on top of it.
+- Startup now warns loudly if `UNSUB_SECRET` isn't set independently of
+  `ADMIN_KEY` (it silently falls back to reusing the admin key to sign
+  every discount/status/review/unsubscribe token), or warns even louder
+  if neither is set (tokens signed with a hardcoded, publicly-known
+  fallback string). These warnings — and the existing Stripe/Blob/
+  ADMIN_EMAIL ones — were previously gated inside `if (require.main ===
+  module)`, meaning they never printed on Vercel at all (that block only
+  runs for `node server.js` locally). Moved to module scope so they
+  actually print once per cold start in production too.
+- `ADMIN_EMAIL` unset now warns at startup for the same reason: a failed
+  order, refund, or dispute alert silently has nowhere to go otherwise.
+
+**Trust & conversion:**
+- Mobile nav was `display: none` with no replacement below 860px —
+  hiding all navigation and the primary "Enter free" CTA for what's
+  likely most of this site's traffic. Added a real hamburger menu
+  (`#navToggle`/`#siteNav`, toggled in `script.js`, closes on link click).
+- Found and fixed a real bug while wiring the hamburger up:
+  `rules.html`, `vote.html`, `status.html`, and `review.html` never
+  loaded the shared `script.js` at all — only `index.html` did. Every
+  `script.js` function turns out to already be written defensively
+  (`if (!el) return` on every `getElementById`), so this was clearly
+  meant to be a shared, page-agnostic file from the start; the other
+  four pages just never got the `<script src="script.js">` tag. Added
+  it to all four — this is also what makes the business-address feature
+  below work site-wide, not just on the homepage.
+- `.ribbon-tag` (the label on every single page) computed to ~1.8:1
+  contrast, well under WCAG AA's 4.5:1. Rather than darken `--marigold`
+  itself (used everywhere as a bright background fill — buttons, active
+  dots — where it's paired with dark text and is fine), added a separate
+  `--marigold-text` token for every place marigold is used AS text color
+  (`.ribbon-tag`, review stars, pick-card headings) — ~4.75:1 against
+  `--paper`, ~5.8:1 against the lighter `--paper-card`.
+- `review.html`'s star rating is now a real `<fieldset>/<legend>` instead
+  of a bare `<span>`, so it's announced as a group to assistive tech.
+  `status.html` had no `<h1>` anywhere, only styled `<p>`/`<div>`s — its
+  `.ribbon-tag` (the only heading-shaped text on that page, unlike
+  everywhere else where it's a kicker above a real `<h1>`) is now an
+  `<h1>` in all five states it can render.
+- Added missing Open Graph/Twitter Card tags and a meta description to
+  `rules.html` (had none at all) and `vote.html` (had a description, no
+  social tags). Trimmed the homepage `<title>`/description to clear
+  typical SERP truncation length, and flipped its title order
+  (`Whiskr — X` → `X — Whiskr`) to match every other page instead of
+  being the one outlier.
+- Removed three CSS classes nothing references anywhere, dormant
+  `calendar.html` template included (checked before deleting):
+  `.shop-grid`, `.product-badge`, `.year-award-banner`. Left
+  `.product-card`/`.price-row`/`.price` alone — those are still used by
+  the dormant calendar template.
+- Checked the "hero slideshow dots are a 7×7px tap target" finding
+  against the actual code: the dots have no click handler at all
+  (auto-advance only, no manual dot navigation), so there's nothing to
+  tap — skipped rather than padding a decorative element for no reason.
+
+**Legal/compliance pages added:**
+- New `privacy.html`, `terms.html`, `shipping.html` — real, specific
+  content grounded in what this app actually does and actually collects
+  (entry email/photo, the `whiskr_voter` cookie, salted IP hashes for
+  anti-fraud, Stripe/Printful/Zoho/Vercel as the actual sub-processors,
+  the real review-verification and photo-licensing mechanics already in
+  `rules.html`), not generic template boilerplate. Two things were left
+  honestly unfilled rather than invented: the governing-law jurisdiction
+  in `terms.html`, and the actual production-time SLA in `shipping.html`
+  — both marked `[Owner: ...]` for a real answer instead of a fabricated
+  one. All three linked from every live page's footer and header nav,
+  and added to `sitemap.xml`.
+- Built the plumbing for the business mailing address to actually reach
+  the public site, not just outgoing email: new `GET /api/business-info`
+  (reuses the exact same `BUSINESS_MAILING_ADDRESS` env var mailer.js
+  already puts in every commercial email's CAN-SPAM footer — one value,
+  now two places), a small `script.js` function that fills it into the
+  shared footer and the policy pages' Contact sections, and — same
+  honest-empty-state rule as reviews/background photos/originals
+  elsewhere in this app — the address line stays `hidden` rather than
+  showing a broken placeholder until the owner actually sets it. Verified
+  both the hidden-by-default state and the real-address state end to end
+  with Playwright.
+
+**Also fixed in passing:** ran `npm audit fix` (the non-breaking half) —
+picked up a `body-parser` bump that closed its transitive `qs`
+vulnerability. `sharp`, `nodemailer`, and `uuid` all still need major-
+version bumps flagged `--force`; left alone since `sharp` underlies real
+image-processing code paths here and none of those three should be
+bumped without a dedicated, tested pass. Also found and removed a dead
+`madeCalendar`/`groupId` field on `/api/my-status`'s response — a
+leftover from before the calendar product existed that nothing on the
+client reads anymore.
+
+**Verified against a real local Postgres instance** for every change
+above: webhook idempotency (marked-paid guard, retried delivery no
+longer re-submits), refund/dispute handlers, all three gated-route flag
+states (calendar checkout, year-award, both default-off and
+force-enabled), the admin auth lockout and header-only key, submission/
+custom-order rate limits actually rejecting a 6th/11th request, the vote
+advisory-lock transaction (concurrent-safe voting still works, duplicate
+vote still correctly rejected), every page's HTTP status including the
+three new ones and the sitemap, and the mobile nav + business-address
+features with Playwright end to end. `node --check` passes on every
+changed JS file.
+
+**Still open — needs the owner, not more code:**
+- The real business mailing address itself (`BUSINESS_MAILING_ADDRESS`)
+  — the plumbing above is done, this is now a one-env-var change.
+- Terms of Service governing-law jurisdiction, and the real Printful
+  production-time SLA for `shipping.html` — both marked as placeholders
+  above rather than guessed at.
+- Stripe Tax registration (checkout collects tax but only actually
+  charges it once a registration exists for at least one jurisdiction —
+  unconfirmed whether that's been done), and a real product-pricing
+  re-check against current Printful cost + shipping.
+- SPF/DKIM/DMARC on the Zoho sending domain — unconfirmed, and DMARC
+  specifically is never mentioned as set up anywhere in this project's
+  history. The entire entry/vote/winner email loop depends on it.
+- A real end-to-end order run against a live Printful account, and
+  watching the very first real contest close and photo upload on the
+  actual Vercel deployment (Blob storage, the daily cron) — none of this
+  sandbox's testing can substitute for that.
+- A lawyer hasn't reviewed `terms.html`/`privacy.html`/`shipping.html`
+  or the existing `rules.html` — worth doing before scaling ad spend,
+  same caveat this log has carried since the first legal-adjacent entry.
