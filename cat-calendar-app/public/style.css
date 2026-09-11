@@ -31,10 +31,37 @@ html { scroll-behavior: smooth; }
 
 body {
   margin: 0;
-  background: var(--paper);
+  /* No background color here on purpose — #siteBackdrop's scrim (below)
+     paints the same --paper tone plus a faint shared photo texture behind
+     every page. A section with its own opaque background (the hero,
+     card-style boxes) simply paints over it as normal. */
+  background: transparent;
   color: var(--ink);
   font-family: var(--font-body);
   line-height: 1.6;
+}
+
+/* One shared background-photo slideshow, behind every page — same admin-
+   managed photos as the homepage hero previously used alone (see
+   background_slides in db.js), cross-faded slowly and heavily muted so it
+   reads as a soft, cohesive texture rather than competing with page
+   content. Empty (no photos uploaded) means this is simply never
+   populated and the page looks exactly as if it didn't exist — same
+   honest-empty-state rule as everywhere else. */
+#siteBackdrop { position: fixed; inset: 0; z-index: -1; overflow: hidden; }
+#siteBackdrop img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 2.2s ease;
+}
+#siteBackdrop img.active { opacity: 1; }
+#siteBackdrop .scrim { position: absolute; inset: 0; background: rgba(239,230,216,0.87); }
+@media (prefers-reduced-motion: reduce) {
+  #siteBackdrop img { transition: none; }
 }
 
 img { max-width: 100%; display: block; }
@@ -239,6 +266,54 @@ h1, h2, h3, h4 {
 .section h2 { font-size: clamp(1.7rem, 3vw, 2.3rem); }
 .section-sub { max-width: 58ch; color: #55503f; margin-top: -8px; }
 
+/* ---------- rolodex (horizontal card carousel) ----------
+   Shared by the vote page's cat cards and the homepage's product cards —
+   one flippable row instead of a wrapping grid. Cards keep their own
+   natural width/height (set per use site); this just handles the
+   scrolling/snapping/arrows. */
+.rolodex-wrap { position: relative; }
+.rolodex {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scroll-behavior: smooth;
+  padding: 4px 2px 12px;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.rolodex::-webkit-scrollbar { display: none; }
+.rolodex:empty { display: none; }
+.rolodex > * { scroll-snap-align: start; flex: 0 0 auto; }
+.rolodex-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(27,36,48,0.18);
+  color: var(--ink);
+  font-size: 1.1rem;
+  line-height: 1;
+  z-index: 2;
+}
+.rolodex-nav:hover { border-color: var(--marigold); }
+.rolodex-nav.prev { left: -6px; }
+.rolodex-nav.next { right: -6px; }
+@media (max-width: 700px) {
+  /* Touch scrolling/swiping already works — the on-screen arrows just
+     crowd a narrow layout and duplicate what a thumb already does. */
+  .rolodex-nav { display: none; }
+  .rolodex { margin: 0 -20px; padding-left: 20px; padding-right: 20px; }
+}
+
 /* ---------- how it works ---------- */
 .steps {
   list-style: none;
@@ -425,13 +500,9 @@ h1, h2, h3, h4 {
   color: var(--ink);
 }
 .species-toggle button.active { background: var(--ink); color: var(--paper); }
-.custom-grid {
-  margin-top: 26px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-}
+.custom-grid { margin-top: 26px; }
 .custom-card {
+  width: 230px;
   background: var(--paper-card);
   border: 1px solid var(--line);
   border-radius: 6px;

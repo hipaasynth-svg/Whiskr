@@ -43,6 +43,7 @@
 <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
+<div id="siteBackdrop" aria-hidden="true"></div>
 
 <header class="site-header">
   <a href="#top" class="brand">Whiskr</a>
@@ -185,7 +186,11 @@
     <button type="button" data-species="dog">Dogs</button>
   </div>
 
-  <div class="custom-grid" id="customGrid"></div>
+  <div class="rolodex-wrap">
+    <button type="button" class="rolodex-nav prev" aria-label="Previous products">‹</button>
+    <div class="custom-grid rolodex" id="customGrid"></div>
+    <button type="button" class="rolodex-nav next" aria-label="More products">›</button>
+  </div>
 
   <form id="customOrderForm" class="custom-order-form" enctype="multipart/form-data">
     <input type="hidden" name="species" id="customSpecies" value="cat" />

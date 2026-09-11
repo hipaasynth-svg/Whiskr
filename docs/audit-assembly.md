@@ -1518,3 +1518,58 @@ mockups for the real shop catalog — illustrated placeholders throughout
 since no real painting has been photographed yet and no image-generation
 tool is available in this session; used to inform the product-photo
 sizing work above, not merged into the site itself.
+
+## Update — 2026-09-11: rolodex card carousels + one site-wide background
+
+The owner asked for the vote page's cat cards and the homepage's shop
+product cards to become horizontal "Rolodex style left to right" card
+rows instead of wrapping grids, and for the existing hero-only
+background-photo slideshow to become one shared slideshow behind the
+whole site.
+
+- New shared `.rolodex`/`.rolodex-wrap`/`.rolodex-nav` component in
+  `style.css`: a flex row with CSS scroll-snap
+  (`overflow-x:auto; scroll-snap-type:x proximity; scroll-behavior:smooth`),
+  native scrollbar hidden, and round prev/next arrow buttons
+  (`rolodexNav()` in `script.js` wires them to `track.scrollBy`). Arrows
+  hide under 700px since touch/swipe already does the job there; the
+  track keeps a small edge peek instead so the next card is visibly
+  cut off, hinting there's more to scroll.
+- `vote.html`'s `#voteGrid` and `index.html`'s `#customGrid` both
+  switched from a CSS grid to this shared track (fixed card width, no
+  more wrapping), each wrapped in a `.rolodex-wrap` with its own
+  prev/next buttons.
+- New `#siteBackdrop` (fixed, full-viewport, `z-index:-1`) mounted on
+  every live page (`index`, `vote`, `rules`, `status`, `review`,
+  `privacy`, `terms`, `shipping` — intentionally not `admin.html`, the
+  internal tool, or the dormant `calendar.html`/`year-award.html`).
+  `siteBackdrop()` in `script.js` fetches the same admin-managed
+  `/api/background` photos the homepage hero already used, cross-fades
+  between them, and overlays a `.scrim` painted at the page's own
+  `--paper` tone at 87% opacity so it reads as a faint shared texture,
+  never a distraction from page content. `body`'s own background was
+  changed from opaque `var(--paper)` to `transparent` so the backdrop
+  is actually visible through it; any section with its own opaque
+  background (the hero, card-style boxes) still simply paints over it
+  as before. Zero photos uploaded in admin means this renders nothing,
+  same honest-empty-state rule as every other admin-managed media
+  feature on this site.
+
+**Verified against a real local Postgres instance with Playwright**:
+uploaded two test background photos through the real admin API and
+confirmed `#siteBackdrop` mounts both `<img>`s, cross-fades the
+`active` class correctly, and the scrim/transparent-body plumbing is
+wired exactly as styled (checked via direct DOM/computed-style
+inspection, not just a screenshot). Submitted five real test entries
+through `/api/submissions` and confirmed the vote page renders them as
+a true horizontal rolodex — no wrapping, working prev/next arrows that
+scroll the track, correct behavior at both desktop and 390px mobile
+width (arrows hidden, touch-scroll layout intact). Confirmed the same
+for the homepage shop section. Confirmed the homepage hero keeps its
+own independent dark slideshow treatment, unaffected by the new
+site-wide backdrop underneath it. Full page sweep (all 8 pages, 200s)
+and a Playwright console/network check came back clean — no new errors
+introduced (the only console noise, a missing local `/_vercel/insights`
+endpoint and a sandboxed Google Fonts request, is pre-existing local-dev
+behavior, not caused by this change). `node --check` passes on
+`script.js`, the only JS file touched this phase.
