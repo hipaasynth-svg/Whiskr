@@ -261,6 +261,7 @@
   </div>
 </div>
 
+<script src="imageResize.js"></script>
 <script>
   const keyInput = document.getElementById('adminKey');
   const keyStatus = document.getElementById('keyStatus');
@@ -803,7 +804,7 @@
     note.classList.remove('error');
     note.textContent = 'Uploading…';
     const formData = new FormData();
-    formData.append('photo', file);
+    formData.append('photo', await resizeImageForUpload(file));
     try {
       const res = await adminFetch('/api/admin/background', { method: 'POST', body: formData });
       const data = await res.json();
@@ -871,7 +872,7 @@
     note.classList.remove('error');
     note.textContent = 'Uploading…';
     const formData = new FormData();
-    formData.append('photo', file);
+    formData.append('photo', await resizeImageForUpload(file));
     formData.append('catName', catName.value);
     try {
       const res = await adminFetch('/api/admin/originals', { method: 'POST', body: formData });
@@ -935,7 +936,7 @@
           const formData = new FormData();
           formData.append('text', form.text.value);
           if (form.color) formData.append('color', form.color.value);
-          if (form.photo && form.photo.files[0]) formData.append('photo', form.photo.files[0]);
+          if (form.photo && form.photo.files[0]) formData.append('photo', await resizeImageForUpload(form.photo.files[0]));
           try {
             const res = await adminFetch(`/api/admin/site-blocks/${slot}`, { method: 'POST', body: formData });
             const data = await res.json();
@@ -1023,7 +1024,7 @@
     note.classList.remove('error');
     note.textContent = 'Uploading…';
     const formData = new FormData();
-    formData.append('photo', file);
+    formData.append('photo', await resizeImageForUpload(file));
     try {
       const res = await adminFetch('/api/admin/footer-strip', { method: 'POST', body: formData });
       const data = await res.json();
@@ -1088,6 +1089,7 @@
           note.classList.remove('error');
           note.textContent = 'Saving…';
           const formData = new FormData(form);
+          if (form.photo && form.photo.files[0]) formData.set('photo', await resizeImageForUpload(form.photo.files[0]));
           try {
             const res = await adminFetch(`/api/admin/products/${id}`, { method: 'POST', body: formData });
             const data = await res.json();
