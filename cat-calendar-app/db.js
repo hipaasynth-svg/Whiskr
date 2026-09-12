@@ -368,6 +368,30 @@ CREATE TABLE IF NOT EXISTS admin_alerts (
   created_at TEXT NOT NULL,
   resolved INTEGER NOT NULL DEFAULT 0
 );
+
+-- Small admin-editable promo slots on the homepage — a starburst badge
+-- over the hero, and two image+text blocks in the middle of the page.
+-- One fixed row per slot ('starburst' | 'feature_1' | 'feature_2'),
+-- upserted rather than freely created — same fixed-slot pattern as
+-- product_media. Hidden on the public page whenever a slot's text and
+-- image are both empty, same honest-empty-state rule as everywhere else.
+CREATE TABLE IF NOT EXISTS site_blocks (
+  slot TEXT PRIMARY KEY,
+  text TEXT,
+  image_path TEXT,
+  color TEXT,
+  updated_at TEXT NOT NULL
+);
+
+-- Admin-managed footer photo wall — a static (non-slideshow) grid of
+-- photos spanning the full page width, two rows tall. Empty table = no
+-- strip at all, same honest-empty-state rule as background_slides.
+CREATE TABLE IF NOT EXISTS footer_strip_images (
+  id SERIAL PRIMARY KEY,
+  image_path TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
 `;
 
 // Runs once per warm serverless instance (or once at local startup) — see

@@ -142,6 +142,33 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
+        <h2>Homepage promo messages</h2>
+        <p class="sub">Up to four short messages on the homepage — a starburst badge over the hero (with its own color), and two image+text blocks in the middle of the page. Each one is hidden automatically whenever it's empty.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshSiteBlocks" type="button">Refresh</button>
+    </div>
+    <div id="siteBlocksList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Footer photo wall</h2>
+        <p class="sub">A static, full-width photo strip at the bottom of the homepage — two rows tall, as many columns as photos you add. Empty = no strip at all.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshFooterStrip" type="button">Refresh</button>
+    </div>
+    <form id="footerStripUploadForm" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+      <input type="file" id="footerStripPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
+      <button class="btn btn-primary" type="submit" style="padding:8px 16px;font-size:0.85rem;">Add photo</button>
+      <span class="form-note" id="footerStripUploadNote"></span>
+    </form>
+    <div id="footerStripList" class="pick-grid"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
         <h2>Shop product photos</h2>
         <p class="sub">One fixed spot per product — not a free-add list. Upload a real photo of that product (recommended aspect ratio shown per row, matching what actually ships) plus its alt text, SEO title/description, and an optional description override. Empty = the card shows text only, same as today — never a placeholder image.</p>
       </div>
@@ -860,6 +887,156 @@
     }
   });
 
+  const SITE_BLOCK_LABELS = {
+    starburst: 'Starburst badge (top of hero)',
+    feature_1: 'Feature block 1 (middle of page)',
+    feature_2: 'Feature block 2 (middle of page)',
+  };
+
+  const siteBlocksList = document.getElementById('siteBlocksList');
+  async function loadSiteBlocks() {
+    siteBlocksList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/site-blocks');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load promo messages.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      const b = data.blocks;
+      siteBlocksList.innerHTML = Object.keys(SITE_BLOCK_LABELS).map((slot) => {
+        const block = b[slot] || { text: null, imagePath: null, color: null };
+        const isStarburst = slot === 'starburst';
+        return `
+          <div class="group-card">
+            <div class="group-head"><h3>${SITE_BLOCK_LABELS[slot]}</h3></div>
+            <form class="site-block-form" data-slot="${slot}" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <input type="text" name="text" placeholder="Short message" maxlength="200" value="${escapeHtml(block.text || '')}" style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:3px;" />
+              ${isStarburst
+                ? `<label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;">Color <input type="color" name="color" value="${escapeHtml(block.color || '#e8a33d')}" /></label>`
+                : `<input type="file" name="photo" accept="image/png,image/jpeg,image/webp,image/gif" />`
+              }
+              <button class="btn btn-primary" type="submit" style="padding:7px 14px;font-size:0.82rem;">Save</button>
+              ${block.imagePath ? `<button type="button" class="btn btn-ghost site-block-remove-photo" data-slot="${slot}" style="padding:7px 14px;font-size:0.82rem;">Remove photo</button>` : ''}
+              <span class="form-note"></span>
+            </form>
+            ${block.imagePath ? `<img src="${escapeHtml(block.imagePath)}" alt="" style="width:120px;aspect-ratio:1/1;object-fit:cover;border-radius:4px;border:1px solid var(--line);margin-top:10px;" />` : ''}
+          </div>
+        `;
+      }).join('');
+
+      siteBlocksList.querySelectorAll('.site-block-form').forEach((form) => {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const slot = form.dataset.slot;
+          const note = form.querySelector('.form-note');
+          note.classList.remove('error');
+          note.textContent = 'Saving…';
+          const formData = new FormData();
+          formData.append('text', form.text.value);
+          if (form.color) formData.append('color', form.color.value);
+          if (form.photo && form.photo.files[0]) formData.append('photo', form.photo.files[0]);
+          try {
+            const res = await adminFetch(`/api/admin/site-blocks/${slot}`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Save failed.');
+            note.textContent = 'Saved.';
+            // Brief pause so "Saved." is actually visible before the list
+            // (including this same note element) gets rebuilt from fresh data.
+            setTimeout(loadSiteBlocks, 700);
+          } catch (err) {
+            note.textContent = err.message;
+            note.classList.add('error');
+          }
+        });
+      });
+
+      siteBlocksList.querySelectorAll('.site-block-remove-photo').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const slot = btn.dataset.slot;
+          try {
+            const res = await adminFetch(`/api/admin/site-blocks/${slot}/photo`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Remove failed.');
+            loadSiteBlocks();
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      siteBlocksList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  const footerStripList = document.getElementById('footerStripList');
+  async function loadFooterStrip() {
+    footerStripList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/footer-strip');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load footer photos.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.images.length === 0) {
+        footerStripList.innerHTML = '<p class="empty">No footer photos yet — no strip shows on the homepage.</p>';
+        return;
+      }
+
+      footerStripList.innerHTML = data.images.map((img) => `
+        <div class="pick-cell" data-footer-img="${img.id}">
+          <img src="${img.image_path}" alt="" />
+          <button type="button" class="footer-strip-delete" data-id="${img.id}">Remove</button>
+        </div>
+      `).join('');
+
+      footerStripList.querySelectorAll('.footer-strip-delete').forEach((btn) => {
+        btn.addEventListener('click', () => deleteFooterStripImage(btn.dataset.id));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      footerStripList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function deleteFooterStripImage(id) {
+    try {
+      const res = await adminFetch(`/api/admin/footer-strip/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Remove failed.');
+      loadFooterStrip();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  document.getElementById('footerStripUploadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById('footerStripPhoto');
+    const note = document.getElementById('footerStripUploadNote');
+    const file = fileInput.files[0];
+    if (!file) return;
+    note.classList.remove('error');
+    note.textContent = 'Uploading…';
+    const formData = new FormData();
+    formData.append('photo', file);
+    try {
+      const res = await adminFetch('/api/admin/footer-strip', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed.');
+      note.textContent = 'Added.';
+      fileInput.value = '';
+      loadFooterStrip();
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+    }
+  });
+
   function aspectHint(ratio) {
     const parts = String(ratio || '1/1').split('/').map(Number);
     const w = parts[0], h = parts[1];
@@ -949,6 +1126,8 @@
     loadAlerts();
     loadBackground();
     loadOriginals();
+    loadSiteBlocks();
+    loadFooterStrip();
     loadProducts();
     loadContest();
     loadYearAward();
@@ -962,6 +1141,8 @@
   document.getElementById('refreshAlerts').addEventListener('click', loadAlerts);
   document.getElementById('refreshBackground').addEventListener('click', loadBackground);
   document.getElementById('refreshOriginals').addEventListener('click', loadOriginals);
+  document.getElementById('refreshSiteBlocks').addEventListener('click', loadSiteBlocks);
+  document.getElementById('refreshFooterStrip').addEventListener('click', loadFooterStrip);
   document.getElementById('refreshProducts').addEventListener('click', loadProducts);
   document.getElementById('refreshContest').addEventListener('click', loadContest);
   document.getElementById('refreshOrders').addEventListener('click', loadOrders);
