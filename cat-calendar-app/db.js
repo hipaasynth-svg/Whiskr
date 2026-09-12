@@ -354,6 +354,20 @@ CREATE TABLE IF NOT EXISTS reviews (
   created_at TEXT NOT NULL,
   UNIQUE(order_type, order_id)
 );
+
+-- Every alertAdmin() call (a paid order that failed to reach Printful, a
+-- refund/dispute needing attention, etc.) also lands a row here, regardless
+-- of whether ADMIN_EMAIL is even configured — so a real failure is always
+-- visible in one place in admin.html, not just a maybe-sent email. Plain
+-- append-only log; "resolved" lets the owner clear an item from the panel
+-- once it's actually been dealt with, without deleting the history.
+CREATE TABLE IF NOT EXISTS admin_alerts (
+  id SERIAL PRIMARY KEY,
+  subject TEXT NOT NULL,
+  message TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  resolved INTEGER NOT NULL DEFAULT 0
+);
 `;
 
 // Runs once per warm serverless instance (or once at local startup) — see

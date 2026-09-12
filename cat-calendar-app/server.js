@@ -244,11 +244,22 @@ async function checkImageQuality(buffer) {
 }
 
 // Shared owner-alert helper — used for anything that needs a human to look
-// at an order (a failed Printful submission, a refund, a dispute). Silently
-// no-ops without ADMIN_EMAIL; startup already warns loudly if it's unset
-// (see the top-level env checks) so that's a deliberate, visible choice,
-// not a silent failure.
+// at an order (a failed Printful submission, a refund, a dispute). Always
+// records the alert in admin_alerts first, so every real failure across the
+// site shows up in admin.html's error panel in one place — regardless of
+// whether ADMIN_EMAIL is even configured. Email itself still silently no-ops
+// without ADMIN_EMAIL; startup already warns loudly if it's unset (see the
+// top-level env checks) so that half is a deliberate, visible choice, not a
+// silent failure.
 async function alertAdmin(subject, message) {
+  await db
+    .run(`INSERT INTO admin_alerts (subject, message, created_at) VALUES (?, ?, ?)`, [
+      subject,
+      message,
+      new Date().toISOString(),
+    ])
+    .catch((err) => console.error('[admin_alerts] failed to record alert:', err.message));
+
   if (!process.env.ADMIN_EMAIL) return;
   await mailer
     .sendMail({
@@ -302,6 +313,20 @@ async function submitCustomOrderToPrintful(orderId) {
   }
 }
 
+// Newer Stripe API versions moved this from the top-level `shipping_details`
+// to `collected_information.shipping_details` — check both so a future API
+// version change can't silently reintroduce a "no shipping address on file"
+// failure. Shared by the webhook handler and the admin retry endpoint below
+// (which re-fetches the session directly, for orders whose stored
+// shipping_address was already saved as null by this same bug historically).
+function extractShippingJson(session) {
+  const shippingDetails =
+    (session.collected_information && session.collected_information.shipping_details) ||
+    session.shipping_details ||
+    null;
+  return shippingDetails ? JSON.stringify(shippingDetails) : null;
+}
+
 // Stripe webhook needs the raw request body for signature verification, so
 // it's mounted before the global express.json() parser below — otherwise
 // json() would consume/parse the body first and constructEvent would fail.
@@ -328,15 +353,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
     const session = event.data.object;
     const orderType = session.metadata && session.metadata.orderType;
     const orderId = session.metadata && Number(session.metadata.orderId);
-    // Newer Stripe API versions moved this from the top-level
-    // `shipping_details` to `collected_information.shipping_details` —
-    // check both so a future API version change can't silently reintroduce
-    // this same "no shipping address on file" failure.
-    const shippingDetails =
-      (session.collected_information && session.collected_information.shipping_details) ||
-      session.shipping_details ||
-      null;
-    const shippingJson = shippingDetails ? JSON.stringify(shippingDetails) : null;
+    const shippingJson = extractShippingJson(session);
 
     if (orderType === 'calendar' && orderId) {
       // Scoped to status='pending' so a retried webhook delivery (Stripe
@@ -2004,10 +2021,46 @@ app.post('/api/admin/custom-orders/:id/retry-printful', requireAdmin, async (req
   if (order.status !== 'failed') {
     return res.status(400).json({ error: `Order is '${order.status}', not 'failed' — nothing to retry.` });
   }
+  // A 'failed' order may have been saved with shipping_address already null
+  // (this exact historical bug: the webhook read the wrong Stripe field, so
+  // the address was lost before it ever reached this row) — re-fetch the
+  // checkout session from Stripe itself and backfill it before retrying,
+  // rather than trusting whatever's already stored.
+  if (!order.shipping_address && stripe && order.stripe_session_id) {
+    try {
+      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+      const shippingJson = extractShippingJson(session);
+      if (shippingJson) {
+        await db.run(`UPDATE custom_orders SET shipping_address = ? WHERE id = ?`, [shippingJson, orderId]);
+      }
+    } catch (err) {
+      console.error(`[printful retry] could not re-fetch Stripe session for order #${orderId}:`, err.message);
+    }
+  }
   await db.run(`UPDATE custom_orders SET status = 'paid' WHERE id = ?`, [orderId]);
   await submitCustomOrderToPrintful(orderId);
   const updated = await db.get(`SELECT status, printful_order_id FROM custom_orders WHERE id = ?`, [orderId]);
   res.json({ ok: true, status: updated.status, printfulOrderId: updated.printful_order_id });
+});
+
+// Site-wide error/alert feed — every alertAdmin() call (failed Printful
+// submission, refund, dispute, etc.) lands here so admin.html can show it
+// in one place instead of relying on ADMIN_EMAIL being configured and
+// delivered. Unresolved first, newest first, so the panel opens on what
+// still needs attention.
+app.get('/api/admin/alerts', requireAdmin, async (req, res) => {
+  const rows = await db.all(
+    `SELECT * FROM admin_alerts ORDER BY resolved ASC, created_at DESC LIMIT 100`
+  );
+  res.json({ alerts: rows });
+});
+
+app.post('/api/admin/alerts/:id/resolve', requireAdmin, async (req, res) => {
+  const alertId = Number(req.params.id);
+  const alert = await db.get(`SELECT id FROM admin_alerts WHERE id = ?`, [alertId]);
+  if (!alert) return res.status(404).json({ error: 'Alert not found.' });
+  await db.run(`UPDATE admin_alerts SET resolved = 1 WHERE id = ?`, [alertId]);
+  res.json({ ok: true });
 });
 
 // Moderation queue — pending by default, since that's what needs a look.
