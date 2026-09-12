@@ -502,35 +502,40 @@ h1, h2, h3, h4 {
 .species-toggle button.active { background: var(--ink); color: var(--paper); }
 .custom-grid { margin-top: 26px; }
 .custom-card {
-  width: 230px;
+  width: 280px;
   background: var(--paper-card);
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 22px;
+  padding: 26px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 .custom-card.selected { border-color: var(--marigold); box-shadow: 0 0 0 2px rgba(232,163,61,0.35) inset; }
 .custom-card-photo {
-  width: calc(100% + 44px);
-  margin: -22px -22px 4px;
+  width: calc(100% + 52px);
+  margin: -26px -26px 4px;
   display: block;
   object-fit: cover;
   border-radius: 6px 6px 0 0;
 }
-.custom-card h4 { font-size: 1.05rem; margin-bottom: 0; }
-.custom-card p { font-size: 0.88rem; color: #55503f; flex: 1; margin: 0; }
-.custom-card .price { font-family: var(--font-display); font-size: 1.3rem; }
+.custom-card h4 { font-size: 1.15rem; margin-bottom: 0; }
+.custom-card p { font-size: 0.92rem; color: #55503f; flex: 1; margin: 0; }
+.custom-card .price { font-family: var(--font-display); font-size: 1.4rem; }
 .custom-order-form {
-  margin-top: 34px;
-  background: var(--paper-card);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 30px;
-  max-width: 480px;
+  margin: 34px auto 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  max-width: 600px;
   display: flex;
   flex-direction: column;
+  gap: 16px;
+}
+.custom-order-form .form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 16px;
 }
 .custom-order-form label { font-size: 0.85rem; font-weight: 500; display: flex; flex-direction: column; gap: 6px; }
