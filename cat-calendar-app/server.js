@@ -328,7 +328,15 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
     const session = event.data.object;
     const orderType = session.metadata && session.metadata.orderType;
     const orderId = session.metadata && Number(session.metadata.orderId);
-    const shippingJson = session.shipping_details ? JSON.stringify(session.shipping_details) : null;
+    // Newer Stripe API versions moved this from the top-level
+    // `shipping_details` to `collected_information.shipping_details` —
+    // check both so a future API version change can't silently reintroduce
+    // this same "no shipping address on file" failure.
+    const shippingDetails =
+      (session.collected_information && session.collected_information.shipping_details) ||
+      session.shipping_details ||
+      null;
+    const shippingJson = shippingDetails ? JSON.stringify(shippingDetails) : null;
 
     if (orderType === 'calendar' && orderId) {
       // Scoped to status='pending' so a retried webhook delivery (Stripe
@@ -1981,6 +1989,25 @@ app.get('/api/admin/custom-orders', requireAdmin, async (req, res) => {
     ? await db.all(`SELECT * FROM custom_orders WHERE status = ? ORDER BY created_at DESC`, [status])
     : await db.all(`SELECT * FROM custom_orders ORDER BY created_at DESC`);
   res.json({ orders: rows });
+});
+
+// Manual recovery for a custom order that was paid but never made it to
+// Printful (submitCustomOrderToPrintful failed and left status='failed') —
+// e.g. a transient Printful outage, or a bug in how the shipping address
+// was read from the Stripe webhook payload. Only ever moves a 'failed'
+// order back to 'paid' before retrying, so this can't re-submit an order
+// that already succeeded ('submitted_to_printful') or was never paid.
+app.post('/api/admin/custom-orders/:id/retry-printful', requireAdmin, async (req, res) => {
+  const orderId = Number(req.params.id);
+  const order = await db.get(`SELECT * FROM custom_orders WHERE id = ?`, [orderId]);
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+  if (order.status !== 'failed') {
+    return res.status(400).json({ error: `Order is '${order.status}', not 'failed' — nothing to retry.` });
+  }
+  await db.run(`UPDATE custom_orders SET status = 'paid' WHERE id = ?`, [orderId]);
+  await submitCustomOrderToPrintful(orderId);
+  const updated = await db.get(`SELECT status, printful_order_id FROM custom_orders WHERE id = ?`, [orderId]);
+  res.json({ ok: true, status: updated.status, printfulOrderId: updated.printful_order_id });
 });
 
 // Moderation queue — pending by default, since that's what needs a look.
