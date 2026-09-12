@@ -320,7 +320,7 @@ h1, h2, h3, h4 {
   margin: 46px 0 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 34px;
 }
 .steps li { border-top: 2px solid var(--ink); padding-top: 18px; }
@@ -338,7 +338,7 @@ h1, h2, h3, h4 {
 .current { background: var(--paper); }
 .current-card {
   display: grid;
-  grid-template-columns: 1fr 1.1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
   gap: 0;
   background: var(--paper-card);
   border: 1px solid var(--line);
@@ -413,7 +413,7 @@ h1, h2, h3, h4 {
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 3px;
-  font-size: 0.95rem;
+  font-size: 16px;
   background: #fff;
 }
 .form-note { font-size: 0.85rem; min-height: 1.2em; color: var(--forest); }
@@ -547,7 +547,7 @@ h1, h2, h3, h4 {
   border: 1px solid var(--line);
   border-radius: 3px;
   font-family: var(--font-body);
-  font-size: 0.95rem;
+  font-size: 16px;
   background: #fff;
 }
 .upload-preview { margin-top: 8px; }
@@ -581,7 +581,7 @@ h1, h2, h3, h4 {
 .enter { background: var(--forest); color: #fff; }
 .enter-wrap {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 50px;
   align-items: start;
 }
@@ -603,9 +603,10 @@ h1, h2, h3, h4 {
   border: 1px solid var(--line);
   border-radius: 3px;
   font-family: var(--font-body);
-  font-size: 0.95rem;
+  font-size: 16px;
 }
 .file-label input { font-size: 0.85rem; }
+.field-hint { font-size: 0.78rem; font-weight: 400; color: #6b6552; }
 .consent-label {
   flex-direction: row !important;
   align-items: flex-start;
@@ -702,9 +703,9 @@ h1, h2, h3, h4 {
     font-size: 1rem;
   }
   .site-nav .nav-cta { text-align: center; margin-top: 10px; border-top: none; }
-  .steps { grid-template-columns: 1fr; }
-  .current-card { grid-template-columns: 1fr; }
-  .enter-wrap { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: minmax(0, 1fr); }
+  .current-card { grid-template-columns: minmax(0, 1fr); }
+  .enter-wrap { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1573,3 +1573,58 @@ introduced (the only console noise, a missing local `/_vercel/insights`
 endpoint and a sandboxed Google Fonts request, is pre-existing local-dev
 behavior, not caused by this change). `node --check` passes on
 `script.js`, the only JS file touched this phase.
+
+## Update — 2026-09-12: two real mobile bugs behind "zoomed in / off center", plus refreshed entry copy
+
+The owner reported the site "coming zoomed in or off center on mobile."
+Rather than guess, reproduced and root-caused it against a real local
+instance with Playwright at real device widths (320–430px) instead of
+just the usual 390px check.
+
+- **iOS Safari auto-zoom-on-focus** (the real cause of "zoomed in"):
+  every text/email/number input and the review-page textarea across
+  `.entry-form`, `.custom-order-form`, `.checkout-form`, and
+  `review.html`'s inline form styles were set to `font-size: 0.95rem`
+  (~15.2px). iOS Safari force-zooms the whole page when a tapped input's
+  font-size is under 16px, and nothing on the page undoes that zoom
+  afterward — so once a visitor taps the email field to enter the
+  contest, the page stays zoomed in. Bumped every one of those to
+  `16px`. This can't be reproduced in a Chromium-based check (it's an
+  iOS-Safari-specific behavior), so it had to be found by reading the
+  CSS directly against the known threshold, not by screenshotting.
+- **CSS Grid overflow on the narrowest phones** (the real cause of
+  "off center"): confirmed via direct `scrollWidth` vs `innerWidth`
+  measurement that `index.html` overflowed by 34px at a 320px viewport
+  (old iPhone SE / small Android) — clean at 360px and up. Traced it to
+  `.enter-wrap`'s two-column grid (`1fr 1fr`, and its single-column
+  mobile override): a bare `1fr` track's implicit minimum is its
+  content's min-content size, and the native, un-stylable `<input
+  type="file">` control refuses to shrink below its browser-chrome
+  minimum (~258px measured), which is wider than the ~248px available
+  inside the form's own padding at 320px. That forced the grid track —
+  and the whole page — wider than the viewport, which is what a mobile
+  browser rendering that as "off center"/zoomed-out-to-fit looks like.
+  Fixed by switching every bare `1fr`/`repeat(3, 1fr)`/`1fr 1.1fr` grid
+  column in `style.css` (`.steps`, `.current-card`, `.enter-wrap`,
+  including their existing single-column mobile overrides) to
+  `minmax(0, 1fr)` — the standard fix for this exact class of grid/flex
+  overflow bug — so tracks shrink to the space actually available
+  instead of being forced wide by content that can't shrink.
+- Refreshed the homepage hero and entry-form copy per the owner's
+  direction: the hero headline/prize line now reads "Enter your kitty
+  for a chance to win a one-of-a-kind acrylic painting!" and names the
+  acrylic medium (already correct in `rules.html`, just missing from
+  the hero), the sub-copy folds in "live voting, real competition" and
+  a "we're glad you're here" welcome, and a new photo-quality reminder
+  (good light, clean framing, take your time) appears both in the hero
+  sub-copy and as a caption directly under the photo upload field. The
+  entry-form section's own copy was trimmed to avoid repeating the hero
+  nearly verbatim right above the form.
+
+**Verified against a real local Postgres instance with Playwright**:
+re-ran the `scrollWidth`-vs-`innerWidth` check across all 8 live pages
+at 320/360/375/390/414/430px after the fix — zero overflow anywhere.
+Confirmed every affected input's computed `font-size` is now `16px`.
+Visually confirmed the new hero and entry-section copy render correctly
+and legibly on a 390px viewport. No JS files touched this phase — only
+`style.css`, `index.html`, and `review.html`'s inline styles.
