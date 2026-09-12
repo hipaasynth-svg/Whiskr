@@ -542,7 +542,7 @@
 
       customOrdersList.innerHTML = `
         <table class="orders">
-          <thead><tr><th>Date</th><th>Product</th><th>Species</th><th>Pet</th><th>Email</th><th>Qty</th><th>Amount</th><th>Discount</th><th>Photo</th><th>Status</th></tr></thead>
+          <thead><tr><th>Date</th><th>Product</th><th>Species</th><th>Pet</th><th>Email</th><th>Qty</th><th>Amount</th><th>Discount</th><th>Photo</th><th>Status</th><th></th></tr></thead>
           <tbody>
             ${data.orders.map((o) => `
               <tr>
@@ -556,11 +556,28 @@
                 <td>${o.discount_percent ? o.discount_percent + '%' : '—'}</td>
                 <td>${o.photo_width ? `${o.photo_width}×${o.photo_height}${o.low_resolution ? ' (low-res)' : ''}` : '—'}</td>
                 <td>${escapeHtml(o.status)}</td>
+                <td>${o.status === 'failed' ? `<button type="button" class="btn btn-ghost retry-printful-btn" data-order-id="${o.id}">Retry Printful</button>` : ''}</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
       `;
+      customOrdersList.querySelectorAll('.retry-printful-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.orderId;
+          btn.disabled = true;
+          btn.textContent = 'Retrying…';
+          try {
+            const res = await adminFetch(`/api/admin/custom-orders/${id}/retry-printful`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Retry failed.');
+            alert(`Order #${id} is now '${data.status}'${data.printfulOrderId ? ` (Printful order ${data.printfulOrderId})` : ''}.`);
+          } catch (err) {
+            alert(`Order #${id} retry failed: ${err.message}`);
+          }
+          loadCustomOrders();
+        });
+      });
     } catch (err) {
       keyStatus.textContent = err.message;
       keyStatus.className = 'key-status err';
