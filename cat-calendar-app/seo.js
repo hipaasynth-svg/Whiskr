@@ -86,6 +86,16 @@ function renderOriginals(originals) {
       </div>`).join('');
 }
 
+// The footer photo wall — a static two-row mosaic spanning the full page
+// width. Photos are dealt alternately into the top and bottom row so both
+// rows stay close to even length regardless of how many photos exist.
+function renderFooterStrip(imagePaths) {
+  const top = imagePaths.filter((_, i) => i % 2 === 0);
+  const bottom = imagePaths.filter((_, i) => i % 2 === 1);
+  const row = (paths) => paths.map((src) => `<img src="${escapeHtml(src)}" alt="" loading="lazy" />`).join('');
+  return `<div class="footer-strip-row">${row(top)}</div><div class="footer-strip-row">${row(bottom)}</div>`;
+}
+
 // Replace the content of the element carrying id="ID" with `inner` —
 // matches from the id through the rest of the opening tag to its `>`, then
 // everything up to the next closing tag. Works whether the element started
@@ -111,6 +121,15 @@ function injectIntoHead(html, scriptTag) {
   return html.replace('</head>', `${scriptTag}\n</head>`);
 }
 
+// Removes the bare `hidden` attribute from whichever tag carries id="ID",
+// regardless of where that attribute falls among the tag's others (unlike
+// a literal `id="ID" hidden` string replace, which breaks the moment
+// another attribute is inserted between them, e.g. by setAttr above).
+function revealHidden(html, id) {
+  const re = new RegExp(`(<[^>]*id="${id}"[^>]*?)\\s+hidden(\\s*[^>]*>)`);
+  return html.replace(re, '$1$2');
+}
+
 module.exports = {
   escapeHtml,
   productsJsonLd,
@@ -118,7 +137,9 @@ module.exports = {
   renderHeroSlides,
   renderEntryTeaser,
   renderOriginals,
+  renderFooterStrip,
   fillEmpty,
   setAttr,
+  revealHidden,
   injectIntoHead,
 };

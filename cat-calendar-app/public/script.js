@@ -234,6 +234,82 @@ captureUtmCampaign();
     .catch((err) => console.error('originals showcase load failed', err));
 })();
 
+// ---------- homepage promo slots ----------
+// Admin-controlled, from /api/site-blocks (see admin.html's "Homepage
+// promo messages" section): a starburst badge over the hero, plus two
+// image+text feature blocks in the middle of the page. Any slot with
+// neither text nor an image stays hidden — never a placeholder. The
+// server may have already prerendered these into the same elements for
+// crawlers/first paint (see seo.js); this rebuild is idempotent.
+(function homepagePromoSlots() {
+  const starburst = document.getElementById('promoStarburst');
+  const featureBlocksSection = document.getElementById('featureBlocks');
+  if (!starburst && !featureBlocksSection) return;
+
+  fetch('/api/site-blocks')
+    .then((res) => res.json())
+    .then((data) => {
+      const blocks = data.blocks || {};
+
+      if (starburst && blocks.starburst) {
+        const text = document.getElementById('promoStarburstText');
+        text.textContent = blocks.starburst.text || '';
+        if (blocks.starburst.color) starburst.style.background = blocks.starburst.color;
+        starburst.hidden = false;
+      }
+
+      if (!featureBlocksSection) return;
+      let anyUsed = false;
+      [['feature_1', 'featureBlock1'], ['feature_2', 'featureBlock2']].forEach(([slot, elId]) => {
+        const b = blocks[slot];
+        const block = document.getElementById(elId);
+        if (!b || !block) return;
+        anyUsed = true;
+        if (b.text) document.getElementById(`${elId}Text`).textContent = b.text;
+        if (b.imagePath) {
+          const img = document.getElementById(`${elId}Img`);
+          img.src = b.imagePath;
+          img.hidden = false;
+        }
+        block.hidden = false;
+      });
+      if (anyUsed) featureBlocksSection.hidden = false;
+    })
+    .catch((err) => console.error('homepage promo slots load failed', err));
+})();
+
+// ---------- footer photo wall ----------
+// Admin-controlled, from /api/footer-strip (see admin.html's "Footer
+// photo wall" section). Zero photos uploaded means no strip at all.
+(function footerPhotoWall() {
+  const strip = document.getElementById('footerStrip');
+  if (!strip) return;
+
+  fetch('/api/footer-strip')
+    .then((res) => res.json())
+    .then((data) => {
+      const images = (data.images || []).map((i) => i.image_path);
+      if (images.length === 0) return;
+
+      const rows = [images.filter((_, i) => i % 2 === 0), images.filter((_, i) => i % 2 === 1)];
+      strip.innerHTML = '';
+      rows.forEach((rowImages) => {
+        const row = document.createElement('div');
+        row.className = 'footer-strip-row';
+        rowImages.forEach((src) => {
+          const img = document.createElement('img');
+          img.src = src;
+          img.alt = '';
+          img.loading = 'lazy';
+          row.appendChild(img);
+        });
+        strip.appendChild(row);
+      });
+      strip.hidden = false;
+    })
+    .catch((err) => console.error('footer photo wall load failed', err));
+})();
+
 // ---------- live contest status ----------
 async function loadStatus() {
   try {

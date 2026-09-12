@@ -541,6 +541,40 @@ async function renderIndexHtml() {
     html = html.replace('id="originalsEmpty"', 'id="originalsEmpty" hidden');
   }
 
+  const blockRows = await db.all(`SELECT * FROM site_blocks`);
+  const blocksBySlot = Object.fromEntries(blockRows.map((r) => [r.slot, r]));
+
+  const starburst = blocksBySlot.starburst;
+  if (starburst && starburst.text) {
+    html = seo.fillEmpty(html, 'promoStarburstText', seo.escapeHtml(starburst.text));
+    if (starburst.color) {
+      html = seo.setAttr(html, 'promoStarburst', 'style', `background:${starburst.color}`);
+    }
+    html = seo.revealHidden(html, 'promoStarburst');
+  }
+
+  let anyFeatureBlockUsed = false;
+  for (const [slot, elId] of [['feature_1', 'featureBlock1'], ['feature_2', 'featureBlock2']]) {
+    const b = blocksBySlot[slot];
+    if (!b || (!b.text && !b.image_path)) continue;
+    anyFeatureBlockUsed = true;
+    if (b.text) html = seo.fillEmpty(html, `${elId}Text`, seo.escapeHtml(b.text));
+    if (b.image_path) {
+      html = seo.setAttr(html, `${elId}Img`, 'src', b.image_path);
+      html = seo.revealHidden(html, `${elId}Img`);
+    }
+    html = seo.revealHidden(html, elId);
+  }
+  if (anyFeatureBlockUsed) html = seo.revealHidden(html, 'featureBlocks');
+
+  const footerImages = await db.all(
+    `SELECT image_path FROM footer_strip_images ORDER BY position ASC, id ASC`
+  );
+  if (footerImages.length > 0) {
+    html = seo.fillEmpty(html, 'footerStrip', seo.renderFooterStrip(footerImages.map((f) => f.image_path)));
+    html = seo.revealHidden(html, 'footerStrip');
+  }
+
   return html;
 }
 
@@ -1327,6 +1361,29 @@ app.get('/api/originals', async (req, res) => {
     `SELECT id, image_path, cat_name FROM featured_originals ORDER BY position ASC, id ASC`
   );
   res.json({ originals });
+});
+
+// Public read of the homepage promo slots (starburst + two feature
+// blocks) — same site_blocks rows the admin endpoints above manage.
+// script.js uses this to hydrate what seo.js already baked into the HTML;
+// a slot with neither text nor an image just doesn't appear.
+app.get('/api/site-blocks', async (req, res) => {
+  const rows = await db.all(`SELECT slot, text, image_path, color FROM site_blocks`);
+  const blocks = {};
+  for (const r of rows) {
+    if (!r.text && !r.image_path) continue;
+    blocks[r.slot] = { text: r.text, imagePath: r.image_path, color: r.color };
+  }
+  res.json({ blocks });
+});
+
+// Public: the footer photo wall — empty means no strip at all, same
+// honest-empty-state rule as /api/background above.
+app.get('/api/footer-strip', async (req, res) => {
+  const images = await db.all(
+    `SELECT image_path FROM footer_strip_images ORDER BY position ASC, id ASC`
+  );
+  res.json({ images });
 });
 
 // Public: the site footer's real mailing address, sourced from the same
@@ -2117,6 +2174,81 @@ app.post('/api/admin/originals', requireAdmin, upload.single('photo'), async (re
 app.delete('/api/admin/originals/:id', requireAdmin, async (req, res) => {
   const info = await db.run(`DELETE FROM featured_originals WHERE id = ?`, [Number(req.params.id)]);
   if (info.changes === 0) return res.status(404).json({ error: 'Original not found.' });
+  res.json({ ok: true });
+});
+
+// Admin-editable homepage promo slots — a starburst badge over the hero
+// and two middle-of-page feature blocks (image + text each). Each slot is
+// a fixed row (see site_blocks in db.js), upserted rather than freely
+// created — same fixed-slot pattern as product_media below. Hidden on the
+// public page whenever a slot's text and image are both empty.
+const SITE_BLOCK_SLOTS = new Set(['starburst', 'feature_1', 'feature_2']);
+
+app.get('/api/admin/site-blocks', requireAdmin, async (req, res) => {
+  const rows = await db.all(`SELECT * FROM site_blocks`);
+  const bySlot = Object.fromEntries(rows.map((r) => [r.slot, r]));
+  const blocks = {};
+  for (const slot of SITE_BLOCK_SLOTS) {
+    const r = bySlot[slot];
+    blocks[slot] = { text: r ? r.text : null, imagePath: r ? r.image_path : null, color: r ? r.color : null };
+  }
+  res.json({ blocks });
+});
+
+app.post('/api/admin/site-blocks/:slot', requireAdmin, upload.single('photo'), async (req, res) => {
+  const slot = req.params.slot;
+  if (!SITE_BLOCK_SLOTS.has(slot)) return res.status(404).json({ error: 'Unknown slot.' });
+  const text = String(req.body.text || '').trim().slice(0, 200) || null;
+  const color = slot === 'starburst' ? String(req.body.color || '').trim().slice(0, 20) || null : null;
+  // A photo isn't required on every save — COALESCE keeps the existing
+  // image_path when no new file comes in, same as product_media below.
+  const imagePath = req.file ? await storePhoto(req.file) : null;
+  await db.run(
+    `INSERT INTO site_blocks (slot, text, image_path, color, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (slot) DO UPDATE SET
+       text = EXCLUDED.text,
+       image_path = COALESCE(EXCLUDED.image_path, site_blocks.image_path),
+       color = EXCLUDED.color,
+       updated_at = EXCLUDED.updated_at`,
+    [slot, text, imagePath, color, new Date().toISOString()]
+  );
+  res.json({ ok: true });
+});
+
+// Clears just a feature block's photo, keeping its text intact — mirrors
+// /api/admin/products/:id/photo below.
+app.delete('/api/admin/site-blocks/:slot/photo', requireAdmin, async (req, res) => {
+  const slot = req.params.slot;
+  if (!SITE_BLOCK_SLOTS.has(slot)) return res.status(404).json({ error: 'Unknown slot.' });
+  await db.run(`UPDATE site_blocks SET image_path = NULL, updated_at = ? WHERE slot = ?`, [
+    new Date().toISOString(), slot,
+  ]);
+  res.json({ ok: true });
+});
+
+// Footer photo wall — see admin.html's "Footer photo wall" section. A
+// static two-row grid across the full page width; empty table = no strip
+// at all, same pattern as background_slides above.
+app.get('/api/admin/footer-strip', requireAdmin, async (req, res) => {
+  const images = await db.all(
+    `SELECT id, image_path, position FROM footer_strip_images ORDER BY position ASC, id ASC`
+  );
+  res.json({ images });
+});
+app.post('/api/admin/footer-strip', requireAdmin, upload.single('photo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'A photo is required.' });
+  const imagePath = await storePhoto(req.file);
+  const maxPos = await db.get(`SELECT COALESCE(MAX(position), -1) AS m FROM footer_strip_images`);
+  const info = await db.run(
+    `INSERT INTO footer_strip_images (image_path, position, created_at) VALUES (?, ?, ?) RETURNING id`,
+    [imagePath, Number(maxPos.m) + 1, new Date().toISOString()]
+  );
+  res.json({ id: info.rows[0].id, image_path: imagePath });
+});
+app.delete('/api/admin/footer-strip/:id', requireAdmin, async (req, res) => {
+  const info = await db.run(`DELETE FROM footer_strip_images WHERE id = ?`, [Number(req.params.id)]);
+  if (info.changes === 0) return res.status(404).json({ error: 'Photo not found.' });
   res.json({ ok: true });
 });
 

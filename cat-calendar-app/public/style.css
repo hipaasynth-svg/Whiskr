@@ -260,6 +260,45 @@ h1, h2, h3, h4 {
   background: rgba(255,255,255,0.4);
 }
 .hero-dots span.active { background: var(--marigold); }
+.promo-starburst {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 5;
+  width: 128px;
+  height: 128px;
+  background: var(--marigold);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.promo-starburst::before,
+.promo-starburst::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: inherit;
+  border-radius: inherit;
+}
+.promo-starburst::before { transform: rotate(30deg); }
+.promo-starburst::after { transform: rotate(-30deg); }
+.promo-starburst span {
+  position: relative;
+  z-index: 1;
+  display: block;
+  max-width: 76%;
+  font-family: var(--font-fun);
+  font-weight: 800;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  color: var(--ink);
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .promo-starburst { width: 96px; height: 96px; top: 12px; right: 12px; }
+  .promo-starburst span { font-size: 0.66rem; }
+}
 
 /* ---------- generic section ---------- */
 .section { padding: 90px 36px; max-width: 1080px; margin: 0 auto; }
@@ -668,6 +707,34 @@ h1, h2, h3, h4 {
   border: 1px solid #e8c877;
   border-radius: 4px;
   padding: 8px 12px;
+}
+
+/* ---------- feature blocks (middle-of-page image+text promos) ---------- */
+.feature-blocks { display: grid; gap: 28px; }
+.feature-block {
+  display: flex;
+  align-items: stretch;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 220px;
+}
+.feature-block img { flex: 1 1 45%; width: 100%; object-fit: cover; }
+.feature-block p { flex: 1 1 55%; margin: 0; padding: 24px 32px; font-size: 1.05rem; align-self: center; }
+#featureBlock2 { flex-direction: row-reverse; }
+@media (max-width: 720px) {
+  .feature-block, #featureBlock2 { flex-direction: column; min-height: 0; }
+  .feature-block img { flex: none; height: 200px; }
+  .feature-block p { padding: 18px 20px; }
+}
+
+/* ---------- footer photo wall ---------- */
+.footer-strip { display: flex; flex-direction: column; }
+.footer-strip-row { display: flex; width: 100%; }
+.footer-strip-row img { flex: 1 1 0; width: 100%; min-width: 0; height: 90px; object-fit: cover; display: block; }
+@media (max-width: 640px) {
+  .footer-strip-row img { height: 56px; }
 }
 
 /* ---------- footer ---------- */
