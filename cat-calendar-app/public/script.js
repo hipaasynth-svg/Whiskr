@@ -443,6 +443,7 @@ if (entryForm) {
     const formData = new FormData(entryForm);
     formData.append('utmCampaign', getUtmCampaign());
     const photoFile = photoInput.files[0];
+    if (photoFile) formData.set('photo', await resizeImageForUpload(photoFile));
 
     const catNameValue = document.getElementById('catName').value;
 
@@ -746,11 +747,14 @@ loadReviews();
       e.preventDefault();
       if (!productField.value) return;
       orderNote.classList.remove('error');
-      orderNote.textContent = 'Redirecting to checkout…';
+      orderNote.textContent = 'Uploading photo…';
       submitBtn.disabled = true;
 
       const formData = new FormData(form);
       formData.append('utmCampaign', getUtmCampaign());
+      const photoFile = photoInput.files[0];
+      if (photoFile) formData.set('photo', await resizeImageForUpload(photoFile));
+      orderNote.textContent = 'Redirecting to checkout…';
       try {
         const res = await fetch('/api/custom-orders', { method: 'POST', body: formData });
         const data = await res.json();
