@@ -112,6 +112,19 @@
   const params = new URLSearchParams(window.location.search);
   const highlightId = params.get('cat');
   const grid = document.getElementById('voteGrid');
+
+  // Soft referral capture: landing here via a cat's share link (?cat=X&via=share)
+  // remembers which cat brought this visit for the rest of the browser tab
+  // session — see referred_by_submission_id in db.js. sessionStorage (not
+  // localStorage) is deliberate: the credit should only cover this one
+  // visit, not follow the browser around forever.
+  if (params.get('via') === 'share' && highlightId) {
+    try { sessionStorage.setItem('whiskr_referred_by', highlightId); } catch (_) {}
+  }
+  function referredBy() {
+    try { return sessionStorage.getItem('whiskr_referred_by'); } catch (_) { return null; }
+  }
+
   const empty = document.getElementById('voteEmpty');
   const label = document.getElementById('voteContestLabel');
   const toastEl = document.getElementById('voteToast');
@@ -238,7 +251,7 @@
       const res = await fetch('/api/vote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ submissionId: cat.id, turnstileToken }),
+        body: JSON.stringify({ submissionId: cat.id, turnstileToken, referredBy: referredBy() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Vote failed.');
@@ -258,7 +271,7 @@
   }
 
   async function shareCat(cat) {
-    const url = `${window.location.origin}/vote.html?cat=${cat.id}`;
+    const url = `${window.location.origin}/vote.html?cat=${cat.id}&via=share`;
     const text = `Vote for ${cat.cat_name} in Whiskr's free cat photo contest! I'd owe you one:`;
     try {
       if (cat.share_image_path && navigator.canShare) {

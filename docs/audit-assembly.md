@@ -1768,10 +1768,77 @@ confirming the revenue then appeared attributed.
 rather than left implicit**: real Printful variant IDs and cost
 confirmation for the Gallery Series; the live-sessions platform
 decision and chat/offline-state build-out; a dedicated landing page for
-paid traffic; referral attribution on share links (currently zero —
-sharing carries no attribution back to the sharing entrant); an opt-in
-marketing/email list separate from transactional order records (today
-every email is tied to one specific order/entry row, with no way to
-re-engage a past entrant who never bought); and confirming Meta Pixel
-events land correctly via `META_TEST_EVENT_CODE` once the owner adds
-real credentials.
+paid traffic; an opt-in marketing/email list separate from
+transactional order records (today every email is tied to one specific
+order/entry row, with no way to re-engage a past entrant who never
+bought); and confirming Meta Pixel events land correctly via
+`META_TEST_EVENT_CODE` once the owner adds real credentials.
+
+## Update — 2026-09-13: referral attribution on share links
+
+Closed the "sharing carries no attribution" gap noted above. `vote.html`
+renders a full listing of every entry (confirmed by reading its
+card-rendering loop and its existing `?cat=` handling, which only
+highlights/scrolls to that card — never filters to it), and its Share
+button lets any visitor share any cat they're looking at — this isn't a
+one-entrant-per-referral system, so the design had to fit "who's
+sharing what," not "which entrant does this belong to."
+
+Landed on the simplest version that still supports a future incentive
+loop, deliberately choosing it over embedding the existing
+`whiskr_voter` persistent cookie into share URLs: a `?via=share` marker
+on the shared cat's own link. `shareCat()` (vote.html) and
+`shareEntryCard()` (script.js — the post-entry share button) both now
+append it; on landing, vote.html reads `via=share` + `cat=` and stores
+the shared cat's id in `sessionStorage` (`whiskr_referred_by`) — session
+scoped on purpose, so credit only covers this one visit, not a lasting
+tracking identity riding along in a publicly-pasted URL. Every vote cast
+during that session, for any cat (not just the one shared), sends that
+id back to `POST /api/vote` as `referredBy`; the server looks it up
+against `submissions` and only persists a real match (a stale or
+tampered id just resolves to no attribution — this is a soft engagement
+signal, not a security control, so it fails safe rather than erroring
+the vote).
+
+New nullable `votes.referred_by_submission_id` column, populated inside
+the same transaction as every other vote-insert invariant (rate limits,
+advisory locks). Surfaced in two places: the admin fraud-review panel
+gets a "Referred" column per entry (a correlated `COUNT` against
+`referred_by_submission_id`, alongside the existing votes/votes-per-hour
+columns, with a one-line explanation that it's a soft signal, not a
+fraud check); and an entrant's own `status.html` page, while their round
+is open, now shows "N votes so far came from people who clicked your
+share link" once that count is above zero — small, immediate positive
+feedback for sharing, ahead of any actual reward program being built.
+
+The one deliberate scope boundary carried over from the original share
+mechanic: `shareEntryCard()`'s plain "go vote for your own cat now" link
+and the vote link in the entry-confirmation email are left untagged —
+only the link that actually goes out through a Share action gets
+`via=share`. Tagging the entrant's own direct link too would have
+credited every single entrant with "referring" their own first vote,
+drowning out the real signal.
+
+**Verified against a real local Postgres instance**: confirmed the
+`referred_by_submission_id` migration lands live on a running server (no
+restart-time migration runner — it runs lazily on first request, so
+verified via a real request, not just by reading the DDL); cast votes
+through the real `/api/vote` endpoint with a valid `referredBy`, no
+`referredBy`, and a nonexistent one, and confirmed the resulting rows
+matched expectations exactly (real id recorded, absent stays null, bogus
+id silently resolves to null with the vote still succeeding); confirmed
+`GET /api/admin/contest/current` returns the right `referred_votes`
+count per entry; confirmed `GET /api/my-status` returns the right
+`referredVotes` count; and used Playwright to confirm, end to end, that
+landing on `vote.html?cat=X&via=share` sets the sessionStorage marker
+without breaking the existing highlight behavior, that admin.html's
+fraud-review table renders the new "Referred" column correctly, and
+that status.html renders the share-credit line with the right count and
+grammar (singular "vote" vs. plural "votes").
+
+**Still open**: the live-sessions platform decision and chat/offline-state
+build-out; real Printful variant IDs for the Gallery Series; a dedicated
+landing page for paid traffic; an opt-in marketing/email list; and
+confirming Meta Pixel events land correctly via `META_TEST_EVENT_CODE`
+once real credentials are added — see the running todo list for the
+complete, current state.

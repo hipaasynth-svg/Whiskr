@@ -1176,6 +1176,9 @@ app.get('/api/my-status', async (req, res) => {
       [contest.id]
     );
     const liveRank = ranked.findIndex((r) => r.id === submission.id) + 1;
+    const referred = await db.get(`SELECT COUNT(*) AS c FROM votes WHERE referred_by_submission_id = ?`, [
+      submission.id,
+    ]);
     return res.json({
       catName: submission.cat_name,
       contestStatus: 'open',
@@ -1183,6 +1186,7 @@ app.get('/api/my-status', async (req, res) => {
       liveRank,
       totalEntries: ranked.length,
       closesAt: contest.closes_at,
+      referredVotes: Number(referred.c),
     });
   }
 
@@ -1227,6 +1231,13 @@ app.post('/api/vote', async (req, res) => {
     const ipHash = hashIp(req.ip);
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
+    // Soft, client-supplied referral signal — see referred_by_submission_id
+    // in db.js. Not trusted for anything but attribution: a bogus id just
+    // resolves to no match below and the vote proceeds exactly as if it
+    // were absent.
+    let referredBy = Number(req.body.referredBy);
+    if (!Number.isInteger(referredBy) || referredBy <= 0) referredBy = null;
+
     // The rate-limit checks and the insert all happen inside one
     // transaction, serialized per voter/IP with a transaction-scoped
     // advisory lock — without that, two concurrent votes from the same
@@ -1251,9 +1262,16 @@ app.post('/api/vote', async (req, res) => {
         throw Object.assign(new Error('Too many votes from this connection today — try again tomorrow.'), { rateLimited: true });
       }
 
-      await tx.run(`INSERT INTO votes (submission_id, voter_token, ip_hash, created_at) VALUES (?, ?, ?, ?)`, [
-        submissionId, voterToken, ipHash, new Date().toISOString(),
-      ]);
+      let referredBySubmissionId = null;
+      if (referredBy) {
+        const refSubmission = await tx.get(`SELECT id FROM submissions WHERE id = ?`, [referredBy]);
+        if (refSubmission) referredBySubmissionId = refSubmission.id;
+      }
+
+      await tx.run(
+        `INSERT INTO votes (submission_id, voter_token, ip_hash, created_at, referred_by_submission_id) VALUES (?, ?, ?, ?, ?)`,
+        [submissionId, voterToken, ipHash, new Date().toISOString(), referredBySubmissionId]
+      );
       await tx.run(`UPDATE submissions SET vote_count = vote_count + 1 WHERE id = ?`, [submissionId]);
     });
 
@@ -1827,7 +1845,8 @@ app.get('/api/admin/contest/current', requireAdmin, async (req, res) => {
   const entries = await db.all(
     `SELECT s.id, s.cat_name, s.photo_path, s.vote_count, s.disqualified, s.disqualified_reason,
             s.photo_width, s.photo_height, s.low_resolution,
-            (SELECT COUNT(*) FROM votes v WHERE v.submission_id = s.id AND v.created_at >= ?) AS votes_last_hour
+            (SELECT COUNT(*) FROM votes v WHERE v.submission_id = s.id AND v.created_at >= ?) AS votes_last_hour,
+            (SELECT COUNT(*) FROM votes v2 WHERE v2.referred_by_submission_id = s.id) AS referred_votes
      FROM submissions s WHERE s.contest_id = ? ORDER BY s.vote_count DESC`,
     [hourAgo, contest.id]
   );

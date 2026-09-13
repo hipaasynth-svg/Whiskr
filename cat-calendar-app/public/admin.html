@@ -210,7 +210,7 @@
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
         <h2>Current contest — fraud review</h2>
-        <p class="sub">Winners are decided by public vote automatically when the round closes — nothing to pick here. This is for spotting and disqualifying obviously fraudulent entries (bought/bot votes) before that happens. "Votes/hr" is votes in the last 60 minutes; a sudden spike on one entry is the signal to look closer.</p>
+        <p class="sub">Winners are decided by public vote automatically when the round closes — nothing to pick here. This is for spotting and disqualifying obviously fraudulent entries (bought/bot votes) before that happens. "Votes/hr" is votes in the last 60 minutes; a sudden spike on one entry is the signal to look closer. "Referred" is votes cast by visitors who arrived via that cat's share link — a soft signal for a future top-sharer perk, not itself a fraud check.</p>
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-ghost refresh-btn" id="forceCloseContest" type="button" style="border-color:#b3261e;color:#b3261e;">Force-close now</button>
@@ -344,13 +344,14 @@
             <span class="deadline">${data.entries.length} entries · closes ${closes}</span>
           </div>
           <table class="orders">
-            <thead><tr><th>Cat</th><th>Votes</th><th>Votes/hr</th><th>Photo</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Cat</th><th>Votes</th><th>Votes/hr</th><th>Referred</th><th>Photo</th><th>Status</th><th></th></tr></thead>
             <tbody>
               ${data.entries.map((e) => `
                 <tr data-submission="${e.id}">
                   <td>${escapeHtml(e.cat_name)}</td>
                   <td>${e.vote_count}</td>
                   <td style="${e.votes_last_hour >= 20 ? 'color:#b3261e;font-weight:700;' : ''}">${e.votes_last_hour}</td>
+                  <td>${e.referred_votes > 0 ? e.referred_votes : '—'}</td>
                   <td>${e.photo_width ? `${e.photo_width}×${e.photo_height}${e.low_resolution ? ' (low-res)' : ''}` : '—'}</td>
                   <td>${e.disqualified ? `Disqualified: ${escapeHtml(e.disqualified_reason || '')}` : 'Eligible'}</td>
                   <td>

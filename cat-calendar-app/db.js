@@ -133,6 +133,17 @@ CREATE TABLE IF NOT EXISTS votes (
 );
 CREATE INDEX IF NOT EXISTS votes_ip_hash_created_idx ON votes(ip_hash, created_at);
 CREATE INDEX IF NOT EXISTS votes_voter_token_created_idx ON votes(voter_token, created_at);
+-- Soft referral signal, not a fraud control: which cat's share link brought
+-- this voter to the site this browser session (see the ?via=share&cat= URL
+-- built in shareCat()/shareEntryCard() in the front end, and the
+-- referredBy handling in POST /api/vote). Can differ from this row's own
+-- submission_id — a share of cat A can bring a visitor who then votes for
+-- cat B too; every vote in that session is credited back to cat A. This is
+-- purely for a future "top sharer" stat/incentive, so it's client-supplied
+-- and unverified on purpose (a spoofed value just misattributes a soft
+-- number, it can't fabricate a vote or bypass any existing vote limit).
+-- Nullable — most votes have no referral at all.
+ALTER TABLE votes ADD COLUMN IF NOT EXISTS referred_by_submission_id INTEGER REFERENCES submissions(id);
 
 -- "Cat of the Year" award: a separate public vote among monthly
 -- Cat-of-the-Month winners for the one physical grand prize (a one-of-a-kind

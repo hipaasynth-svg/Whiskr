@@ -478,7 +478,12 @@ function storeDiscount(discount) {
 // `files`, when the browser supports sharing files, since an image posts
 // far better than a bare link on Stories/WhatsApp/feed. Falls back to a
 // plain link share, then clipboard, same ladder as vote.html's shareCat().
-async function shareEntryCard(shareImageUrl, catName, voteUrl, noteEl) {
+async function shareEntryCard(shareImageUrl, catName, voteUrlIn, noteEl) {
+  // Tag only the link that actually gets shared out, not the plain voteUrl
+  // used elsewhere (the "go vote for your own cat now" link, the entry
+  // email) — those are the entrant's own direct visits, not a share, and
+  // tagging them would misattribute every entrant's own vote as "referred."
+  const voteUrl = voteUrlIn + (voteUrlIn.includes('?') ? '&' : '?') + 'via=share';
   const text = `Vote for ${catName} in Whiskr's free cat photo contest! I'd owe you one:`;
   try {
     if (shareImageUrl && window.navigator.canShare) {
