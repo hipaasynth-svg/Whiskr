@@ -525,6 +525,39 @@ h1, h2, h3, h4 {
 .originals-empty p { color: #55503f; font-size: 0.95rem; }
 .section.originals .current-teaser { margin-top: 24px; margin-bottom: 24px; }
 
+/* ---------- live painting sessions ---------- */
+.live-wrap { display: grid; grid-template-columns: 2fr 1fr; gap: 28px; margin-top: 26px; align-items: start; }
+.live-screen {
+  aspect-ratio: 16/9;
+  background: var(--ink);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.live-screen iframe { width: 100%; height: 100%; border: 0; display: block; }
+.live-offline { text-align: center; padding: 24px; color: var(--paper); }
+.live-offline p { font-size: 0.95rem; opacity: 0.8; margin: 0; }
+.live-sessions-list h3 { font-size: 1rem; margin-bottom: 12px; }
+.live-sessions-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow-y: auto; }
+.live-sessions-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 0.88rem;
+}
+.live-sessions-list li a { font-weight: 600; }
+.live-sessions-list .session-date { color: #6b6552; font-size: 0.8rem; white-space: nowrap; }
+.live-sessions-list .empty { color: #6b6552; font-size: 0.88rem; margin: 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 4px; }
+@media (max-width: 800px) {
+  .live-wrap { grid-template-columns: 1fr; }
+}
+
 /* ---------- custom pet product shop ---------- */
 .species-toggle { display: flex; gap: 10px; margin: 26px 0 6px; }
 .species-toggle button {
@@ -551,6 +584,20 @@ h1, h2, h3, h4 {
   gap: 10px;
 }
 .custom-card.selected { border-color: var(--marigold); box-shadow: 0 0 0 2px rgba(232,163,61,0.35) inset; }
+.custom-card.premium { border-color: var(--ink); background: var(--paper-card); }
+.custom-card.premium.selected { border-color: var(--marigold); }
+.tier-badge {
+  align-self: flex-start;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-fun);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 3px;
+}
 .custom-card-photo {
   width: calc(100% + 52px);
   margin: -26px -26px 4px;

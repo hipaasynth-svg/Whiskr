@@ -575,6 +575,24 @@ async function renderIndexHtml() {
     html = seo.revealHidden(html, 'footerStrip');
   }
 
+  const liveSettings = await db.get(`SELECT * FROM live_stream_settings WHERE key = 'main'`);
+  if (liveSettings && liveSettings.enabled) {
+    const screenInner = (liveSettings.is_live && liveSettings.embed_url)
+      ? `<iframe src="${seo.escapeHtml(liveSettings.embed_url)}" title="Live painting session" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe>`
+      : `<div class="live-offline"><p>Not live right now — check back, or watch a past session.</p></div>`;
+    html = seo.fillEmpty(html, 'liveScreen', screenInner);
+
+    const pastSessions = await db.all(
+      `SELECT title, session_date, video_url FROM live_sessions ORDER BY position ASC, id DESC`
+    );
+    if (pastSessions.length > 0) {
+      html = seo.fillEmpty(html, 'pastSessionsList', seo.renderPastSessions(pastSessions));
+      html = seo.revealHidden(html, 'pastSessionsList');
+      html = html.replace('id="pastSessionsEmpty"', 'id="pastSessionsEmpty" hidden');
+    }
+    html = seo.revealHidden(html, 'liveSessions');
+  }
+
   return html;
 }
 
@@ -1322,6 +1340,7 @@ async function getProductsWithMedia(species) {
       description,
       priceUsd: p.priceUsd,
       mockupAspect: p.mockupAspect,
+      tier: p.tier || null,
       imagePath: m ? m.image_path : null,
       imageAlt: (m && m.image_alt) || p.name,
       seoName: (m && m.seo_title) || p.name,
@@ -1384,6 +1403,23 @@ app.get('/api/footer-strip', async (req, res) => {
     `SELECT image_path FROM footer_strip_images ORDER BY position ASC, id ASC`
   );
   res.json({ images });
+});
+
+// Public: the "Live painting sessions" section — a manual on/off switch,
+// not an empty-state one (see live_stream_settings in db.js), so this can
+// read enabled:false for a long time before the owner ever turns it on.
+app.get('/api/live-stream', async (req, res) => {
+  const settings = await db.get(`SELECT * FROM live_stream_settings WHERE key = 'main'`);
+  if (!settings || !settings.enabled) return res.json({ enabled: false });
+  const sessions = await db.all(
+    `SELECT title, session_date, video_url FROM live_sessions ORDER BY position ASC, id DESC`
+  );
+  res.json({
+    enabled: true,
+    isLive: !!settings.is_live,
+    embedUrl: settings.embed_url,
+    sessions: sessions.map((s) => ({ title: s.title, sessionDate: s.session_date, videoUrl: s.video_url })),
+  });
 });
 
 // Public: the site footer's real mailing address, sourced from the same
@@ -2249,6 +2285,59 @@ app.post('/api/admin/footer-strip', requireAdmin, upload.single('photo'), async 
 app.delete('/api/admin/footer-strip/:id', requireAdmin, async (req, res) => {
   const info = await db.run(`DELETE FROM footer_strip_images WHERE id = ?`, [Number(req.params.id)]);
   if (info.changes === 0) return res.status(404).json({ error: 'Photo not found.' });
+  res.json({ ok: true });
+});
+
+// "Live painting sessions" homepage section — a manual on/off switch
+// (unlike the empty-state-hides-itself sections above), plus the
+// currently-live embed state and the list of past sessions. See
+// live_stream_settings/live_sessions in db.js.
+app.get('/api/admin/live-stream', requireAdmin, async (req, res) => {
+  const settings = await db.get(`SELECT * FROM live_stream_settings WHERE key = 'main'`);
+  const sessions = await db.all(
+    `SELECT * FROM live_sessions ORDER BY position ASC, id DESC`
+  );
+  res.json({
+    settings: settings
+      ? { enabled: !!settings.enabled, isLive: !!settings.is_live, embedUrl: settings.embed_url }
+      : { enabled: false, isLive: false, embedUrl: null },
+    sessions,
+  });
+});
+
+app.post('/api/admin/live-stream/settings', requireAdmin, async (req, res) => {
+  const enabled = req.body.enabled ? 1 : 0;
+  const isLive = req.body.isLive ? 1 : 0;
+  const embedUrl = String(req.body.embedUrl || '').trim().slice(0, 500) || null;
+  await db.run(
+    `INSERT INTO live_stream_settings (key, enabled, is_live, embed_url, updated_at)
+     VALUES ('main', ?, ?, ?, ?)
+     ON CONFLICT (key) DO UPDATE SET
+       enabled = EXCLUDED.enabled,
+       is_live = EXCLUDED.is_live,
+       embed_url = EXCLUDED.embed_url,
+       updated_at = EXCLUDED.updated_at`,
+    [enabled, isLive, embedUrl, new Date().toISOString()]
+  );
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/live-stream/sessions', requireAdmin, async (req, res) => {
+  const title = String(req.body.title || '').trim().slice(0, 200);
+  const sessionDate = String(req.body.sessionDate || '').trim().slice(0, 40);
+  const videoUrl = String(req.body.videoUrl || '').trim().slice(0, 500) || null;
+  if (!title || !sessionDate) return res.status(400).json({ error: 'A title and date are required.' });
+  const maxPos = await db.get(`SELECT COALESCE(MAX(position), -1) AS m FROM live_sessions`);
+  const info = await db.run(
+    `INSERT INTO live_sessions (title, session_date, video_url, position, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+    [title, sessionDate, videoUrl, Number(maxPos.m) + 1, new Date().toISOString()]
+  );
+  res.json({ id: info.rows[0].id });
+});
+
+app.delete('/api/admin/live-stream/sessions/:id', requireAdmin, async (req, res) => {
+  const info = await db.run(`DELETE FROM live_sessions WHERE id = ?`, [Number(req.params.id)]);
+  if (info.changes === 0) return res.status(404).json({ error: 'Session not found.' });
   res.json({ ok: true });
 });
 
