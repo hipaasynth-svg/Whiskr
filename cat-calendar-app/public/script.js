@@ -24,6 +24,33 @@ function getUtmCampaign() {
 }
 captureUtmCampaign();
 
+// ---------- ad conversion tracking (Meta Pixel) ----------
+// Loaded on every page so PageView fires everywhere, exactly like the
+// Vercel Analytics snippet already does. Pixel ID comes from /api/config
+// rather than being hardcoded here, so it's off entirely (no script loads,
+// no fbq calls do anything) until META_PIXEL_ID is actually set server-side
+// — same "safe until configured" pattern as Turnstile/Stripe/Printful
+// elsewhere in this app. window.fbq stays a no-op stub if the real script
+// hasn't loaded yet, so an event fired from another script before this
+// fetch resolves is silently dropped rather than throwing.
+window.fbq = window.fbq || function () { (window.fbq.queue = window.fbq.queue || []).push(arguments); };
+(function metaPixelBootstrap() {
+  fetch('/api/config')
+    .then((res) => res.json())
+    .then((data) => {
+      if (!data.metaPixelId) return;
+      const script = document.createElement('script');
+      script.async = true;
+      script.src = 'https://connect.facebook.net/en_US/fbevents.js';
+      script.onload = () => {
+        fbq('init', data.metaPixelId);
+        fbq('track', 'PageView');
+      };
+      document.head.appendChild(script);
+    })
+    .catch((err) => console.error('meta pixel bootstrap failed', err));
+})();
+
 // ---------- mobile nav ----------
 // Every page shares the same header markup (#navToggle + #siteNav) — this
 // runs once per page load and no-ops if either element is missing, same
@@ -521,6 +548,10 @@ if (entryForm) {
 
       note.innerHTML = `You're entered! Check your email for your vote link, or <a href="${data.voteUrl}">go vote for your own cat now</a> and start sharing.`;
 
+      // eventID matches the server-side Conversions API call for this same
+      // submission (see /api/submissions in server.js) so Meta dedupes them.
+      if (data.metaEventId) fbq('track', 'Lead', {}, { eventID: data.metaEventId });
+
       storeDiscount(data.discount);
 
       // Real preview of the photo they just uploaded, styled like a
@@ -845,6 +876,12 @@ loadReviews();
           }
         }
         try { localStorage.removeItem('whiskr_discount'); } catch (_) {}
+        // eventID matches the server-side Conversions API call for this
+        // same order (see /api/custom-orders in server.js) so Meta dedupes
+        // them. fbq handles firing this reliably even right before nav away.
+        if (data.metaEventId) {
+          fbq('track', 'InitiateCheckout', { value: data.amount, currency: 'USD' }, { eventID: data.metaEventId });
+        }
         window.location.href = data.url;
       } catch (err) {
         orderNote.textContent = err.message;

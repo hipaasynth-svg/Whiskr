@@ -19,6 +19,7 @@ const productCatalog = require('./products');
 const printful = require('./printful');
 const phoneCases = require('./phoneCases');
 const metaAds = require('./metaAds');
+const metaConversions = require('./metaConversions');
 const seo = require('./seo');
 
 const app = express();
@@ -379,6 +380,25 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
       );
       if (info.changes > 0) {
         console.log(`[stripe webhook] custom order #${orderId} marked paid.`);
+        // Purchase is fired here and only here — this webhook is the one
+        // point a payment is actually confirmed, unlike a client-side
+        // "thank you page" event that fires on redirect regardless of
+        // whether payment truly succeeded. Scoped inside the same
+        // status='pending' guard above, so a retried webhook delivery
+        // can't double-fire it either.
+        const paidOrder = await db.get(`SELECT email, amount_usd FROM custom_orders WHERE id = ?`, [orderId]);
+        if (paidOrder) {
+          metaConversions
+            .sendEvent({
+              eventName: 'Purchase',
+              eventId: `purchase-custom-${orderId}`,
+              email: paidOrder.email,
+              value: Number(paidOrder.amount_usd),
+              currency: 'USD',
+              eventSourceUrl: BASE_URL,
+            })
+            .catch((err) => console.error('[meta capi] Purchase event failed:', err.message));
+        }
         await submitCustomOrderToPrintful(orderId);
       } else {
         console.log(`[stripe webhook] custom order #${orderId} already processed (duplicate delivery) — skipping.`);
@@ -539,6 +559,21 @@ async function renderIndexHtml() {
     html = seo.fillEmpty(html, 'originalsGrid', seo.renderOriginals(originals));
     html = html.replace('id="originalsGrid" hidden', 'id="originalsGrid"');
     html = html.replace('id="originalsEmpty"', 'id="originalsEmpty" hidden');
+  }
+
+  // og:image/twitter:image — a real admin-uploaded photo (hero background,
+  // falling back to an original portrait) or nothing at all, same
+  // never-fake-a-placeholder rule as everywhere else. Without one, shared
+  // links preview with just title/description text, which is the honest
+  // current default until at least one photo is uploaded in admin.html.
+  const previewImagePath = (slides[0] && slides[0].image_path) || (originals[0] && originals[0].image_path);
+  if (previewImagePath) {
+    const previewImageUrl = previewImagePath.startsWith('http') ? previewImagePath : `${BASE_URL}${previewImagePath}`;
+    html = seo.injectIntoHead(
+      html,
+      `<meta property="og:image" content="${seo.escapeHtml(previewImageUrl)}" />\n<meta name="twitter:image" content="${seo.escapeHtml(previewImageUrl)}" />`
+    );
+    html = html.replace('name="twitter:card" content="summary"', 'name="twitter:card" content="summary_large_image"');
   }
 
   const blockRows = await db.all(`SELECT * FROM site_blocks`);
@@ -1078,7 +1113,18 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
       console.error(`[mailer] entry confirmation failed for submission ${submissionId}:`, err.message);
     }
 
-    res.json({ ok: true, submissionId, voteUrl, statusUrl, lowResolution, width, height, discount, shareImageUrl: shareImagePath });
+    // Ad conversion tracking — never blocks or fails the entry itself.
+    // eventId is shared with the matching client-side fbq('track','Lead')
+    // call (see public/script.js) so Meta dedupes the two into one signal.
+    const leadEventId = `lead-submission-${submissionId}`;
+    metaConversions
+      .sendEvent({ eventName: 'Lead', eventId: leadEventId, email, eventSourceUrl: BASE_URL })
+      .catch((err) => console.error('[meta capi] Lead event failed:', err.message));
+
+    res.json({
+      ok: true, submissionId, voteUrl, statusUrl, lowResolution, width, height, discount, shareImageUrl: shareImagePath,
+      metaEventId: leadEventId,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong.' });
@@ -1362,7 +1408,14 @@ app.get('/api/phone-models', (req, res) => {
 // Turnstile CAPTCHA is enabled and, if so, its public site key (the secret
 // key never leaves the server; see verifyTurnstile).
 app.get('/api/config', (req, res) => {
-  res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || null });
+  res.json({
+    turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || null,
+    // Public by design — a Pixel ID is meant to appear in page source (it's
+    // how the base pixel snippet knows which pixel to report to). Only the
+    // Conversions API access token (server-side, metaConversions.js) is a
+    // real secret and never reaches the client.
+    metaPixelId: process.env.META_PIXEL_ID || null,
+  });
 });
 
 // Admin-managed hero background photos — empty means no slideshow at all
@@ -1541,7 +1594,15 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
 
     await db.run(`UPDATE custom_orders SET stripe_session_id = ? WHERE id = ?`, [session.id, orderId]);
 
-    res.json({ ok: true, url: session.url, lowResolution, width, height, discountPercent });
+    // Ad conversion tracking — never blocks or fails checkout. eventId is
+    // shared with the matching client-side fbq('track','InitiateCheckout')
+    // call (see public/script.js) so Meta dedupes the two into one signal.
+    const checkoutEventId = `checkout-custom-${orderId}`;
+    metaConversions
+      .sendEvent({ eventName: 'InitiateCheckout', eventId: checkoutEventId, email, value: amount, currency: 'USD', eventSourceUrl: BASE_URL })
+      .catch((err) => console.error('[meta capi] InitiateCheckout event failed:', err.message));
+
+    res.json({ ok: true, url: session.url, lowResolution, width, height, discountPercent, amount, metaEventId: checkoutEventId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong.' });
