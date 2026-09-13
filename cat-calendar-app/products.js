@@ -8,6 +8,11 @@
 // verified per-item, but not including shipping, which Printful bills
 // separately per order and varies by destination/weight; leave real margin
 // room rather than pricing right at cost.
+// mockupAspect is a CSS aspect-ratio value for this product's own catalog
+// photo (admin-uploaded — see product_media in db.js), not the customer's
+// uploaded pet photo. Derived from each product's real physical dimensions
+// where it has them, so the shape shown on the site actually matches what
+// ships.
 const PRODUCTS = [
   {
     id: 'mug-11oz',
@@ -16,6 +21,7 @@ const PRODUCTS = [
     description: "Your pet's photo on an 11oz ceramic mug. Dishwasher and microwave safe.",
     priceUsd: 19.99,
     printfulVariantId: 1320, // White Glossy Mug 11oz — cost $6.07
+    mockupAspect: '1/1',
   },
   {
     id: 'poster-12x16',
@@ -24,6 +30,7 @@ const PRODUCTS = [
     description: 'A 12x16" matte poster print of your pet, ready to frame.',
     priceUsd: 22.0,
     printfulVariantId: 1349, // Enhanced Matte Paper Poster 12"x16" — cost $11.11
+    mockupAspect: '3/4',
   },
   {
     id: 'canvas-12x12',
@@ -32,6 +39,7 @@ const PRODUCTS = [
     description: '12x12" gallery-wrapped canvas print, ready to hang.',
     priceUsd: 39.0,
     printfulVariantId: 823, // Canvas 12"x12" — cost $21.93
+    mockupAspect: '1/1',
   },
   {
     id: 'phone-case',
@@ -44,6 +52,7 @@ const PRODUCTS = [
     // is chosen by the customer's phone-model selection at checkout (see
     // phoneCases.js) and stored per-order, never read from this field.
     printfulVariantId: null,
+    mockupAspect: '9/19',
   },
   {
     id: 'tote-bag',
@@ -54,6 +63,7 @@ const PRODUCTS = [
     // added. Raised to restore real margin (owner's call, 2026-09-11).
     priceUsd: 39.99,
     printfulVariantId: 16287, // AS Colour 1001 Cotton Tote Bag, Black — cost $17.95
+    mockupAspect: '4/5',
   },
   {
     id: 'throw-pillow',
@@ -62,6 +72,7 @@ const PRODUCTS = [
     description: '16x16" throw pillow, insert included.',
     priceUsd: 29.0,
     printfulVariantId: 49854, // All-Over Print Basic Pillow 16"x16" — cost $14.59
+    mockupAspect: '1/1',
   },
   {
     id: 'fridge-magnet',
@@ -70,6 +81,7 @@ const PRODUCTS = [
     description: 'A durable 4x4" magnet of your pet — a low-cost way to keep them on your fridge.',
     priceUsd: 9.99,
     printfulVariantId: 16367, // Die-Cut Magnets 4"x4" — cost $3.91
+    mockupAspect: '1/1',
   },
 ];
 

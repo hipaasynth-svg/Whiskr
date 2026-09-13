@@ -24,6 +24,48 @@ function getUtmCampaign() {
 }
 captureUtmCampaign();
 
+// ---------- mobile nav ----------
+// Every page shares the same header markup (#navToggle + #siteNav) — this
+// runs once per page load and no-ops if either element is missing, same
+// guard pattern as the other page-agnostic sections below.
+(function mobileNav() {
+  const toggle = document.getElementById('navToggle');
+  const nav = document.getElementById('siteNav');
+  if (!toggle || !nav) return;
+  toggle.addEventListener('click', () => {
+    const open = nav.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  nav.querySelectorAll('a').forEach((a) => {
+    a.addEventListener('click', () => {
+      nav.classList.remove('open');
+      toggle.setAttribute('aria-expanded', 'false');
+    });
+  });
+})();
+
+// ---------- business address ----------
+// Same honest-empty-state rule as everything else on this site: /api/business-info
+// returns null until BUSINESS_MAILING_ADDRESS is actually set, and the line
+// stays hidden rather than showing a broken-looking placeholder to a real
+// visitor. Used in the shared footer and the Contact section of the policy
+// pages (privacy.html/terms.html/shipping.html) — every page carries its own
+// #businessAddressLine/#businessAddress pair, so this fills whichever exist.
+(function businessAddress() {
+  const lines = document.querySelectorAll('#businessAddressLine, .business-address-line');
+  if (lines.length === 0) return;
+  fetch('/api/business-info')
+    .then((res) => res.json())
+    .then((data) => {
+      if (!data.address) return;
+      document.querySelectorAll('#businessAddress, .business-address').forEach((el) => {
+        el.textContent = data.address;
+      });
+      lines.forEach((el) => { el.hidden = false; });
+    })
+    .catch(() => {});
+})();
+
 // ---------- hero slideshow ----------
 // Admin-controlled, from /api/background (see admin.html's "Background
 // slideshow" section). Zero photos uploaded there means no slideshow at
@@ -95,6 +137,42 @@ captureUtmCampaign();
   init();
 })();
 
+// ---------- featured originals showcase ----------
+// Admin-controlled, from /api/originals (see admin.html's "Featured
+// originals" section). Zero uploaded there means the honest "still
+// drying" empty state, never a placeholder image. The server may have
+// already prerendered these into #originalsGrid for crawlers/first paint
+// (see seo.js); this rebuild is idempotent, same content either way.
+(function originalsShowcase() {
+  const grid = document.getElementById('originalsGrid');
+  const empty = document.getElementById('originalsEmpty');
+  if (!grid || !empty) return;
+
+  fetch('/api/originals')
+    .then((res) => res.json())
+    .then((data) => {
+      const originals = data.originals || [];
+      if (originals.length === 0) return;
+
+      grid.innerHTML = '';
+      originals.forEach((o) => {
+        const card = document.createElement('div');
+        card.className = 'teaser-card';
+        const img = document.createElement('img');
+        img.src = o.image_path;
+        img.alt = o.cat_name || 'An original portrait by Cody Carlson';
+        card.appendChild(img);
+        const span = document.createElement('span');
+        span.textContent = o.cat_name || 'Original portrait';
+        card.appendChild(span);
+        grid.appendChild(card);
+      });
+      grid.hidden = false;
+      empty.hidden = true;
+    })
+    .catch((err) => console.error('originals showcase load failed', err));
+})();
+
 // ---------- live contest status ----------
 async function loadStatus() {
   try {
@@ -113,7 +191,7 @@ async function loadStatus() {
       nameEl.textContent = data.lastWinner.cat_name;
       photoEl.src = data.lastWinner.photo_path;
       photoEl.alt = `${data.lastWinner.cat_name}, Cat of the Month`;
-      if (blurbEl) blurbEl.textContent = 'Chosen as Cat of the Month by real public vote. Their calendar is in the shop below.';
+      if (blurbEl) blurbEl.textContent = 'Chosen as Cat of the Month by real public vote.';
     } else if (data.contestId) {
       loadCurrentTeaser();
     }
@@ -123,29 +201,6 @@ async function loadStatus() {
 }
 loadStatus();
 
-// Cat of the Year only runs once annually and stays closed the rest of the
-// time — this banner stays hidden/empty whenever no award is open, never a
-// fake "coming soon" placeholder.
-async function loadYearAwardBanner() {
-  const banner = document.getElementById('yearAwardBanner');
-  if (!banner) return;
-  try {
-    const res = await fetch('/api/year-award/current');
-    const data = await res.json();
-    if (!data.award) { banner.hidden = true; banner.innerHTML = ''; return; }
-    const closes = new Date(data.award.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-    banner.innerHTML = `
-      <div>
-        <h2>🏆 ${data.award.label} is open for voting</h2>
-        <p>Pick your favorite from this year's Cat of the Month winners — voting closes ${closes}.</p>
-      </div>
-      <a href="year-award.html" class="btn btn-primary">Vote for Cat of the Year</a>`;
-    banner.hidden = false;
-  } catch (err) {
-    console.error('year award banner load failed', err);
-  }
-}
-loadYearAwardBanner();
 
 // No round has closed yet — show a few of this round's real entries
 // (random order, no vote counts) instead of a dead-end "check back soon".
@@ -465,6 +520,16 @@ loadReviews();
       const card = document.createElement('div');
       card.className = 'custom-card';
       if (p.id === productField.value) card.classList.add('selected');
+
+      if (p.imagePath) {
+        const img = document.createElement('img');
+        img.className = 'custom-card-photo';
+        img.src = p.imagePath;
+        img.alt = p.imageAlt || p.name;
+        img.loading = 'lazy';
+        img.style.aspectRatio = p.mockupAspect || '1/1';
+        card.appendChild(img);
+      }
 
       const h4 = document.createElement('h4');
       h4.textContent = p.name;

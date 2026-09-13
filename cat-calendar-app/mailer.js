@@ -125,7 +125,7 @@ async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, close
     : '';
   const html = wrapLayout(`
     <p>Hi there,</p>
-    <p><strong>${safeName}</strong> is entered — free, no purchase necessary. The top vote-getters when voting closes on <strong>${closeDate}</strong> win this round's calendar.</p>
+    <p><strong>${safeName}</strong> is entered — free, no purchase necessary. Whoever has the most votes when voting closes on <strong>${closeDate}</strong> wins an original hand-painted portrait.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${voteUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Vote for ${safeName} &amp; share to get more votes
@@ -145,48 +145,53 @@ async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, close
   });
 }
 
-async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, priceMulti }) {
+// Sent the instant a contest closes and its #1 vote-getter is decided —
+// this now carries the actual grand-prize win directly (see awardPainting
+// in server.js's tallyAndCloseContest): no separate second vote, the
+// round's own real public vote already made the decision. sculptureDeadline
+// is kept as the param name for continuity with the (now dormant)
+// tallyAndCloseYearAward path that also calls this same shape of email
+// content; it names when the painting ships, not a sculpture.
+async function sendWinnerEmail({ email, catName, sculptureDeadline }) {
   const safeName = escapeHtml(catName);
+  const deadlineText = sculptureDeadline
+    ? new Date(sculptureDeadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+    : 'in the coming weeks';
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p><strong>${safeName} got the most votes and is this month's Cat of the Month.</strong></p>
-    <p>${safeName} is the cover star of this round's calendar, sharing the pages with the other top vote-getters. ${safeName} is also now in the running for Cat of the Year — a public vote among this year's monthly winners, once a year, for a one-of-a-kind wooden sculpture prize.</p>
-    <p style="text-align:center;margin:24px 0;">
-      <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
-        Get ${safeName}'s calendar — $${priceOne}
-      </a>
-    </p>
-    <p style="font-size:13px;color:#555;">Order 2 or more and each one drops to $${priceMulti} — great for gifts.</p>
+    <p><strong>${safeName} got the most votes and is this month's Cat of the Month! 🏆</strong></p>
+    <p><strong>${safeName} wins a one-of-a-kind original 11x16 acrylic painting of ${safeName}, hand-painted by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. We're aiming to have it delivered by ${deadlineText}.</p>
+    <p>Reply to this email with a mailing address and we'll get started.</p>
+    <p>Congratulations, and thank you for being part of Whiskr.</p>
     <p>— Whiskr</p>
   `,
-    { showUnsubscribe: true, email }
+    { showUnsubscribe: true, email, tagline: 'Cat of the Month' }
   );
   return sendMail({
     to: email,
-    subject: `${catName} is Cat of the Month`,
+    subject: `${catName} is Cat of the Month — you're getting an original painting! 🏆`,
     html,
-    text: `${catName} got the most votes and is Cat of the Month, and is now in the running for Cat of the Year. Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} got the most votes and is Cat of the Month! ${catName} wins a one-of-a-kind original 11x16 acrylic painting, hand-painted by Cody Carlson, aiming for delivery by ${deadlineText}. Reply to this email with a mailing address.\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
-// Sent once a year when the Cat of the Year award closes (see
-// tallyAndCloseYearAward in server.js) — this is the actual grand-prize
-// notification, the one that carries a real fulfillment commitment
-// (sculptureDeadline), separate from the monthly Cat of the Month email
-// above, which no longer promises a sculpture.
+// Sent when the dormant tallyAndCloseYearAward manual-override path (see
+// server.js) is used to hand-correct a past round — not part of the
+// normal flow, which sends sendWinnerEmail above instead. Kept only so
+// that override path still has a real email to send.
 async function sendCatOfYearEmail({ email, catName, sculptureDeadline }) {
   const safeName = escapeHtml(catName);
   const deadlineText = sculptureDeadline
     ? new Date(sculptureDeadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
-    : 'in the coming months';
+    : 'in the coming weeks';
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p><strong>${safeName} is Cat of the Year!</strong> Out of all of this year's monthly Cat of the Month winners, ${safeName} got the most votes in the year-end vote.</p>
-    <p><strong>${safeName} wins a one-of-a-kind wooden sculpture of ${safeName}, handmade by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. We're aiming to have it delivered by ${deadlineText}.</p>
+    <p><strong>${safeName} is Cat of the Year!</strong> Out of the recent Cat of the Month winners up for it, ${safeName} got the most votes.</p>
+    <p><strong>${safeName} wins a one-of-a-kind original 11x16 acrylic painting of ${safeName}, hand-painted by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. We're aiming to have it delivered by ${deadlineText}.</p>
     <p>Reply to this email with a mailing address and we'll get started.</p>
-    <p>Congratulations, and thank you for being part of Whiskr this year.</p>
+    <p>Congratulations, and thank you for being part of Whiskr.</p>
     <p>— Whiskr</p>
   `,
     { showUnsubscribe: true, email, tagline: 'Cat of the Year' }
@@ -195,32 +200,7 @@ async function sendCatOfYearEmail({ email, catName, sculptureDeadline }) {
     to: email,
     subject: `${catName} is Cat of the Year!`,
     html,
-    text: `${catName} is Cat of the Year! ${catName} wins a one-of-a-kind wooden sculpture of ${catName}, handmade by Cody Carlson, aiming for delivery by ${deadlineText}. Reply to this email with a mailing address.\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
-  });
-}
-
-async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, priceMulti }) {
-  const safeName = escapeHtml(catName);
-  const html = wrapLayout(
-    `
-    <p>Hi there,</p>
-    <p>Voting's closed for this round, and while another cat got the most votes, <strong>${safeName} made the calendar</strong> as one of this round's top vote-getters.</p>
-    <p style="text-align:center;margin:24px 0;">
-      <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
-        Get the calendar featuring ${safeName} — $${priceOne}
-      </a>
-    </p>
-    <p style="font-size:13px;color:#555;">Order 2 or more and each one drops to $${priceMulti}.</p>
-    <p>Thanks for entering ${safeName} — and to everyone who voted — we'd love to see them in a future round too.</p>
-    <p>— Whiskr</p>
-  `,
-    { showUnsubscribe: true, email }
-  );
-  return sendMail({
-    to: email,
-    subject: `${catName} made the calendar`,
-    html,
-    text: `${catName} made this round's calendar as one of the top vote-getters. Get it here: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} is Cat of the Year! ${catName} wins a one-of-a-kind original 11x16 acrylic painting of ${catName}, hand-painted by Cody Carlson, aiming for delivery by ${deadlineText}. Reply to this email with a mailing address.\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -234,7 +214,7 @@ async function sendFinalRankEmail({ email, catName, rank, totalEntries, shopUrl,
     `
     <p>Hi there,</p>
     <p>Voting's closed — <strong>${safeName} placed #${rank} out of ${totalEntries} entries</strong> this round. Thanks for entering and for every vote you rounded up.</p>
-    <p>${safeName} didn't make this round's shared calendar, but you can still get a solo print of your own cat — mug, poster, canvas, magnet, and more.</p>
+    <p>This round's original portrait went to another cat, but you can still get a solo print of your own cat — mug, poster, canvas, magnet, and more.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${shopUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Get a print of ${safeName}
@@ -314,11 +294,11 @@ module.exports = {
   sendEntryConfirmation,
   sendWinnerEmail,
   sendCatOfYearEmail,
-  sendFeaturedEmail,
   sendFinalRankEmail,
   sendRankDropEmail,
   sendReviewRequest,
   sendMail,
   isSuppressed,
   unsubscribeUrl,
+  MAILING_ADDRESS,
 };

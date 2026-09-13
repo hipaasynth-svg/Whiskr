@@ -40,6 +40,12 @@ const CONTEST_WINNERS_COUNT = Number(process.env.CONTEST_WINNERS_COUNT || 12);
 // admin fraud-review view for the rest of the defense.
 const VOTE_LIMIT_PER_VOTER_PER_DAY = Number(process.env.VOTE_LIMIT_PER_VOTER_PER_DAY || 30);
 const VOTE_LIMIT_PER_IP_PER_DAY = Number(process.env.VOTE_LIMIT_PER_IP_PER_DAY || 60);
+// Same anti-fraud shape as voting above, applied to the two endpoints that
+// previously had no limit at all: a real cat owner never submits or orders
+// this many times a day, but a script flooding fake entries or fake print
+// orders can hit either endpoint as fast as it likes without this.
+const SUBMISSION_LIMIT_PER_IP_PER_DAY = Number(process.env.SUBMISSION_LIMIT_PER_IP_PER_DAY || 5);
+const CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY = Number(process.env.CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY || 10);
 // Salts the IP hash stored in the votes table so raw IPs are never persisted.
 // Set a real random value in production — the default is fine for local dev
 // only, since anyone who knows it could pre-compute hashes for known IPs.
@@ -57,12 +63,15 @@ const MIN_PRINT_DIMENSION_PX = Number(process.env.MIN_PRINT_DIMENSION_PX || 2000
 // the winner zone) before sendRankDropAlerts emails them again.
 const RANK_DROP_THRESHOLD = Number(process.env.RANK_DROP_THRESHOLD || 5);
 
-// Cat of the Year: a once-a-year public vote among that year's monthly
-// Cat-of-the-Month winners for the one physical grand prize (a wooden
-// sculpture of the winning cat). This is a single ballot, not repeatable
-// daily voting, so the per-IP guard is a flat cap for the whole award
-// rather than a per-day rate — see year_award_votes in db.js.
+// Cat of the Year: DORMANT as of the 2026-09-11 simplification (see
+// awardPainting/tallyAndCloseYearAward above) — every contest's #1 now gets
+// the painting directly from that month's real vote, so this second ballot
+// among monthly winners is a manual-override path only. Off by default —
+// set YEAR_AWARD_MANUAL_VOTE_ENABLED=true to re-enable the routes below,
+// rather than leaving them silently reachable the moment an 'open' row
+// exists (e.g. via the admin override further down this file).
 const YEAR_AWARD_VOTE_LIMIT_PER_IP = Number(process.env.YEAR_AWARD_VOTE_LIMIT_PER_IP || 5);
+const YEAR_AWARD_MANUAL_VOTE_ENABLED = process.env.YEAR_AWARD_MANUAL_VOTE_ENABLED === 'true';
 
 // Marketing ledger: below this ROAS, an active campaign with real spend
 // logged gets an alert email — never an automatic pause or budget change,
@@ -78,6 +87,14 @@ const ROAS_ALERT_MIN_SPEND = Number(process.env.ROAS_ALERT_MIN_SPEND || 25);
 const BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const PRICE_ONE = Number(process.env.CALENDAR_PRICE_USD || 24.99);
 const PRICE_MULTI = Number(process.env.CALENDAR_2PLUS_PRICE_USD || 19.99);
+// The calendar product itself is retired — the site no longer mentions or
+// links to it anywhere — but the checkout/fulfillment code is kept as a
+// dormant, flaggable feature rather than deleted, same treatment as the
+// Cat of the Year vote above. Off by default: a real, unauthenticated
+// Stripe checkout for a product nothing on the site sells shouldn't be
+// reachable just because nothing links to it. Set CALENDAR_CHECKOUT_ENABLED
+// =true only if this product is deliberately brought back.
+const CALENDAR_CHECKOUT_ENABLED = process.env.CALENDAR_CHECKOUT_ENABLED === 'true';
 // Physical products (calendars, custom prints) need a real ship-to address.
 // Keep this list short by default — every country you add is one you're
 // committing to handle customs/duties questions for.
@@ -226,6 +243,23 @@ async function checkImageQuality(buffer) {
   }
 }
 
+// Shared owner-alert helper — used for anything that needs a human to look
+// at an order (a failed Printful submission, a refund, a dispute). Silently
+// no-ops without ADMIN_EMAIL; startup already warns loudly if it's unset
+// (see the top-level env checks) so that's a deliberate, visible choice,
+// not a silent failure.
+async function alertAdmin(subject, message) {
+  if (!process.env.ADMIN_EMAIL) return;
+  await mailer
+    .sendMail({
+      to: process.env.ADMIN_EMAIL,
+      subject,
+      text: message,
+      html: `<p>${message}</p>`,
+    })
+    .catch(() => {});
+}
+
 // Submits a paid custom order to Printful for printing + shipping. Only
 // ever called from the webhook below, after Stripe confirms payment — never
 // at checkout time, and never more than once (custom_orders.status guards
@@ -260,16 +294,10 @@ async function submitCustomOrderToPrintful(orderId) {
     }
   } catch (err) {
     await db.run(`UPDATE custom_orders SET status = 'failed' WHERE id = ?`, [order.id]);
-    if (process.env.ADMIN_EMAIL) {
-      await mailer
-        .sendMail({
-          to: process.env.ADMIN_EMAIL,
-          subject: `Custom order #${order.id} failed to submit to Printful`,
-          text: `Custom order #${order.id} (${order.email}) was paid but failed to submit to Printful: ${err.message}. It needs manual attention.`,
-          html: `<p>Custom order #${order.id} (${order.email}) was paid but failed to submit to Printful: ${err.message}</p><p>It needs manual attention.</p>`,
-        })
-        .catch(() => {});
-    }
+    await alertAdmin(
+      `Custom order #${order.id} failed to submit to Printful`,
+      `Custom order #${order.id} (${order.email}) was paid but failed to submit to Printful: ${err.message}. It needs manual attention.`
+    );
     console.error(`[printful] failed to submit custom order #${order.id}:`, err.message);
   }
 }
@@ -303,24 +331,69 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
     const shippingJson = session.shipping_details ? JSON.stringify(session.shipping_details) : null;
 
     if (orderType === 'calendar' && orderId) {
-      const info = await db.run(`UPDATE orders SET status = 'paid', shipping_address = ? WHERE id = ?`, [
-        shippingJson,
-        orderId,
-      ]);
+      // Scoped to status='pending' so a retried webhook delivery (Stripe
+      // resends on any non-2xx or slow response) can't re-mark an
+      // already-paid order and re-trigger anything downstream of it.
+      const info = await db.run(
+        `UPDATE orders SET status = 'paid', shipping_address = ? WHERE id = ? AND status = 'pending'`,
+        [shippingJson, orderId]
+      );
       console.log(
         info.changes > 0
           ? `[stripe webhook] calendar order #${orderId} marked paid.`
-          : `[stripe webhook] checkout.session.completed for unknown calendar order #${orderId}`
+          : `[stripe webhook] checkout.session.completed for unknown or already-processed calendar order #${orderId}`
       );
     } else if (orderType === 'custom' && orderId) {
-      await db.run(`UPDATE custom_orders SET status = 'paid', shipping_address = ? WHERE id = ?`, [
-        shippingJson,
-        orderId,
-      ]);
-      console.log(`[stripe webhook] custom order #${orderId} marked paid.`);
-      await submitCustomOrderToPrintful(orderId);
+      // Same idempotency guard — without it, a retried delivery resets an
+      // already-'submitted_to_printful' order back to 'paid', which defeats
+      // submitCustomOrderToPrintful's own status check and re-submits the
+      // same order to Printful a second time.
+      const info = await db.run(
+        `UPDATE custom_orders SET status = 'paid', shipping_address = ? WHERE id = ? AND status = 'pending'`,
+        [shippingJson, orderId]
+      );
+      if (info.changes > 0) {
+        console.log(`[stripe webhook] custom order #${orderId} marked paid.`);
+        await submitCustomOrderToPrintful(orderId);
+      } else {
+        console.log(`[stripe webhook] custom order #${orderId} already processed (duplicate delivery) — skipping.`);
+      }
     } else {
       console.warn(`[stripe webhook] checkout.session.completed with unrecognized metadata for session ${session.id}`);
+    }
+  } else if (event.type === 'charge.refunded' || event.type === 'charge.dispute.created') {
+    // Neither a Charge nor a Dispute carries our own order metadata directly
+    // — only the Checkout Session does — so look the session up by the
+    // payment intent they both share, then flag whichever order it maps to.
+    // Without this, a refunded or disputed order just sits at 'paid'/
+    // 'submitted_to_printful' forever and can still go out the door.
+    const obj = event.data.object;
+    const paymentIntent = obj.payment_intent;
+    const newStatus = event.type === 'charge.refunded' ? 'refunded' : 'disputed';
+    try {
+      if (paymentIntent) {
+        const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent, limit: 1 });
+        const session = sessions.data[0];
+        const orderType = session && session.metadata && session.metadata.orderType;
+        const orderId = session && session.metadata && Number(session.metadata.orderId);
+        if (orderType === 'custom' && orderId) {
+          await db.run(`UPDATE custom_orders SET status = ? WHERE id = ?`, [newStatus, orderId]);
+          await alertAdmin(
+            `Custom order #${orderId} was ${newStatus}`,
+            `Custom order #${orderId} was marked ${newStatus} in Stripe. If it already shipped or was submitted to Printful, it needs manual attention.`
+          );
+        } else if (orderType === 'calendar' && orderId) {
+          await db.run(`UPDATE orders SET status = ? WHERE id = ?`, [newStatus, orderId]);
+          await alertAdmin(
+            `Order #${orderId} was ${newStatus}`,
+            `Order #${orderId} was marked ${newStatus} in Stripe. It needs manual attention.`
+          );
+        } else {
+          console.warn(`[stripe webhook] ${event.type} for payment_intent ${paymentIntent} with no matching order`);
+        }
+      }
+    } catch (err) {
+      console.error(`[stripe webhook] failed to process ${event.type}:`, err.message);
     }
   }
 
@@ -406,7 +479,7 @@ async function renderIndexHtml() {
     html = seo.fillEmpty(
       html,
       'winnerBlurb',
-      seo.escapeHtml('Chosen as Cat of the Month by real public vote. Their calendar is in the shop below.')
+      seo.escapeHtml('Chosen as Cat of the Month by real public vote.')
     );
   } else if (contestId) {
     // No round has closed yet — instead of a dead-end "check back soon",
@@ -422,7 +495,7 @@ async function renderIndexHtml() {
     }
   }
 
-  const products = productCatalog.listProducts('all');
+  const products = await getProductsWithMedia('all');
   html = seo.fillEmpty(html, 'customGrid', seo.renderProductCards(products));
   html = seo.injectIntoHead(
     html,
@@ -434,8 +507,31 @@ async function renderIndexHtml() {
     html = seo.fillEmpty(html, 'heroSlides', seo.renderHeroSlides(slides.map((s) => s.image_path)));
   }
 
+  const originals = await db.all(
+    `SELECT image_path, cat_name FROM featured_originals ORDER BY position ASC, id ASC`
+  );
+  if (originals.length > 0) {
+    html = seo.fillEmpty(html, 'originalsGrid', seo.renderOriginals(originals));
+    html = html.replace('id="originalsGrid" hidden', 'id="originalsGrid"');
+    html = html.replace('id="originalsEmpty"', 'id="originalsEmpty" hidden');
+  }
+
   return html;
 }
+
+// Served for /calendar.html while CALENDAR_CHECKOUT_ENABLED is off — a 410
+// (permanently gone) tells crawlers to drop any old indexed link rather
+// than leave them re-crawling a stale page, and gives a human who followed
+// an old bookmark somewhere useful instead of a bare error.
+const CALENDAR_GONE_HTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>No longer available — Whiskr</title><meta name="robots" content="noindex, nofollow" />
+<link rel="stylesheet" href="/style.css" /></head>
+<body><div style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;">
+<h1>This page is no longer available.</h1>
+<p>Whiskr's contest now gives an original hand-painted portrait straight to each round's winner — there's no separate calendar to order.</p>
+<p><a href="/">Back to Whiskr</a></p>
+</div></body></html>`;
 
 async function renderCalendarHtml(groupIdRaw) {
   let html = fs.readFileSync(CALENDAR_PATH, 'utf8');
@@ -487,6 +583,10 @@ app.get(['/', '/index.html'], async (req, res, next) => {
 });
 
 app.get('/calendar.html', async (req, res, next) => {
+  if (!CALENDAR_CHECKOUT_ENABLED) {
+    res.status(410).set('Content-Type', 'text/html; charset=utf-8').send(CALENDAR_GONE_HTML);
+    return;
+  }
   try {
     res.set('Content-Type', 'text/html; charset=utf-8');
     res.send(await renderCalendarHtml(req.query.group));
@@ -496,22 +596,17 @@ app.get('/calendar.html', async (req, res, next) => {
   }
 });
 
-// Dynamic sitemap — every completed contest batch gets its own indexable
-// URL, not just the homepage. Regenerated per-request from the live groups
-// table (cheap: this table stays small), so a new batch is discoverable the
-// moment judging finishes, no redeploy needed.
+// Dynamic sitemap. year-award.html and per-round calendar.html pages are
+// deliberately left out — both are dormant (see the 2026-09-11
+// simplification note in docs/audit-assembly.md), nothing to index.
 app.get('/sitemap.xml', async (req, res) => {
-  const completed = await db.all(`SELECT id FROM groups WHERE status = 'completed' ORDER BY id ASC`);
   const urls = [
     { loc: `${BASE_URL}/`, changefreq: 'daily', priority: '1.0' },
     { loc: `${BASE_URL}/vote.html`, changefreq: 'hourly', priority: '0.9' },
-    { loc: `${BASE_URL}/year-award.html`, changefreq: 'weekly', priority: '0.4' },
     { loc: `${BASE_URL}/rules.html`, changefreq: 'monthly', priority: '0.3' },
-    ...completed.map((g) => ({
-      loc: `${BASE_URL}/calendar.html?group=${g.id}`,
-      changefreq: 'weekly',
-      priority: '0.8',
-    })),
+    { loc: `${BASE_URL}/privacy.html`, changefreq: 'monthly', priority: '0.2' },
+    { loc: `${BASE_URL}/terms.html`, changefreq: 'monthly', priority: '0.2' },
+    { loc: `${BASE_URL}/shipping.html`, changefreq: 'monthly', priority: '0.2' },
   ];
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -544,10 +639,6 @@ function cleanUtmCampaign(raw) {
   return cleaned || null;
 }
 
-function calendarBuyUrl(groupId) {
-  return `${BASE_URL}/calendar.html?group=${groupId}`;
-}
-
 // ---------- contest lifecycle (open entry, real public voting) ----------
 
 // Anonymous voter identity: a random token in a long-lived first-party
@@ -577,10 +668,6 @@ function hashIp(ip) {
   return crypto.createHash('sha256').update(`${IP_HASH_SALT}:${ip}`).digest('hex');
 }
 
-function calendarBuyUrl(groupId) {
-  return `${BASE_URL}/calendar.html?group=${groupId}`;
-}
-
 // The one contest entries/votes currently attach to. Lazily opens the next
 // one the moment the previous closes (or on first-ever request) — entry
 // should never hit a dead end, same "always open" spirit as the print shop.
@@ -599,13 +686,14 @@ async function getOrOpenCurrentContest() {
   return db.get(`SELECT * FROM contests WHERE id = ?`, [info.rows[0].id]);
 }
 
-// Tally every non-disqualified entry by vote count (ties broken by earliest
-// entry — deterministic, no coin flips to dispute), rank all of them 1..N,
-// promote the top CONTEST_WINNERS_COUNT into a `groups` row so the existing
-// calendar/checkout/Stripe/PDF pipeline handles that part completely
-// unchanged, and email every entrant their outcome: winners get the
-// existing win/featured emails, everyone else gets their final placement
-// and a nudge toward a solo print of their own cat.
+// Every contest's own #1 vote-getter directly wins the grand prize — an
+// original hand-painted portrait — the instant the contest closes. No
+// separate vote: the real public vote that just decided the round IS the
+// decision, full stop (see awardPainting below). Ties broken by earliest
+// entry — deterministic, no coin flips to dispute. Everyone else gets
+// their real final placement and a nudge toward a solo print of their own
+// cat; there's no second "featured" tier anymore — see the 2026-09-11
+// simplification note in docs/audit-assembly.md for why.
 async function tallyAndCloseContest(contestId) {
   const contest = await db.get(`SELECT * FROM contests WHERE id = ?`, [contestId]);
   if (!contest || contest.status !== 'open') return null;
@@ -622,9 +710,13 @@ async function tallyAndCloseContest(contestId) {
     return null;
   }
 
+  // Internal record of "this round's results" — kept exactly as before
+  // (top CONTEST_WINNERS_COUNT grouped together, #1 as winner_submission_id)
+  // since /api/status's homepage "recent winner" lookup still reads it.
+  // Not a calendar product anymore — nothing public promotes or sells
+  // this grouping; it's just how a round's outcome is stored.
   const winnersCount = Math.min(CONTEST_WINNERS_COUNT, ranked.length);
   const winners = ranked.slice(0, winnersCount);
-  const now = new Date().toISOString();
 
   const groupId = await db.transaction(async (tx) => {
     for (let i = 0; i < ranked.length; i++) {
@@ -642,21 +734,13 @@ async function tallyAndCloseContest(contestId) {
     return gid;
   });
 
-  const buyUrl = calendarBuyUrl(groupId);
   for (let i = 0; i < ranked.length; i++) {
     const s = ranked[i];
     const rank = i + 1;
     try {
       if (rank === 1) {
-        await mailer.sendWinnerEmail({
-          email: s.email, catName: s.cat_name, groupId, buyUrl,
-          priceOne: PRICE_ONE.toFixed(2), priceMulti: PRICE_MULTI.toFixed(2),
-        });
-      } else if (rank <= winnersCount) {
-        await mailer.sendFeaturedEmail({
-          email: s.email, catName: s.cat_name, groupId, buyUrl,
-          priceOne: PRICE_ONE.toFixed(2), priceMulti: PRICE_MULTI.toFixed(2),
-        });
+        const { deadline } = await awardPainting(s, `${contest.label} winner`);
+        await mailer.sendWinnerEmail({ email: s.email, catName: s.cat_name, sculptureDeadline: deadline });
       } else {
         const discountExpiresAt = new Date(Date.now() + FINAL_RANK_DISCOUNT_HOURS * 60 * 60 * 1000).toISOString();
         await mailer.sendFinalRankEmail({
@@ -676,17 +760,45 @@ async function tallyAndCloseContest(contestId) {
     }
   }
 
-  console.log(`[contest] #${contestId} closed. ${ranked.length} entries, winner: ${winners[0].cat_name} (submission ${winners[0].id}), calendar group #${groupId}.`);
+  console.log(`[contest] #${contestId} closed. ${ranked.length} entries, winner: ${winners[0].cat_name} (submission ${winners[0].id}).`);
   await getOrOpenCurrentContest();
   return groupId;
 }
 
-// Tallies a Cat of the Year award: highest-vote finalist wins, ties broken
-// by whichever finalist row was created first (deterministic, same
-// principle as the monthly tie-break). Unlike tallyAndCloseContest, this
-// is only ever called from an admin action (POST
-// /api/admin/year-award/force-close) — never a cron — since crowning Cat
-// of the Year is a rare, deliberate moment, not a scheduled event.
+// Records the grand-prize win the instant a contest's #1 is decided —
+// reuses the existing year_awards/year_award_finalists schema unchanged
+// (so admin history and any dormant tooling built against it still work)
+// but creates the row already 'completed' rather than 'open': there is no
+// second vote anymore, the monthly vote that just happened already
+// decided it. See tallyAndCloseYearAward below, kept only as a manual
+// override path (POST /api/admin/year-award/open + /force-close still
+// exist but nothing links to them anymore) in case a past round ever
+// needs a correction.
+async function awardPainting(winnerSubmission, label) {
+  const now = new Date().toISOString();
+  const deadline = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  const info = await db.run(
+    `INSERT INTO year_awards (label, opens_at, closes_at, status, winner_submission_id, sculpture_deadline, created_at)
+     VALUES (?, ?, ?, 'completed', ?, ?, ?) RETURNING id`,
+    [label, now, now, winnerSubmission.id, deadline, now]
+  );
+  await db.run(
+    `INSERT INTO year_award_finalists (year_award_id, submission_id, vote_count) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
+    [info.rows[0].id, winnerSubmission.id, winnerSubmission.vote_count]
+  );
+  return { yearAwardId: info.rows[0].id, deadline };
+}
+
+// DORMANT as of the 2026-09-11 simplification: every contest's #1 now
+// wins the painting automatically via awardPainting (see
+// tallyAndCloseContest above) — there's no separate vote to tally
+// anymore, so nothing calls this function or its /api/admin/year-award/
+// open + force-close routes from any linked UI. Left in place, unchanged,
+// only as a manual override an operator could still reach directly (e.g.
+// curl) if a past round ever needed hand-correcting; never re-link the
+// admin "open a vote" form to it without first confirming that's really
+// wanted, since it would create a confusing second vote alongside the
+// automatic one.
 async function tallyAndCloseYearAward(yearAwardId) {
   const award = await db.get(`SELECT * FROM year_awards WHERE id = ?`, [yearAwardId]);
   if (!award || award.status !== 'open') return null;
@@ -840,6 +952,15 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     if (photoRights !== 'on' && photoRights !== 'true') {
       return res.status(400).json({ error: 'You must confirm you own the rights to this photo.' });
     }
+    const ipHash = hashIp(req.ip);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const ipCount = await db.get(`SELECT COUNT(*) AS c FROM submissions WHERE ip_hash = ? AND created_at >= ?`, [
+      ipHash, dayAgo,
+    ]);
+    if (Number(ipCount.c) >= SUBMISSION_LIMIT_PER_IP_PER_DAY) {
+      return res.status(429).json({ error: 'Too many entries from this connection today — try again tomorrow.' });
+    }
+
     // Strip newlines so a crafted cat name can't inject extra lines into
     // the plaintext/subject of outgoing emails.
     const name = (catName || 'Anonymous Cat').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
@@ -851,9 +972,9 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     const contest = await getOrOpenCurrentContest();
 
     const info = await db.run(
-      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution, share_image_path, utm_campaign)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, name, photoPath, now, now, contest.id, width, height, lowResolution, shareImagePath, utmCampaign]
+      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution, share_image_path, utm_campaign, ip_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, name, photoPath, now, now, contest.id, width, height, lowResolution, shareImagePath, utmCampaign, ipHash]
     );
     const submissionId = info.rows[0].id;
     const voteUrl = `${BASE_URL}/vote.html?cat=${submissionId}`;
@@ -947,8 +1068,6 @@ app.get('/api/my-status', async (req, res) => {
     contestStatus: 'completed',
     voteCount: submission.vote_count,
     finalRank: submission.final_rank,
-    madeCalendar: Boolean(submission.group_id),
-    groupId: submission.group_id,
   });
 });
 
@@ -985,20 +1104,30 @@ app.post('/api/vote', async (req, res) => {
     const ipHash = hashIp(req.ip);
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    const voterCount = await db.get(`SELECT COUNT(*) AS c FROM votes WHERE voter_token = ? AND created_at >= ?`, [
-      voterToken, dayAgo,
-    ]);
-    if (Number(voterCount.c) >= VOTE_LIMIT_PER_VOTER_PER_DAY) {
-      return res.status(429).json({ error: "You've hit today's voting limit — try again tomorrow." });
-    }
-    const ipCount = await db.get(`SELECT COUNT(*) AS c FROM votes WHERE ip_hash = ? AND created_at >= ?`, [
-      ipHash, dayAgo,
-    ]);
-    if (Number(ipCount.c) >= VOTE_LIMIT_PER_IP_PER_DAY) {
-      return res.status(429).json({ error: "Too many votes from this connection today — try again tomorrow." });
-    }
-
+    // The rate-limit checks and the insert all happen inside one
+    // transaction, serialized per voter/IP with a transaction-scoped
+    // advisory lock — without that, two concurrent votes from the same
+    // voter/connection can both pass the COUNT check before either one's
+    // INSERT is visible to the other, squeezing past the daily limit.
+    // pg_advisory_xact_lock auto-releases at COMMIT/ROLLBACK, so there's
+    // nothing to clean up and no lock held outside this request.
     await db.transaction(async (tx) => {
+      await tx.run(`SELECT pg_advisory_xact_lock(hashtext(?))`, [`vote:${voterToken}`]);
+      await tx.run(`SELECT pg_advisory_xact_lock(hashtext(?))`, [`vote-ip:${ipHash}`]);
+
+      const voterCount = await tx.get(`SELECT COUNT(*) AS c FROM votes WHERE voter_token = ? AND created_at >= ?`, [
+        voterToken, dayAgo,
+      ]);
+      if (Number(voterCount.c) >= VOTE_LIMIT_PER_VOTER_PER_DAY) {
+        throw Object.assign(new Error("You've hit today's voting limit — try again tomorrow."), { rateLimited: true });
+      }
+      const ipCount = await tx.get(`SELECT COUNT(*) AS c FROM votes WHERE ip_hash = ? AND created_at >= ?`, [
+        ipHash, dayAgo,
+      ]);
+      if (Number(ipCount.c) >= VOTE_LIMIT_PER_IP_PER_DAY) {
+        throw Object.assign(new Error('Too many votes from this connection today — try again tomorrow.'), { rateLimited: true });
+      }
+
       await tx.run(`INSERT INTO votes (submission_id, voter_token, ip_hash, created_at) VALUES (?, ?, ?, ?)`, [
         submissionId, voterToken, ipHash, new Date().toISOString(),
       ]);
@@ -1007,6 +1136,9 @@ app.post('/api/vote', async (req, res) => {
 
     res.json({ ok: true });
   } catch (err) {
+    if (err.rateLimited) {
+      return res.status(429).json({ error: err.message });
+    }
     if (err.code === '23505') {
       return res.status(400).json({ error: "You've already voted for this cat." });
     }
@@ -1019,6 +1151,7 @@ app.post('/api/vote', async (req, res) => {
 // vote counts — same hidden-tally rule as the monthly vote). Returns
 // award: null most of the year, since this only opens once annually.
 app.get('/api/year-award/current', async (req, res) => {
+  if (!YEAR_AWARD_MANUAL_VOTE_ENABLED) return res.json({ award: null, finalists: [] });
   const award = await db.get(`SELECT * FROM year_awards WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
   if (!award) return res.json({ award: null, finalists: [] });
   const finalists = await db.all(
@@ -1037,6 +1170,9 @@ app.get('/api/year-award/current', async (req, res) => {
 // pick per person for the whole award (UNIQUE on year_award_id+voter_token,
 // not per finalist) — see year_award_votes in db.js.
 app.post('/api/year-award/vote', async (req, res) => {
+  if (!YEAR_AWARD_MANUAL_VOTE_ENABLED) {
+    return res.status(501).json({ error: 'Not available.' });
+  }
   try {
     const finalistId = Number(req.body.finalistId);
     if (!finalistId) return res.status(400).json({ error: 'Missing finalistId.' });
@@ -1078,7 +1214,7 @@ app.post('/api/year-award/vote', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     if (err.code === '23505') {
-      return res.status(400).json({ error: "You've already voted in this year's award." });
+      return res.status(400).json({ error: "You've already voted in this Cat of the Year award." });
     }
     console.error(err);
     res.status(500).json({ error: 'Something went wrong.' });
@@ -1107,16 +1243,37 @@ async function verifyTurnstile(token, remoteIp) {
 }
 
 // Public catalog of custom cat/dog print products (see products.js).
-app.get('/api/products', (req, res) => {
+// Merges the fixed products.js catalog with whatever admin-uploaded photo/
+// copy exists in product_media (see /api/admin/products), resolving each
+// optional override down to the one effective value a consumer actually
+// needs — callers here (the public API, and renderIndexHtml's SSR pass)
+// shouldn't have to know an override even exists. A product nobody has
+// photographed yet just comes back with imagePath: null — the honest
+// empty state, same as everywhere else — never a placeholder image.
+async function getProductsWithMedia(species) {
+  const media = await db.all(`SELECT * FROM product_media`);
+  const byId = Object.fromEntries(media.map((m) => [m.product_id, m]));
+  return productCatalog.listProducts(species).map((p) => {
+    const m = byId[p.id];
+    const description = (m && m.description_override) || p.description;
+    return {
+      id: p.id,
+      name: p.name,
+      species: p.species,
+      description,
+      priceUsd: p.priceUsd,
+      mockupAspect: p.mockupAspect,
+      imagePath: m ? m.image_path : null,
+      imageAlt: (m && m.image_alt) || p.name,
+      seoName: (m && m.seo_title) || p.name,
+      seoDescription: (m && m.seo_description) || description,
+    };
+  });
+}
+
+app.get('/api/products', async (req, res) => {
   const species = typeof req.query.species === 'string' ? req.query.species : null;
-  const list = productCatalog.listProducts(species).map((p) => ({
-    id: p.id,
-    name: p.name,
-    species: p.species,
-    description: p.description,
-    priceUsd: p.priceUsd,
-  }));
-  res.json({ products: list });
+  res.json({ products: await getProductsWithMedia(species) });
 });
 
 app.get('/api/phone-models', (req, res) => {
@@ -1135,6 +1292,27 @@ app.get('/api/config', (req, res) => {
 app.get('/api/background', async (req, res) => {
   const slides = await db.all(`SELECT id, image_path FROM background_slides ORDER BY position ASC, id ASC`);
   res.json({ slides });
+});
+
+// Admin-managed showcase of a couple of Cody's completed originals — empty
+// means no gallery at all (honest "still drying" empty state), never a
+// placeholder image. See featured_originals in db.js.
+app.get('/api/originals', async (req, res) => {
+  const originals = await db.all(
+    `SELECT id, image_path, cat_name FROM featured_originals ORDER BY position ASC, id ASC`
+  );
+  res.json({ originals });
+});
+
+// Public: the site footer's real mailing address, sourced from the same
+// BUSINESS_MAILING_ADDRESS env var mailer.js already puts in every
+// commercial email's CAN-SPAM footer — one value, two places it has to
+// appear. Returns null (never the internal placeholder string mailer.js
+// falls back to) until the owner actually sets it — same honest-empty-state
+// rule as reviews/background photos/originals: nothing shown beats a
+// visibly broken placeholder in front of a real visitor.
+app.get('/api/business-info', (req, res) => {
+  res.json({ address: process.env.BUSINESS_MAILING_ADDRESS || null });
 });
 
 // Upload a pet photo, pick a product, pay — this is the evergreen storefront
@@ -1166,6 +1344,15 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     const product = productCatalog.getProduct(productId);
     if (!product) {
       return res.status(400).json({ error: 'Unknown product.' });
+    }
+
+    const ipHash = hashIp(req.ip);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const ipCount = await db.get(`SELECT COUNT(*) AS c FROM custom_orders WHERE ip_hash = ? AND created_at >= ?`, [
+      ipHash, dayAgo,
+    ]);
+    if (Number(ipCount.c) >= CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY) {
+      return res.status(429).json({ error: 'Too many orders from this connection today — try again tomorrow.' });
     }
 
     // Phone cases are sized per exact device — there's no single Printful
@@ -1202,9 +1389,9 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     const amount = unitPrice * qty;
 
     const info = await db.run(
-      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at, photo_width, photo_height, low_resolution, discount_percent, utm_campaign, variant_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now, width, height, lowResolution, discountPercent, utmCampaign, variantId]
+      `INSERT INTO custom_orders (email, product_id, species, pet_name, photo_path, quantity, amount_usd, status, photo_rights_consent_at, created_at, photo_width, photo_height, low_resolution, discount_percent, utm_campaign, variant_id, ip_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, product.id, species, petNameClean, photoPath, qty, amount, now, now, width, height, lowResolution, discountPercent, utmCampaign, variantId, ipHash]
     );
     const orderId = info.rows[0].id;
 
@@ -1253,6 +1440,7 @@ app.get('/api/status', async (req, res) => {
 
 // Calendar landing/checkout page for a specific completed group
 app.get('/api/calendar/:groupId', async (req, res) => {
+  if (!CALENDAR_CHECKOUT_ENABLED) return res.status(410).json({ error: 'No longer available.' });
   const groupId = Number(req.params.groupId);
   const group = await db.get(`SELECT * FROM groups WHERE id = ?`, [groupId]);
   if (!group) return res.status(404).json({ error: 'Not found' });
@@ -1271,6 +1459,7 @@ app.get('/api/calendar/:groupId', async (req, res) => {
 
 // Create a Stripe Checkout session for a calendar order
 app.post('/api/checkout', async (req, res) => {
+  if (!CALENDAR_CHECKOUT_ENABLED) return res.status(410).json({ error: 'No longer available.' });
   try {
     if (!stripe) {
       return res.status(400).json({ error: 'Stripe is not configured on this server yet.' });
@@ -1407,16 +1596,43 @@ app.post('/api/reviews', async (req, res) => {
 });
 
 // ---------- admin / ops ----------
+// Header only — admin.html has only ever sent x-admin-key, never a ?key=
+// query param, and a key in the URL just ends up in access logs, browser
+// history, and any Referer header for no benefit.
+//
+// Failed attempts are throttled per-IP, in-memory: a bare-minimum
+// defense-in-depth layer on top of key entropy, which is the real defense.
+// It resets on every cold start (this runs on Vercel serverless), so treat
+// it as raising the cost of a brute-force burst within one warm instance,
+// not a durable lockout.
+const ADMIN_AUTH_LIMIT = 20;
+const ADMIN_AUTH_WINDOW_MS = 5 * 60 * 1000;
+const adminAuthFailures = new Map(); // ip -> { count, windowStart }
+
 function requireAdmin(req, res, next) {
-  const provided = Buffer.from(String(req.headers['x-admin-key'] || req.query.key || ''));
+  const ip = req.ip || 'unknown';
+  const now = Date.now();
+  const entry = adminAuthFailures.get(ip);
+  if (entry && now - entry.windowStart < ADMIN_AUTH_WINDOW_MS && entry.count >= ADMIN_AUTH_LIMIT) {
+    return res.status(429).json({ error: 'Too many failed attempts — try again later.' });
+  }
+
+  const provided = Buffer.from(String(req.headers['x-admin-key'] || ''));
   const expected = Buffer.from(String(process.env.ADMIN_KEY || ''));
   const valid =
     process.env.ADMIN_KEY &&
     provided.length === expected.length &&
     crypto.timingSafeEqual(provided, expected);
+
   if (!valid) {
+    if (!entry || now - entry.windowStart >= ADMIN_AUTH_WINDOW_MS) {
+      adminAuthFailures.set(ip, { count: 1, windowStart: now });
+    } else {
+      entry.count += 1;
+    }
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  adminAuthFailures.delete(ip);
   next();
 }
 
@@ -1472,14 +1688,33 @@ app.post('/api/admin/contest/force-close', requireAdmin, async (req, res) => {
   res.json({ ok: true, contestId: contest.id, groupId });
 });
 
+// Read-only history of every painting awarded so far (one row per contest
+// round now — see awardPainting in tallyAndCloseContest) — this is what
+// admin.html's "Painting winners" section actually shows; there's no
+// "open a vote" step to manage anymore.
+app.get('/api/admin/year-award', requireAdmin, async (req, res) => {
+  const awards = await db.all(
+    `SELECT ya.*, s.cat_name, s.email, s.photo_path
+     FROM year_awards ya
+     LEFT JOIN submissions s ON s.id = ya.winner_submission_id
+     ORDER BY ya.created_at DESC`
+  );
+  res.json({ awards });
+});
+
+// DORMANT as of the 2026-09-11 simplification (see tallyAndCloseYearAward
+// above) — kept only as a manual override, not linked from any UI.
 // Opens a new Cat of the Year award: auto-populates finalists from every
 // completed monthly Cat-of-the-Month winner (groups.winner_submission_id)
 // sealed within [sinceDate, untilDate] — default sinceDate is "the
-// beginning of time" (covers year one, before any award has ever run) and
-// default untilDate is now. Deliberately admin-triggered, not cron-driven:
-// the operator should set the date range and sculptureDeadline
-// deliberately once a year, not have this fire unattended.
+// beginning of time" (covers the first cycle, before any award has ever
+// run) and default untilDate is now.
 app.post('/api/admin/year-award/open', requireAdmin, async (req, res) => {
+  if (!YEAR_AWARD_MANUAL_VOTE_ENABLED) {
+    return res.status(501).json({
+      error: 'Set YEAR_AWARD_MANUAL_VOTE_ENABLED=true to use this manual-override path — it also re-enables the public vote/current routes.',
+    });
+  }
   const { label, closesAt, sculptureDeadline, sinceDate, untilDate } = req.body;
   if (!label || !closesAt) return res.status(400).json({ error: 'label and closesAt are required.' });
 
@@ -1778,6 +2013,98 @@ app.delete('/api/admin/background/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Featured-originals showcase management — see admin.html's "Featured
+// originals" section. Uploading the first photo turns the homepage
+// showcase on; deleting the last one returns it to the honest "still
+// drying" empty state.
+app.get('/api/admin/originals', requireAdmin, async (req, res) => {
+  const originals = await db.all(
+    `SELECT id, image_path, cat_name, position FROM featured_originals ORDER BY position ASC, id ASC`
+  );
+  res.json({ originals });
+});
+app.post('/api/admin/originals', requireAdmin, upload.single('photo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'A photo is required.' });
+  const catName = (req.body.catName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60) || null;
+  const imagePath = await storePhoto(req.file);
+  const maxPos = await db.get(`SELECT COALESCE(MAX(position), -1) AS m FROM featured_originals`);
+  const info = await db.run(
+    `INSERT INTO featured_originals (image_path, cat_name, position, created_at) VALUES (?, ?, ?, ?) RETURNING id`,
+    [imagePath, catName, Number(maxPos.m) + 1, new Date().toISOString()]
+  );
+  res.json({ id: info.rows[0].id, image_path: imagePath, cat_name: catName });
+});
+app.delete('/api/admin/originals/:id', requireAdmin, async (req, res) => {
+  const info = await db.run(`DELETE FROM featured_originals WHERE id = ?`, [Number(req.params.id)]);
+  if (info.changes === 0) return res.status(404).json({ error: 'Original not found.' });
+  res.json({ ok: true });
+});
+
+// Admin-managed catalog photo + copy for the fixed product set in
+// products.js — see product_media in db.js. Not a free-add list: :id must
+// be a real catalog id, and there's exactly one row per product, upserted
+// rather than freshly created each time a photo or field changes.
+app.get('/api/admin/products', requireAdmin, async (req, res) => {
+  const media = await db.all(`SELECT * FROM product_media`);
+  const byId = Object.fromEntries(media.map((m) => [m.product_id, m]));
+  const products = productCatalog.listProducts('all').map((p) => {
+    const m = byId[p.id];
+    return {
+      id: p.id,
+      name: p.name,
+      species: p.species,
+      priceUsd: p.priceUsd,
+      description: p.description,
+      mockupAspect: p.mockupAspect,
+      imagePath: m ? m.image_path : null,
+      imageAlt: m ? m.image_alt : null,
+      seoTitle: m ? m.seo_title : null,
+      seoDescription: m ? m.seo_description : null,
+      descriptionOverride: m ? m.description_override : null,
+    };
+  });
+  res.json({ products });
+});
+
+app.post('/api/admin/products/:id', requireAdmin, upload.single('photo'), async (req, res) => {
+  const product = productCatalog.getProduct(req.params.id);
+  if (!product) return res.status(404).json({ error: 'Unknown product.' });
+
+  // A photo isn't required on every save — this same endpoint also saves
+  // just-edited text fields. COALESCE below keeps the existing image_path
+  // when no new file comes in, instead of wiping a photo on a text-only edit.
+  const imagePath = req.file ? await storePhoto(req.file) : null;
+  const imageAlt = String(req.body.imageAlt || '').trim().slice(0, 200) || null;
+  const seoTitle = String(req.body.seoTitle || '').trim().slice(0, 200) || null;
+  const seoDescription = String(req.body.seoDescription || '').trim().slice(0, 500) || null;
+  const descriptionOverride = String(req.body.description || '').trim().slice(0, 500) || null;
+
+  await db.run(
+    `INSERT INTO product_media (product_id, image_path, image_alt, seo_title, seo_description, description_override, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (product_id) DO UPDATE SET
+       image_path = COALESCE(EXCLUDED.image_path, product_media.image_path),
+       image_alt = EXCLUDED.image_alt,
+       seo_title = EXCLUDED.seo_title,
+       seo_description = EXCLUDED.seo_description,
+       description_override = EXCLUDED.description_override,
+       updated_at = EXCLUDED.updated_at`,
+    [product.id, imagePath, imageAlt, seoTitle, seoDescription, descriptionOverride, new Date().toISOString()]
+  );
+  res.json({ ok: true });
+});
+
+// Clears just the photo, keeping alt/SEO/description text intact — reverts
+// that product to the honest text-only card until a new photo is uploaded.
+app.delete('/api/admin/products/:id/photo', requireAdmin, async (req, res) => {
+  const product = productCatalog.getProduct(req.params.id);
+  if (!product) return res.status(404).json({ error: 'Unknown product.' });
+  await db.run(`UPDATE product_media SET image_path = NULL, updated_at = ? WHERE product_id = ?`, [
+    new Date().toISOString(), product.id,
+  ]);
+  res.json({ ok: true });
+});
+
 app.post('/api/admin/reviews/:id/approve', requireAdmin, async (req, res) => {
   const info = await db.run(`UPDATE reviews SET approved = 1 WHERE id = ?`, [Number(req.params.id)]);
   if (info.changes === 0) return res.status(404).json({ error: 'Review not found.' });
@@ -1853,6 +2180,29 @@ app.get('/api/cron/daily', async (req, res) => {
   }
 });
 
+// Module scope, not inside app.listen() below — on Vercel this file is
+// required once per cold start and the exported app is invoked per-request,
+// so a warning gated on app.listen() (which never runs there) would never
+// print anywhere, local dev included. These print once per cold start on
+// every environment instead.
+if (!stripe) console.warn('[stripe] STRIPE_SECRET_KEY not set — checkout endpoint disabled.');
+if (stripe && !process.env.STRIPE_WEBHOOK_SECRET) {
+  console.warn('[stripe] STRIPE_WEBHOOK_SECRET not set — paid orders will never be marked paid.');
+}
+if (!BLOB_CONFIGURED) {
+  console.warn('[blob] BLOB_READ_WRITE_TOKEN not set — photos are being saved to local disk (fine for dev only).');
+}
+if (!process.env.ADMIN_EMAIL) {
+  console.warn('[mail] ADMIN_EMAIL not set — a failed order, refund, or dispute will have no one to alert. Set it before taking real payments.');
+}
+if (!process.env.UNSUB_SECRET) {
+  console.warn(
+    process.env.ADMIN_KEY
+      ? "[security] UNSUB_SECRET not set — falling back to ADMIN_KEY to sign discount/status/review/unsubscribe tokens, so your admin key doubles as a token-signing secret. Set UNSUB_SECRET to its own independent value."
+      : '[security] Neither UNSUB_SECRET nor ADMIN_KEY is set — tokens are being signed with a hardcoded, publicly-known fallback secret. Anyone could forge a discount/status/review/unsubscribe link. Set UNSUB_SECRET before taking real traffic.'
+  );
+}
+
 if (require.main === module) {
   // Only listens when run directly (`node server.js` / `npm start`) — on
   // Vercel this file is required as a module and the exported app is
@@ -1861,13 +2211,6 @@ if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Whiskr server running on ${BASE_URL}`);
     console.log(`Contest length: ${CONTEST_LENGTH_DAYS} days | Winners per contest: ${CONTEST_WINNERS_COUNT}`);
-    if (!stripe) console.warn('[stripe] STRIPE_SECRET_KEY not set — checkout endpoint disabled.');
-    if (stripe && !process.env.STRIPE_WEBHOOK_SECRET) {
-      console.warn('[stripe] STRIPE_WEBHOOK_SECRET not set — paid orders will never be marked paid.');
-    }
-    if (!BLOB_CONFIGURED) {
-      console.warn('[blob] BLOB_READ_WRITE_TOKEN not set — photos are being saved to local disk (fine for dev only).');
-    }
   });
 }
 

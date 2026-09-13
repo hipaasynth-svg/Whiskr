@@ -113,6 +113,11 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL
 -- is a real image an entrant can post, not just a bare link. Nullable —
 -- generation failure never blocks an entry.
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS share_image_path TEXT;
+-- sha256(ip + salt), never the raw IP — same anti-fraud pattern as
+-- votes.ip_hash below, used to rate-limit entries per connection per day
+-- (see SUBMISSION_LIMIT_PER_IP_PER_DAY in server.js). Nullable so existing
+-- rows from before this column existed don't need a backfill.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS ip_hash TEXT;
 
 -- One row per (submission, voter) so a browser/cookie identity can't vote
 -- for the same cat twice — the UNIQUE constraint is the real enforcement,
@@ -129,18 +134,18 @@ CREATE TABLE IF NOT EXISTS votes (
 CREATE INDEX IF NOT EXISTS votes_ip_hash_created_idx ON votes(ip_hash, created_at);
 CREATE INDEX IF NOT EXISTS votes_voter_token_created_idx ON votes(voter_token, created_at);
 
--- Annual "Cat of the Year" award: a separate, once-a-year public vote among
--- that year's monthly Cat-of-the-Month winners for the one physical grand
--- prize (a one-of-a-kind wooden sculpture of the winning cat, handmade by
--- Cody Carlson) — moved here from monthly because commissioning a unique
--- sculpture every single month isn't a sustainable prize to fulfill. Kept
+-- "Cat of the Year" award: a separate public vote among monthly
+-- Cat-of-the-Month winners for the one physical grand prize (a one-of-a-kind
+-- 11x16 acrylic painting of the winning cat, hand-painted by Cody Carlson —
+-- table/column names below kept as "sculpture"/"year" for continuity with
+-- existing routes and the sitemap; only the prize medium changed). Runs
+-- roughly monthly now (previously annual) — still admin-opened and
+-- admin-closed (see /api/admin/year-award/* in server.js), never
+-- cron-automated, so the owner controls pacing and finalist-pool size
+-- directly rather than a fixed interval forcing a near-empty vote. Kept
 -- deliberately separate from the monthly contests/submissions/votes tables
 -- rather than reusing them, since the voting rule is different (one ballot
--- per person for the whole award, not repeatable daily voting over 30
--- days) and this only ever runs once a year. Admin-opened and
--- admin-closed (see /api/admin/year-award/* in server.js) — not
--- cron-automated, since this is a rare, deliberate moment the operator
--- should choose, not something to fire on a schedule.
+-- per person for the whole award, not repeatable daily voting over 30 days).
 CREATE TABLE IF NOT EXISTS year_awards (
   id SERIAL PRIMARY KEY,
   label TEXT NOT NULL,
@@ -210,7 +215,7 @@ CREATE TABLE IF NOT EXISTS custom_orders (
   quantity INTEGER NOT NULL DEFAULT 1,
   amount_usd REAL NOT NULL,
   stripe_session_id TEXT,
-  status TEXT NOT NULL DEFAULT 'pending',   -- pending | paid | submitted_to_printful | failed
+  status TEXT NOT NULL DEFAULT 'pending',   -- pending | paid | submitted_to_printful | failed | refunded | disputed
   printful_order_id TEXT,
   photo_rights_consent_at TEXT,
   created_at TEXT NOT NULL,
@@ -222,6 +227,10 @@ ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_height INTEGER;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS low_resolution INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS discount_percent INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+-- Same anti-fraud pattern as submissions.ip_hash/votes.ip_hash — rate-limits
+-- custom orders per connection per day (see CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY
+-- in server.js). Nullable so pre-existing rows don't need a backfill.
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS ip_hash TEXT;
 -- Printful variant ID chosen at order time for products that don't have one
 -- fixed variant in products.js (currently just phone-case, sized per exact
 -- device — see phoneCases.js). NULL for every other product, which falls
@@ -291,6 +300,39 @@ CREATE TABLE IF NOT EXISTS background_slides (
   image_path TEXT NOT NULL,
   position INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
+);
+
+-- Admin-managed showcase of a couple of Cody Carlson's completed grand-
+-- prize originals — "a couple to choose from," not a shop: there's no
+-- checkout here, just photos plus a CTA linking out to codycarlson.art
+-- for real commissions/pricing (that stays entirely on his own site — see
+-- the "Skip the wait" section in index.html). Empty table = an honest
+-- "first one's still drying" state, same never-fake-a-placeholder rule
+-- background_slides and reviews already follow.
+CREATE TABLE IF NOT EXISTS featured_originals (
+  id SERIAL PRIMARY KEY,
+  image_path TEXT NOT NULL,
+  cat_name TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+-- Admin-managed catalog photo + copy for a product in products.js, keyed by
+-- that product's fixed id (not a SERIAL — the row set is bounded by the
+-- real catalog, not freely created). A product with no row here yet, or one
+-- with image_path still NULL, just renders text-only on the site — same
+-- honest-empty-state rule as everywhere else, never a placeholder image.
+-- image_alt/seo_title/seo_description/description_override are each NULL
+-- until the owner sets them, and every read falls back to the products.js
+-- default (name/description) rather than showing an empty string.
+CREATE TABLE IF NOT EXISTS product_media (
+  product_id TEXT PRIMARY KEY,
+  image_path TEXT,
+  image_alt TEXT,
+  seo_title TEXT,
+  seo_description TEXT,
+  description_override TEXT,
+  updated_at TEXT NOT NULL
 );
 
 -- Reviews are only ever created against a real, paid order (calendar or
