@@ -1628,3 +1628,382 @@ Confirmed every affected input's computed `font-size` is now `16px`.
 Visually confirmed the new hero and entry-section copy render correctly
 and legibly on a 390px viewport. No JS files touched this phase — only
 `style.css`, `index.html`, and `review.html`'s inline styles.
+
+## Update — 2026-09-12/13: production incident response, admin resilience, Gallery Series, live sessions, ad tracking
+
+A long working stretch spanning a live production incident and several
+feature builds. Summarized by theme; every item was shipped as its own
+PR, verified locally against a real Postgres instance before pushing,
+and merged.
+
+**Production incident, found and fixed live**: the owner reported a real
+order that paid but never fulfilled. Root cause, diagnosed jointly with
+the owner reading their own Stripe/Vercel dashboards: `whiskr.lol` and
+`www.whiskr.lol` were both attached in Vercel with `www` set as the real
+Production domain and the apex 308-redirecting to it — Stripe's webhook
+delivery system doesn't follow redirects, so **every webhook delivery
+had been silently failing since launch**, never reaching the app, never
+logging anything (the 308 happens at Vercel's edge). Fixed by the owner
+flipping which domain serves Production. Compounded by a second, unrelated
+bug found immediately after: this Stripe account's API version moved
+checkout shipping data from `session.shipping_details` to
+`session.collected_information.shipping_details` — the webhook was still
+reading the old field, so `shipping_address` was always saved `null`.
+Fixed (`extractShippingJson` in `server.js`, shared by the webhook and a
+new admin retry endpoint that re-fetches the session from Stripe directly,
+since the first order's row already had the bad `null` baked in before
+the fix shipped).
+
+**Built — site-wide admin alerts panel**: every `alertAdmin()` call (a
+failed Printful submission, a refund, a dispute) now also lands in a new
+`admin_alerts` table, surfaced in a dedicated panel at the top of
+`admin.html` — visible even if `ADMIN_EMAIL` is unset or email delivery
+fails, which was a real single-point-of-failure before this. The
+"Retry Printful" button is now bright red by default, green on success.
+
+**Built — four admin-editable homepage content slots**, all hidden until
+the owner adds real content (same never-fake-a-placeholder rule as
+everywhere else): a colored starburst badge over the hero
+(`site_blocks` table), two image+text "feature block" sections mid-page,
+and a static two-row footer photo wall (`footer_strip_images` table).
+
+**Found and fixed — photo uploads silently failing on Vercel**: the
+owner reported being unable to upload a background-slideshow photo.
+Root cause, confirmed directly against Vercel's runtime logs (repeated
+`413`s served from the edge, never reaching the app): Vercel's
+serverless functions hard-reject any request body over ~4.5MB, a
+platform limit this app's own (more generous) multer config never gets
+a chance to enforce. A modern phone photo routinely exceeds that alone —
+this silently affected **every** photo upload on the site, not just the
+one admin form: the contest entry photo and the paid custom-order photo
+too, where a failed upload is a lost entrant or a lost sale that never
+even reaches the server to be logged. Fixed with a shared
+`resizeImageForUpload()` (`public/imageResize.js`) that downscales/
+recompresses a large photo client-side before it's ever sent, capped at
+3000px (above `MIN_PRINT_DIMENSION_PX`, so print quality is unaffected),
+wired into all 7 upload forms on the site.
+
+**Built — Gallery Series, a premium print tier**: three new products
+(framed luster poster, framed matte poster, large gallery canvas) with a
+distinct badge in the shop grid. **Left open, needs the owner**:
+`printfulVariantId` is `null` on all three — `printful.com` isn't
+reachable from this sandbox's network policy to confirm the real
+`variant_id`s the way every other product here has been, and pricing is
+set from typical market rates, not a confirmed Printful cost. A real
+order for one of these pays successfully today but Printful submission
+fails safely afterward (shows in the new admin alerts panel) until the
+owner pastes in real variant IDs.
+
+**Built — "Live painting sessions," Phase 1 infrastructure only**: an
+admin on/off toggle (deliberately not the usual empty-state-hides-itself
+rule, since the owner may want it on before any past session exists to
+list), a video embed slot, and a past-sessions list
+(`live_stream_settings`/`live_sessions` tables). Explicitly does **not**
+yet include real-time chat, a richer offline state (next session time,
+contest promo, a link to codycarlson.art), or a dedicated `/live` page —
+all pending the owner's platform choice (YouTube Live recommended: free
+video + free embeddable live chat, no new backend) and one open question
+from the owner's own spec ("Postgres + a Reddit-related API") that
+doesn't map to anything in this codebase and needs clarifying before
+building against it.
+
+**Built — Meta Pixel + Conversions API, dual-tracked**: `Lead` on
+contest entry, `InitiateCheckout` on custom-order submission, `Purchase`
+fired server-side only from the Stripe webhook (the one point a payment
+is actually confirmed — a client-side "thank you page" event fires on
+redirect regardless of whether payment truly succeeded, which would have
+overcounted). Each client `fbq()` call shares its `event_id` with the
+matching Conversions API call so Meta dedupes rather than double-counts.
+Follows the same dry-run-if-unconfigured pattern as every other
+integration; verified locally that a real API failure (403, fake
+credentials) is caught and logged without affecting checkout or entry.
+Deliberately email-only for user matching, not also raw IP/UA/`fbp`/`fbc`
+— that would mean this app starts persisting more raw visitor data than
+it does today (currently only a one-way IP hash), a real privacy-posture
+call left to the owner rather than a silent default. `privacy.html`'s
+tracking disclosure was updated in the same change (it previously stated
+outright "no third-party ad-tracking pixels"), including a new stated
+commitment that ads are targeted at US visitors only, which is why there
+still isn't a cookie-consent banner — a real operational constraint the
+owner's ad account setup now needs to honor. Also added a dynamic
+`og:image`/`twitter:image` sourced from a real admin-uploaded photo
+(never a placeholder), closing a gap where every shared link previewed
+with no thumbnail.
+
+**Found and fixed — the ROAS ledger's silent-failure mode**: revenue
+attribution has always worked by case-insensitive string match between a
+real order's `utm_campaign` and an `ad_campaigns.name` someone typed by
+hand — a typo or naming mismatch doesn't error, it just silently excludes
+that campaign's real revenue from every report, forever, with no signal
+anything is wrong. Fixed with a new "unattributed revenue" panel
+(`GET /api/admin/marketing/unmatched-utm`) that lists every `utm_campaign`
+value with real paid revenue not currently claimed by any campaign, with
+a one-click "Create campaign" prefilled with the exact value — turns an
+invisible failure into a visible, one-click-fixable one. Also added
+on-demand historical backfill (`syncMetaAdSpend` previously only ever
+pulled yesterday, with no way to backfill a campaign added after spend
+had already accrued) and a live impressions/clicks/CTR/CPC diagnostic
+per campaign (`metaAds.getCampaignInsightsForRange`) so a bad-ROAS
+campaign can be diagnosed — not getting clicked vs. getting clicked but
+not converting — rather than just flagged.
+
+**Verified against a real local Postgres instance** for every item
+above: the webhook fix (Vercel logs showing the actual 308s, then real
+200s after the owner's domain fix); the Stripe API-version fix (real
+session JSON read directly); the alerts panel and retry flow end-to-end
+via Playwright; the four homepage slots' hidden/revealed states in both
+server-rendered HTML and the client hydration path (catching and fixing
+a real `fillEmpty` bug along the way — it silently corrupted DOM
+structure whenever a placeholder had a nested closing tag before its
+own, fixed by matching the existing `#originalsGrid`/`#originalsEmpty`
+pattern instead of patching the helper); the upload fix with a synthetic
+24MB/6000x4000 test photo that came out the other side at 3.7MB and
+3000x2000 and uploaded successfully; the Meta CAPI dry-run and real-
+failure paths; and the ROAS fix's full loop — seeding a paid order with
+a deliberately mismatched `utm_campaign`, confirming it showed as
+unattributed revenue, creating a campaign from it in one click, and
+confirming the revenue then appeared attributed.
+
+**Still open, tracked as an explicit todo/status list for the owner
+rather than left implicit**: real Printful variant IDs and cost
+confirmation for the Gallery Series; the live-sessions platform
+decision and chat/offline-state build-out; a dedicated landing page for
+paid traffic; an opt-in marketing/email list separate from
+transactional order records (today every email is tied to one specific
+order/entry row, with no way to re-engage a past entrant who never
+bought); and confirming Meta Pixel events land correctly via
+`META_TEST_EVENT_CODE` once the owner adds real credentials.
+
+## Update — 2026-09-13: referral attribution on share links
+
+Closed the "sharing carries no attribution" gap noted above. `vote.html`
+renders a full listing of every entry (confirmed by reading its
+card-rendering loop and its existing `?cat=` handling, which only
+highlights/scrolls to that card — never filters to it), and its Share
+button lets any visitor share any cat they're looking at — this isn't a
+one-entrant-per-referral system, so the design had to fit "who's
+sharing what," not "which entrant does this belong to."
+
+Landed on the simplest version that still supports a future incentive
+loop, deliberately choosing it over embedding the existing
+`whiskr_voter` persistent cookie into share URLs: a `?via=share` marker
+on the shared cat's own link. `shareCat()` (vote.html) and
+`shareEntryCard()` (script.js — the post-entry share button) both now
+append it; on landing, vote.html reads `via=share` + `cat=` and stores
+the shared cat's id in `sessionStorage` (`whiskr_referred_by`) — session
+scoped on purpose, so credit only covers this one visit, not a lasting
+tracking identity riding along in a publicly-pasted URL. Every vote cast
+during that session, for any cat (not just the one shared), sends that
+id back to `POST /api/vote` as `referredBy`; the server looks it up
+against `submissions` and only persists a real match (a stale or
+tampered id just resolves to no attribution — this is a soft engagement
+signal, not a security control, so it fails safe rather than erroring
+the vote).
+
+New nullable `votes.referred_by_submission_id` column, populated inside
+the same transaction as every other vote-insert invariant (rate limits,
+advisory locks). Surfaced in two places: the admin fraud-review panel
+gets a "Referred" column per entry (a correlated `COUNT` against
+`referred_by_submission_id`, alongside the existing votes/votes-per-hour
+columns, with a one-line explanation that it's a soft signal, not a
+fraud check); and an entrant's own `status.html` page, while their round
+is open, now shows "N votes so far came from people who clicked your
+share link" once that count is above zero — small, immediate positive
+feedback for sharing, ahead of any actual reward program being built.
+
+The one deliberate scope boundary carried over from the original share
+mechanic: `shareEntryCard()`'s plain "go vote for your own cat now" link
+and the vote link in the entry-confirmation email are left untagged —
+only the link that actually goes out through a Share action gets
+`via=share`. Tagging the entrant's own direct link too would have
+credited every single entrant with "referring" their own first vote,
+drowning out the real signal.
+
+**Verified against a real local Postgres instance**: confirmed the
+`referred_by_submission_id` migration lands live on a running server (no
+restart-time migration runner — it runs lazily on first request, so
+verified via a real request, not just by reading the DDL); cast votes
+through the real `/api/vote` endpoint with a valid `referredBy`, no
+`referredBy`, and a nonexistent one, and confirmed the resulting rows
+matched expectations exactly (real id recorded, absent stays null, bogus
+id silently resolves to null with the vote still succeeding); confirmed
+`GET /api/admin/contest/current` returns the right `referred_votes`
+count per entry; confirmed `GET /api/my-status` returns the right
+`referredVotes` count; and used Playwright to confirm, end to end, that
+landing on `vote.html?cat=X&via=share` sets the sessionStorage marker
+without breaking the existing highlight behavior, that admin.html's
+fraud-review table renders the new "Referred" column correctly, and
+that status.html renders the share-credit line with the right count and
+grammar (singular "vote" vs. plural "votes").
+
+**Still open**: the live-sessions platform decision and chat build-out;
+real Printful variant IDs for the Gallery Series; and confirming Meta
+Pixel events land correctly via `META_TEST_EVENT_CODE` once real
+credentials are added — see the running todo list for the complete,
+current state.
+
+## Update — 2026-09-13: dedicated landing page for paid ad traffic
+
+Closed the last of the funnel-infra follow-ups: paid clicks had nowhere
+to land but the full homepage — nav links, the shop grid, live
+sessions, footer newsletter, everything the homepage serves for every
+kind of visitor. A paid click has already been sold on one specific
+thing by the ad; every extra path off that page is a chance to lose
+them before they convert.
+
+New `public/landing.html` — genuinely a plain static file, not a new
+server-rendered route. Confirmed first that every dynamic piece it
+needed (background hero photos, the originals showcase, reviews) already
+has a client-side fetch as progressive enhancement on top of index.html's
+server-side prerender (`heroSlideshow()`, the `#originalsGrid` loader,
+`loadReviews()` in script.js — all guarded with an early return if their
+element is missing), so reusing the same element ids/markup and loading
+the same `script.js` gets a fully working, fully dynamic page for free,
+with zero new server code. Same for the entry form itself — `#entryForm`
+with the same field ids/names, including the marketing opt-in checkbox
+from the previous update, "just works" against script.js's existing
+submit handler and the existing `/api/submissions` endpoint.
+
+What's deliberately cut versus the homepage: no header nav (logo only —
+nowhere else on-site to click to, since vote/prints/reviews are still
+one scroll away in-page); no shop grid, live-sessions section, or footer
+newsletter signup (competing CTAs work against a single-path landing
+page); one hero CTA instead of two. What's kept, in persuasion order:
+hero hook → how-it-works (removes "is this legit" friction) → originals
+showcase (proof the prize is real) → the entry form itself → reviews +
+trust badges (proof for anyone still hesitant right before the ask).
+
+Marked `<meta name="robots" content="noindex, follow">` with
+`<link rel="canonical" href="https://whiskr.lol/">` — this page overlaps
+enough with `index.html` that letting both rank would risk duplicate-
+content dilution in organic search, and there's no reason to try to
+rank a paid-traffic-only page organically in the first place. Neither
+tag affects paid traffic at all — ads don't consult robots meta or
+canonical tags, only search crawlers do. Not added to `sitemap.xml`
+either, consistent with that.
+
+**Verified against a real local Postgres instance**: loaded the real
+page in a real browser and confirmed zero page/console errors beyond
+environment-only noise (missing `/_vercel/insights/script.js` in local
+dev, the sandbox's own network policy blocking Google Fonts — both
+identical on `index.html`, nothing landing.html-specific); confirmed
+`#siteNav` is genuinely absent (not just hidden) and the mobile nav
+toggle script no-ops cleanly against it; submitted a real multipart
+entry through the page end-to-end and confirmed the resulting
+`submissions` row; confirmed `?utm_campaign=` capture sets the same
+cookie it does on every other page; visually confirmed via screenshot at
+both desktop and mobile widths (no horizontal overflow at 375px) that
+the page reads as a coherent, focused single-path flow rather than a
+homepage with pieces missing.
+
+## Update — 2026-09-13: richer offline state for live painting sessions
+
+The offline state (shown whenever the live-sessions section is on but
+nobody's actually painting — the common case) was a single flat
+sentence: "Not live right now — check back, or watch a past session."
+A visitor who lands there between sessions is still a real visitor;
+this gives them somewhere to go instead of a dead end.
+
+New `renderLiveOffline()` in seo.js (used for the SSR path in
+`renderIndexHtml`) plus a matching client-side rebuild in script.js's
+`livePaintingSessions()` IIFE — the client re-fetches `/api/live-stream`
+and replaces the SSR markup on every real page load, so both paths had
+to build the identical richer state or a real visitor would only ever
+see the plainer one. It now shows, only when the data exists: when the
+next session is (a new optional `live_stream_settings.next_session_at`
+the owner sets by hand — not a schedule the app enforces, just a line
+that appears or doesn't), and what the last painting was (reusing
+whichever past session sorts first in the existing "Past sessions" list
+ordering, so the two stay visually consistent) — plus two CTAs that are
+true whether or not anyone's painting right now: enter this month's
+contest (`#enter`, since this is the same page), and commission an
+original outright at codycarlson.art.
+
+The one real bug caught before it shipped: `admin.html`'s new
+`<input type="datetime-local">` for `next_session_at` shows/edits LOCAL
+wall-clock time with no timezone marker. The naive fix —
+`new Date(iso).toISOString()` for display and `Date.parse(raw)` on the
+server for saving — silently shifts the displayed/stored time by
+whatever the browser's or server's UTC offset happens to be (worse, the
+two don't even have to agree, since Vercel's server almost certainly
+runs UTC while the owner's browser doesn't). Fixed by building the
+input's value from local date/time getters (matching what the input
+actually displays) and having the browser convert its own local input
+back to a real absolute UTC timestamp via `new Date(value).toISOString()`
+before ever sending it to the server — the server only ever handles an
+unambiguous absolute instant, never a naive local string it would have
+to guess a timezone for.
+
+**Verified against a real local Postgres instance**: confirmed the
+`next_session_at` migration lands live; set a real next-session time and
+added a past session with a recording link, then confirmed via direct
+HTTP that the server-rendered `index.html` shows the correct next-session
+line (in the visitor's intended wording, e.g. "Next session: Sunday,
+September 20 at 8:00 PM") and last-painting link; used Playwright to
+confirm the client-side rehydration produces byte-identical markup to
+the SSR version; visually confirmed via screenshot that the two CTA
+buttons and the extra lines read cleanly against the screen's dark
+background; and round-tripped the admin's datetime-local input through a
+real save-and-reload in a real browser to confirm no timezone drift, plus
+confirmed clearing the field removes the next-session line entirely
+rather than leaving a stale or malformed one.
+
+## Update — 2026-09-13: opt-in marketing list, separate from orders
+
+Closed the other gap noted above: every email this app ever captured was
+tied to one specific transactional reason (a contest entry, a print
+order), with no way to reach a past entrant/customer for anything else —
+a new contest opening, a promo, a live painting session announcement.
+
+New `marketing_subscribers` table (email primary key, `source`,
+`subscribed_at`, `unsubscribed_at`, an optional `ip_hash` for rate-
+limiting the standalone signup path the same way submissions/custom-
+orders already rate-limit theirs). Two ways in, both genuinely opt-in
+and unchecked/empty by default:
+
+1. A new checkbox on the entry form ("email me about new contests,
+   promos, and live painting sessions") — separate from, and below, the
+   required photo-rights consent checkbox, and explicitly not required.
+2. A small standalone signup form added to the homepage footer
+   (`?via=` style attribution wasn't relevant here since this isn't a
+   share mechanic — just an email + submit), for a visitor who wants
+   updates without entering the contest or ordering anything. Scoped to
+   `index.html` only for now rather than every page's footer (the
+   footer markup is duplicated per-file across 11 pages, not a shared
+   partial) — the homepage is the highest-traffic surface, and rolling
+   it out to the lower-traffic legal/utility pages (privacy, terms,
+   shipping, rules) can follow if it proves worth the diff.
+
+A fresh opt-in always clears any prior `unsubscribed_at` on that email —
+a new affirmative yes is a new consent event. Conversely, hitting the
+existing CAN-SPAM unsubscribe link (`/api/unsubscribe`) now updates
+`marketing_subscribers` too, not just `suppressions` — a hard
+unsubscribe is a strict superset of "no longer opted into marketing,"
+and the two tables would otherwise silently drift apart the first time
+someone unsubscribed.
+
+Deliberately did NOT build a bulk-send/campaign feature on top of this —
+actually mailing a list at volume is a real deliverability/compliance
+undertaking (sender reputation, list hygiene, an actual ESP) that's its
+own project, not a natural extension of `mailer.js`'s single-recipient
+transactional sends. Instead, `admin.html` gets a "Marketing list" panel
+(active/total counts, a breakdown by source, a table) and a CSV export
+button, so the list is genuinely usable today — paste it into whichever
+ESP gets picked later — without this app quietly growing into a mailer
+it was never built to be.
+
+**Verified against a real local Postgres instance**: confirmed the
+`marketing_subscribers` migration lands live; used Playwright to submit
+a real multipart entry with the opt-in checkbox checked (row created,
+correct `source: 'entry_form'`) and unchecked (no row at all — the
+absent-vs-present FormData behavior of an unchecked checkbox was
+confirmed, not assumed); exercised the standalone `/api/subscribe`
+endpoint directly (valid email accepted, invalid rejected, a duplicate
+signup upserts rather than erroring) and through the real footer form
+in a browser, including its per-IP daily rate limit actually triggering
+at the configured threshold and the UI showing both the success and
+the rate-limited error text; confirmed hitting a real unsubscribe link
+flips that same email to "Unsubscribed" in the admin panel and drops it
+from the active count; and confirmed the CSV export button in a real
+browser produces a correctly-named download containing only active
+subscribers.

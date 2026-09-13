@@ -327,6 +327,15 @@ ad links with `?utm_campaign=your-campaign-name` (must match the campaign
 name you typed, case-insensitive), and log spend yourself from your ad
 platform's own dashboard whenever you check in.
 
+**Where to point the ad itself.** Send paid traffic to
+`/landing.html?utm_campaign=your-campaign-name` rather than the homepage —
+it's the same entry form and proof (how it works, past originals,
+reviews) with the nav and every other on-site distraction stripped out,
+so a click has exactly one place to go: enter. It's marked `noindex` and
+canonical'd back to the homepage on purpose (it overlaps too much with
+`index.html` to want both showing up in search), which has no effect on
+paid traffic — only on organic crawling.
+
 **Automatic spend pulls from Meta (optional).** If you're running Meta
 (Facebook/Instagram) ads and don't want to log spend by hand every day:
 

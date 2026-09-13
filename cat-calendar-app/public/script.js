@@ -24,6 +24,33 @@ function getUtmCampaign() {
 }
 captureUtmCampaign();
 
+// ---------- ad conversion tracking (Meta Pixel) ----------
+// Loaded on every page so PageView fires everywhere, exactly like the
+// Vercel Analytics snippet already does. Pixel ID comes from /api/config
+// rather than being hardcoded here, so it's off entirely (no script loads,
+// no fbq calls do anything) until META_PIXEL_ID is actually set server-side
+// — same "safe until configured" pattern as Turnstile/Stripe/Printful
+// elsewhere in this app. window.fbq stays a no-op stub if the real script
+// hasn't loaded yet, so an event fired from another script before this
+// fetch resolves is silently dropped rather than throwing.
+window.fbq = window.fbq || function () { (window.fbq.queue = window.fbq.queue || []).push(arguments); };
+(function metaPixelBootstrap() {
+  fetch('/api/config')
+    .then((res) => res.json())
+    .then((data) => {
+      if (!data.metaPixelId) return;
+      const script = document.createElement('script');
+      script.async = true;
+      script.src = 'https://connect.facebook.net/en_US/fbevents.js';
+      script.onload = () => {
+        fbq('init', data.metaPixelId);
+        fbq('track', 'PageView');
+      };
+      document.head.appendChild(script);
+    })
+    .catch((err) => console.error('meta pixel bootstrap failed', err));
+})();
+
 // ---------- mobile nav ----------
 // Every page shares the same header markup (#navToggle + #siteNav) — this
 // runs once per page load and no-ops if either element is missing, same
@@ -327,6 +354,8 @@ captureUtmCampaign();
     .then((data) => {
       if (!data.enabled) return;
 
+      const sessions = data.sessions || [];
+
       screen.innerHTML = '';
       if (data.isLive && data.embedUrl) {
         const iframe = document.createElement('iframe');
@@ -337,15 +366,62 @@ captureUtmCampaign();
         iframe.loading = 'lazy';
         screen.appendChild(iframe);
       } else {
+        // Mirrors seo.js's renderLiveOffline — a visitor showing up between
+        // sessions still gets the next-session date (if set), the last
+        // painting (if any exist), and the two evergreen CTAs.
         const offline = document.createElement('div');
         offline.className = 'live-offline';
         const p = document.createElement('p');
         p.textContent = 'Not live right now — check back, or watch a past session.';
         offline.appendChild(p);
+
+        if (data.nextSessionAt) {
+          const nextP = document.createElement('p');
+          nextP.className = 'live-offline-next';
+          nextP.textContent = `Next session: ${new Date(data.nextSessionAt).toLocaleString('en-US', {
+            weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
+          })}`;
+          offline.appendChild(nextP);
+        }
+
+        const lastSession = sessions[0];
+        if (lastSession) {
+          const lastP = document.createElement('p');
+          lastP.className = 'live-offline-last';
+          lastP.append('Last time: ');
+          if (lastSession.videoUrl) {
+            const a = document.createElement('a');
+            a.href = lastSession.videoUrl;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.textContent = lastSession.title;
+            lastP.appendChild(a);
+          } else {
+            lastP.append(lastSession.title);
+          }
+          offline.appendChild(lastP);
+        }
+
+        const ctas = document.createElement('p');
+        ctas.className = 'live-offline-ctas';
+        const enterLink = document.createElement('a');
+        enterLink.href = '#enter';
+        enterLink.className = 'btn btn-primary';
+        enterLink.textContent = "Enter this month's contest";
+        const commissionLink = document.createElement('a');
+        commissionLink.href = 'https://codycarlson.art';
+        commissionLink.target = '_blank';
+        commissionLink.rel = 'noopener';
+        commissionLink.className = 'btn btn-ghost';
+        commissionLink.textContent = 'Commission with Cody Carlson';
+        ctas.appendChild(enterLink);
+        ctas.appendChild(document.createTextNode(' '));
+        ctas.appendChild(commissionLink);
+        offline.appendChild(ctas);
+
         screen.appendChild(offline);
       }
 
-      const sessions = data.sessions || [];
       if (sessions.length > 0) {
         list.innerHTML = '';
         sessions.forEach((s) => {
@@ -451,7 +527,12 @@ function storeDiscount(discount) {
 // `files`, when the browser supports sharing files, since an image posts
 // far better than a bare link on Stories/WhatsApp/feed. Falls back to a
 // plain link share, then clipboard, same ladder as vote.html's shareCat().
-async function shareEntryCard(shareImageUrl, catName, voteUrl, noteEl) {
+async function shareEntryCard(shareImageUrl, catName, voteUrlIn, noteEl) {
+  // Tag only the link that actually gets shared out, not the plain voteUrl
+  // used elsewhere (the "go vote for your own cat now" link, the entry
+  // email) — those are the entrant's own direct visits, not a share, and
+  // tagging them would misattribute every entrant's own vote as "referred."
+  const voteUrl = voteUrlIn + (voteUrlIn.includes('?') ? '&' : '?') + 'via=share';
   const text = `Vote for ${catName} in Whiskr's free cat photo contest! I'd owe you one:`;
   try {
     if (shareImageUrl && window.navigator.canShare) {
@@ -520,6 +601,10 @@ if (entryForm) {
       if (!res.ok) throw new Error(data.error || 'Something went wrong.');
 
       note.innerHTML = `You're entered! Check your email for your vote link, or <a href="${data.voteUrl}">go vote for your own cat now</a> and start sharing.`;
+
+      // eventID matches the server-side Conversions API call for this same
+      // submission (see /api/submissions in server.js) so Meta dedupes them.
+      if (data.metaEventId) fbq('track', 'Lead', {}, { eventID: data.metaEventId });
 
       storeDiscount(data.discount);
 
@@ -845,6 +930,12 @@ loadReviews();
           }
         }
         try { localStorage.removeItem('whiskr_discount'); } catch (_) {}
+        // eventID matches the server-side Conversions API call for this
+        // same order (see /api/custom-orders in server.js) so Meta dedupes
+        // them. fbq handles firing this reliably even right before nav away.
+        if (data.metaEventId) {
+          fbq('track', 'InitiateCheckout', { value: data.amount, currency: 'USD' }, { eventID: data.metaEventId });
+        }
         window.location.href = data.url;
       } catch (err) {
         orderNote.textContent = err.message;
@@ -884,6 +975,38 @@ if (checkoutForm) {
     } catch (err) {
       note.textContent = err.message;
       note.classList.add('error');
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+// ---------- footer newsletter signup ----------
+// A separate opt-in list from the entry-form checkbox — for a visitor who
+// wants updates without entering the contest or ordering anything (today
+// the only other two ways an email reaches this app). See /api/subscribe
+// and marketing_subscribers in server.js/db.js.
+const footerSignupForm = document.getElementById('footerSignupForm');
+if (footerSignupForm) {
+  const footerSignupNote = document.getElementById('footerSignupNote');
+  footerSignupForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const emailInput = document.getElementById('footerSignupEmail');
+    const submitBtn = footerSignupForm.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    footerSignupNote.textContent = '';
+    try {
+      const res = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput.value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Signup failed.');
+      footerSignupNote.textContent = "You're on the list!";
+      footerSignupForm.reset();
+    } catch (err) {
+      footerSignupNote.textContent = err.message;
+    } finally {
       submitBtn.disabled = false;
     }
   });

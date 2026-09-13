@@ -19,6 +19,7 @@ const productCatalog = require('./products');
 const printful = require('./printful');
 const phoneCases = require('./phoneCases');
 const metaAds = require('./metaAds');
+const metaConversions = require('./metaConversions');
 const seo = require('./seo');
 
 const app = express();
@@ -46,6 +47,7 @@ const VOTE_LIMIT_PER_IP_PER_DAY = Number(process.env.VOTE_LIMIT_PER_IP_PER_DAY |
 // orders can hit either endpoint as fast as it likes without this.
 const SUBMISSION_LIMIT_PER_IP_PER_DAY = Number(process.env.SUBMISSION_LIMIT_PER_IP_PER_DAY || 5);
 const CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY = Number(process.env.CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY || 10);
+const SUBSCRIBE_LIMIT_PER_IP_PER_DAY = Number(process.env.SUBSCRIBE_LIMIT_PER_IP_PER_DAY || 10);
 // Salts the IP hash stored in the votes table so raw IPs are never persisted.
 // Set a real random value in production — the default is fine for local dev
 // only, since anyone who knows it could pre-compute hashes for known IPs.
@@ -379,6 +381,25 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
       );
       if (info.changes > 0) {
         console.log(`[stripe webhook] custom order #${orderId} marked paid.`);
+        // Purchase is fired here and only here — this webhook is the one
+        // point a payment is actually confirmed, unlike a client-side
+        // "thank you page" event that fires on redirect regardless of
+        // whether payment truly succeeded. Scoped inside the same
+        // status='pending' guard above, so a retried webhook delivery
+        // can't double-fire it either.
+        const paidOrder = await db.get(`SELECT email, amount_usd FROM custom_orders WHERE id = ?`, [orderId]);
+        if (paidOrder) {
+          metaConversions
+            .sendEvent({
+              eventName: 'Purchase',
+              eventId: `purchase-custom-${orderId}`,
+              email: paidOrder.email,
+              value: Number(paidOrder.amount_usd),
+              currency: 'USD',
+              eventSourceUrl: BASE_URL,
+            })
+            .catch((err) => console.error('[meta capi] Purchase event failed:', err.message));
+        }
         await submitCustomOrderToPrintful(orderId);
       } else {
         console.log(`[stripe webhook] custom order #${orderId} already processed (duplicate delivery) — skipping.`);
@@ -541,6 +562,21 @@ async function renderIndexHtml() {
     html = html.replace('id="originalsEmpty"', 'id="originalsEmpty" hidden');
   }
 
+  // og:image/twitter:image — a real admin-uploaded photo (hero background,
+  // falling back to an original portrait) or nothing at all, same
+  // never-fake-a-placeholder rule as everywhere else. Without one, shared
+  // links preview with just title/description text, which is the honest
+  // current default until at least one photo is uploaded in admin.html.
+  const previewImagePath = (slides[0] && slides[0].image_path) || (originals[0] && originals[0].image_path);
+  if (previewImagePath) {
+    const previewImageUrl = previewImagePath.startsWith('http') ? previewImagePath : `${BASE_URL}${previewImagePath}`;
+    html = seo.injectIntoHead(
+      html,
+      `<meta property="og:image" content="${seo.escapeHtml(previewImageUrl)}" />\n<meta name="twitter:image" content="${seo.escapeHtml(previewImageUrl)}" />`
+    );
+    html = html.replace('name="twitter:card" content="summary"', 'name="twitter:card" content="summary_large_image"');
+  }
+
   const blockRows = await db.all(`SELECT * FROM site_blocks`);
   const blocksBySlot = Object.fromEntries(blockRows.map((r) => [r.slot, r]));
 
@@ -577,14 +613,14 @@ async function renderIndexHtml() {
 
   const liveSettings = await db.get(`SELECT * FROM live_stream_settings WHERE key = 'main'`);
   if (liveSettings && liveSettings.enabled) {
-    const screenInner = (liveSettings.is_live && liveSettings.embed_url)
-      ? `<iframe src="${seo.escapeHtml(liveSettings.embed_url)}" title="Live painting session" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe>`
-      : `<div class="live-offline"><p>Not live right now — check back, or watch a past session.</p></div>`;
-    html = seo.fillEmpty(html, 'liveScreen', screenInner);
-
     const pastSessions = await db.all(
       `SELECT title, session_date, video_url FROM live_sessions ORDER BY position ASC, id DESC`
     );
+    const screenInner = (liveSettings.is_live && liveSettings.embed_url)
+      ? `<iframe src="${seo.escapeHtml(liveSettings.embed_url)}" title="Live painting session" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe>`
+      : seo.renderLiveOffline({ nextSessionAt: liveSettings.next_session_at, lastSession: pastSessions[0] || null });
+    html = seo.fillEmpty(html, 'liveScreen', screenInner);
+
     if (pastSessions.length > 0) {
       html = seo.fillEmpty(html, 'pastSessionsList', seo.renderPastSessions(pastSessions));
       html = seo.revealHidden(html, 'pastSessionsList');
@@ -702,6 +738,22 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ---------- helpers ----------
 function isValidEmail(e) {
   return typeof e === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+// Add (or re-activate) an explicit marketing-list opt-in. A fresh opt-in
+// always clears any prior unsubscribed_at — a new affirmative "yes" is a
+// new consent event, not something an old unsubscribe should keep hidden.
+// Doesn't check the suppressions table here: recording that someone
+// opted in is harmless bookkeeping even if they're separately suppressed
+// from all mail; mailer.js's isSuppressed check is what actually decides
+// whether an address gets emailed, and stays the single source of truth
+// for that.
+async function subscribeToMarketingList(email, source, ipHash) {
+  await db.run(
+    `INSERT INTO marketing_subscribers (email, source, subscribed_at, unsubscribed_at, ip_hash) VALUES (?, ?, ?, NULL, ?)
+     ON CONFLICT (email) DO UPDATE SET source = EXCLUDED.source, subscribed_at = EXCLUDED.subscribed_at, unsubscribed_at = NULL`,
+    [String(email).toLowerCase(), source, new Date().toISOString(), ipHash || null]
+  );
 }
 
 // Whatever a visitor's ?utm_campaign= link said, captured client-side into
@@ -1078,7 +1130,26 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
       console.error(`[mailer] entry confirmation failed for submission ${submissionId}:`, err.message);
     }
 
-    res.json({ ok: true, submissionId, voteUrl, statusUrl, lowResolution, width, height, discount, shareImageUrl: shareImagePath });
+    // Explicit, unchecked-by-default opt-in (see the marketing_optIn
+    // checkbox on the entry form) — separate from the confirmation email
+    // above, which every entrant gets regardless since it's transactional,
+    // not marketing.
+    if (req.body.marketingOptIn === 'on' || req.body.marketingOptIn === 'true') {
+      await subscribeToMarketingList(email, 'entry_form');
+    }
+
+    // Ad conversion tracking — never blocks or fails the entry itself.
+    // eventId is shared with the matching client-side fbq('track','Lead')
+    // call (see public/script.js) so Meta dedupes the two into one signal.
+    const leadEventId = `lead-submission-${submissionId}`;
+    metaConversions
+      .sendEvent({ eventName: 'Lead', eventId: leadEventId, email, eventSourceUrl: BASE_URL })
+      .catch((err) => console.error('[meta capi] Lead event failed:', err.message));
+
+    res.json({
+      ok: true, submissionId, voteUrl, statusUrl, lowResolution, width, height, discount, shareImageUrl: shareImagePath,
+      metaEventId: leadEventId,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong.' });
@@ -1130,6 +1201,9 @@ app.get('/api/my-status', async (req, res) => {
       [contest.id]
     );
     const liveRank = ranked.findIndex((r) => r.id === submission.id) + 1;
+    const referred = await db.get(`SELECT COUNT(*) AS c FROM votes WHERE referred_by_submission_id = ?`, [
+      submission.id,
+    ]);
     return res.json({
       catName: submission.cat_name,
       contestStatus: 'open',
@@ -1137,6 +1211,7 @@ app.get('/api/my-status', async (req, res) => {
       liveRank,
       totalEntries: ranked.length,
       closesAt: contest.closes_at,
+      referredVotes: Number(referred.c),
     });
   }
 
@@ -1181,6 +1256,13 @@ app.post('/api/vote', async (req, res) => {
     const ipHash = hashIp(req.ip);
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
+    // Soft, client-supplied referral signal — see referred_by_submission_id
+    // in db.js. Not trusted for anything but attribution: a bogus id just
+    // resolves to no match below and the vote proceeds exactly as if it
+    // were absent.
+    let referredBy = Number(req.body.referredBy);
+    if (!Number.isInteger(referredBy) || referredBy <= 0) referredBy = null;
+
     // The rate-limit checks and the insert all happen inside one
     // transaction, serialized per voter/IP with a transaction-scoped
     // advisory lock — without that, two concurrent votes from the same
@@ -1205,9 +1287,16 @@ app.post('/api/vote', async (req, res) => {
         throw Object.assign(new Error('Too many votes from this connection today — try again tomorrow.'), { rateLimited: true });
       }
 
-      await tx.run(`INSERT INTO votes (submission_id, voter_token, ip_hash, created_at) VALUES (?, ?, ?, ?)`, [
-        submissionId, voterToken, ipHash, new Date().toISOString(),
-      ]);
+      let referredBySubmissionId = null;
+      if (referredBy) {
+        const refSubmission = await tx.get(`SELECT id FROM submissions WHERE id = ?`, [referredBy]);
+        if (refSubmission) referredBySubmissionId = refSubmission.id;
+      }
+
+      await tx.run(
+        `INSERT INTO votes (submission_id, voter_token, ip_hash, created_at, referred_by_submission_id) VALUES (?, ?, ?, ?, ?)`,
+        [submissionId, voterToken, ipHash, new Date().toISOString(), referredBySubmissionId]
+      );
       await tx.run(`UPDATE submissions SET vote_count = vote_count + 1 WHERE id = ?`, [submissionId]);
     });
 
@@ -1362,7 +1451,14 @@ app.get('/api/phone-models', (req, res) => {
 // Turnstile CAPTCHA is enabled and, if so, its public site key (the secret
 // key never leaves the server; see verifyTurnstile).
 app.get('/api/config', (req, res) => {
-  res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || null });
+  res.json({
+    turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || null,
+    // Public by design — a Pixel ID is meant to appear in page source (it's
+    // how the base pixel snippet knows which pixel to report to). Only the
+    // Conversions API access token (server-side, metaConversions.js) is a
+    // real secret and never reaches the client.
+    metaPixelId: process.env.META_PIXEL_ID || null,
+  });
 });
 
 // Admin-managed hero background photos — empty means no slideshow at all
@@ -1418,6 +1514,7 @@ app.get('/api/live-stream', async (req, res) => {
     enabled: true,
     isLive: !!settings.is_live,
     embedUrl: settings.embed_url,
+    nextSessionAt: settings.next_session_at,
     sessions: sessions.map((s) => ({ title: s.title, sessionDate: s.session_date, videoUrl: s.video_url })),
   });
 });
@@ -1541,7 +1638,15 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
 
     await db.run(`UPDATE custom_orders SET stripe_session_id = ? WHERE id = ?`, [session.id, orderId]);
 
-    res.json({ ok: true, url: session.url, lowResolution, width, height, discountPercent });
+    // Ad conversion tracking — never blocks or fails checkout. eventId is
+    // shared with the matching client-side fbq('track','InitiateCheckout')
+    // call (see public/script.js) so Meta dedupes the two into one signal.
+    const checkoutEventId = `checkout-custom-${orderId}`;
+    metaConversions
+      .sendEvent({ eventName: 'InitiateCheckout', eventId: checkoutEventId, email, value: amount, currency: 'USD', eventSourceUrl: BASE_URL })
+      .catch((err) => console.error('[meta capi] InitiateCheckout event failed:', err.message));
+
+    res.json({ ok: true, url: session.url, lowResolution, width, height, discountPercent, amount, metaEventId: checkoutEventId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong.' });
@@ -1643,11 +1748,47 @@ app.get('/api/unsubscribe', async (req, res) => {
   if (!unsubscribe.verify(email, token)) {
     return res.status(400).send('Invalid or expired unsubscribe link.');
   }
+  const lowerEmail = String(email).toLowerCase();
   await db.run(`INSERT INTO suppressions (email, created_at) VALUES (?, ?) ON CONFLICT (email) DO NOTHING`, [
-    String(email).toLowerCase(),
+    lowerEmail,
     new Date().toISOString(),
   ]);
+  // A suppression is a strict superset of "opted out of marketing" — keep
+  // marketing_subscribers from showing someone as still opted in once
+  // they've unsubscribed from mail entirely.
+  await db.run(`UPDATE marketing_subscribers SET unsubscribed_at = ? WHERE email = ? AND unsubscribed_at IS NULL`, [
+    new Date().toISOString(),
+    lowerEmail,
+  ]);
   res.send('You have been unsubscribed from Whiskr emails.');
+});
+
+// Standalone newsletter/marketing signup — for a visitor who wants updates
+// without entering the contest or placing an order (today's only other two
+// ways an email reaches this app, both transactional). Deliberately no
+// email sent back on success: this endpoint just records consent, it
+// isn't itself a mailer, so there's nothing to confirm yet.
+app.post('/api/subscribe', async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim();
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'A valid email is required.' });
+    }
+    const ipHash = hashIp(req.ip);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const ipCount = await db.get(
+      `SELECT COUNT(*) AS c FROM marketing_subscribers WHERE ip_hash = ? AND subscribed_at >= ?`,
+      [ipHash, dayAgo]
+    );
+    if (Number(ipCount.c) >= SUBSCRIBE_LIMIT_PER_IP_PER_DAY) {
+      return res.status(429).json({ error: 'Too many signups from this connection today — try again tomorrow.' });
+    }
+    await subscribeToMarketingList(email, 'footer_signup', ipHash);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
 });
 
 // Public reviews for the homepage. Only ever rows a human approved after
@@ -1766,7 +1907,8 @@ app.get('/api/admin/contest/current', requireAdmin, async (req, res) => {
   const entries = await db.all(
     `SELECT s.id, s.cat_name, s.photo_path, s.vote_count, s.disqualified, s.disqualified_reason,
             s.photo_width, s.photo_height, s.low_resolution,
-            (SELECT COUNT(*) FROM votes v WHERE v.submission_id = s.id AND v.created_at >= ?) AS votes_last_hour
+            (SELECT COUNT(*) FROM votes v WHERE v.submission_id = s.id AND v.created_at >= ?) AS votes_last_hour,
+            (SELECT COUNT(*) FROM votes v2 WHERE v2.referred_by_submission_id = s.id) AS referred_votes
      FROM submissions s WHERE s.contest_id = ? ORDER BY s.vote_count DESC`,
     [hourAgo, contest.id]
   );
@@ -1893,50 +2035,60 @@ app.post('/api/admin/year-award/force-close', requireAdmin, async (req, res) => 
 // ?utm_campaign= value a visitor's link carried — see cleanUtmCampaign
 // and script.js's capture on page load.
 
-// Pulls yesterday's real spend for every active campaign that has a
-// matching Meta campaign (by meta_campaign_id if already linked, else by
-// matching name the first time) and upserts it into ad_spend_entries with
-// source='meta_api' — safe to re-run any time, including manually via the
-// admin endpoint below, since the partial unique index on
-// (campaign_id, spend_date) WHERE source='meta_api' means a re-sync
-// updates that day's number instead of double-counting it. No-ops
-// entirely (returns dryRun: true) if Meta isn't configured — the manual
-// ledger keeps working exactly as before either way.
-async function syncMetaAdSpend() {
+// Resolves campaign.meta_campaign_id — by the stored value if already
+// linked, else by matching name (case-insensitive) against the connected
+// ad account, persisting the link so a later rename in Meta's own UI
+// doesn't break it. `cache` is a plain {} the caller reuses across
+// campaigns in the same run, so the account's campaign list is only
+// fetched once per sync/backfill call, not once per campaign. Returns
+// null if there's no matching Meta campaign (nothing to sync for it yet).
+async function resolveMetaCampaignId(campaign, cache) {
+  if (campaign.meta_campaign_id) return campaign.meta_campaign_id;
+  if (!cache.byName) {
+    const result = await metaAds.listCampaigns();
+    cache.byName = new Map(result.campaigns.map((c) => [c.name.toLowerCase(), c.id]));
+  }
+  const metaCampaignId = cache.byName.get(campaign.name.toLowerCase());
+  if (!metaCampaignId) return null;
+  await db.run(`UPDATE ad_campaigns SET meta_campaign_id = ? WHERE id = ?`, [metaCampaignId, campaign.id]);
+  return metaCampaignId;
+}
+
+// Pulls one day's real spend (default: yesterday, or a specific YYYY-MM-DD
+// for backfilling — see POST /api/admin/marketing/backfill-meta) for every
+// active campaign that has a matching Meta campaign, and upserts it into
+// ad_spend_entries with source='meta_api' — safe to re-run any time,
+// including manually via the admin endpoint below, since the partial
+// unique index on (campaign_id, spend_date) WHERE source='meta_api' means
+// a re-sync updates that day's number instead of double-counting it.
+// No-ops entirely (returns dryRun: true) if Meta isn't configured — the
+// manual ledger keeps working exactly as before either way.
+async function syncMetaAdSpend(dateYmd) {
   if (!metaAds.configured()) return { dryRun: true, synced: 0 };
 
   const campaigns = await db.all(`SELECT * FROM ad_campaigns WHERE status = 'active'`);
   if (campaigns.length === 0) return { dryRun: false, synced: 0 };
 
-  let metaCampaignsByName = null;
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const targetDate = dateYmd || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const cache = {};
   let synced = 0;
 
   for (const campaign of campaigns) {
-    let metaCampaignId = campaign.meta_campaign_id;
-
-    if (!metaCampaignId) {
-      if (!metaCampaignsByName) {
-        const result = await metaAds.listCampaigns();
-        metaCampaignsByName = new Map(result.campaigns.map((c) => [c.name.toLowerCase(), c.id]));
-      }
-      metaCampaignId = metaCampaignsByName.get(campaign.name.toLowerCase());
-      if (!metaCampaignId) continue; // no matching Meta campaign — nothing to sync for this one
-      await db.run(`UPDATE ad_campaigns SET meta_campaign_id = ? WHERE id = ?`, [metaCampaignId, campaign.id]);
-    }
+    const metaCampaignId = await resolveMetaCampaignId(campaign, cache);
+    if (!metaCampaignId) continue; // no matching Meta campaign — nothing to sync for this one
 
     try {
-      const spend = await metaAds.getCampaignSpendForDate(metaCampaignId, yesterday);
+      const spend = await metaAds.getCampaignSpendForDate(metaCampaignId, targetDate);
       await db.run(
         `INSERT INTO ad_spend_entries (campaign_id, spend_date, amount_usd, source, created_at)
          VALUES (?, ?, ?, 'meta_api', ?)
          ON CONFLICT (campaign_id, spend_date) WHERE source = 'meta_api'
          DO UPDATE SET amount_usd = EXCLUDED.amount_usd`,
-        [campaign.id, yesterday, spend.amountUsd, new Date().toISOString()]
+        [campaign.id, targetDate, spend.amountUsd, new Date().toISOString()]
       );
       synced++;
     } catch (err) {
-      console.error(`[meta-ads] spend sync failed for campaign ${campaign.id} (${campaign.name}):`, err.message);
+      console.error(`[meta-ads] spend sync failed for campaign ${campaign.id} (${campaign.name}) on ${targetDate}:`, err.message);
     }
   }
   return { dryRun: false, synced };
@@ -2079,6 +2231,127 @@ app.post('/api/admin/marketing/campaigns/:id/spend', requireAdmin, async (req, r
     [campaignId, spendDate, amount, new Date().toISOString()]
   );
   res.json({ ok: true, id: info.rows[0].id });
+});
+
+// Surfaces the exact failure mode that makes this ledger fragile: revenue
+// matching is a case-insensitive string match between a real order's
+// utm_campaign and an ad_campaigns.name someone typed by hand (see the
+// LEFT JOIN above) — a typo or naming mismatch doesn't error, it just
+// silently excludes that campaign's real revenue from every report. This
+// lists every utm_campaign value with real paid revenue that isn't
+// currently claimed by any campaign, so that money is visible instead of
+// invisible — pair with "Create campaign" in admin.html to fix one in a
+// click, prefilled with the exact value so there's no retyping to get
+// wrong a second time.
+app.get('/api/admin/marketing/unmatched-utm', requireAdmin, async (req, res) => {
+  const rows = await db.all(`
+    SELECT utm_campaign, COUNT(*) AS order_count, SUM(amount_usd) AS total_revenue
+    FROM (
+      SELECT utm_campaign, amount_usd FROM orders WHERE status = 'paid' AND utm_campaign IS NOT NULL
+      UNION ALL
+      SELECT utm_campaign, amount_usd FROM custom_orders WHERE status = 'paid' AND utm_campaign IS NOT NULL
+    ) paid_orders
+    WHERE LOWER(utm_campaign) NOT IN (SELECT LOWER(name) FROM ad_campaigns)
+    GROUP BY utm_campaign
+    ORDER BY total_revenue DESC
+  `);
+  res.json({
+    unmatched: rows.map((r) => ({
+      utmCampaign: r.utm_campaign,
+      orderCount: Number(r.order_count),
+      totalRevenue: Number(r.total_revenue),
+    })),
+  });
+});
+
+// On-demand historical backfill for syncMetaAdSpend, which otherwise only
+// ever pulls yesterday — useful right after adding a campaign that's
+// already been running for a while, or after spend sync was broken/unset
+// for a stretch of real days. Walks backwards day by day (not a single
+// wide date_range call) so it reuses the exact same per-day upsert path
+// the daily cron does, including the same duplicate-safe ON CONFLICT.
+app.post('/api/admin/marketing/backfill-meta', requireAdmin, async (req, res) => {
+  const days = Math.min(90, Math.max(1, Number(req.body.days) || 30));
+  try {
+    let totalSynced = 0;
+    let dryRun = false;
+    for (let i = 1; i <= days; i++) {
+      const dateYmd = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const result = await syncMetaAdSpend(dateYmd);
+      dryRun = result.dryRun;
+      totalSynced += result.synced || 0;
+      if (result.dryRun) break; // Meta isn't configured at all — no point looping further
+    }
+    res.json({ ok: true, dryRun, days, totalSynced });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Backfill failed.' });
+  }
+});
+
+// Spend alone can't tell "this campaign isn't getting clicked" apart from
+// "it gets clicked but doesn't convert" — pulls impressions/clicks live
+// from Meta for a lookback window (not persisted; see
+// getCampaignInsightsForRange in metaAds.js) so a bad-ROAS campaign can
+// actually be diagnosed instead of just flagged.
+app.get('/api/admin/marketing/campaigns/:id/insights', requireAdmin, async (req, res) => {
+  const campaign = await db.get(`SELECT * FROM ad_campaigns WHERE id = ?`, [Number(req.params.id)]);
+  if (!campaign) return res.status(404).json({ error: 'Campaign not found.' });
+  if (!campaign.meta_campaign_id) {
+    return res.status(400).json({ error: "This campaign isn't linked to a real Meta campaign yet — sync spend at least once first." });
+  }
+  const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
+  const until = new Date().toISOString().slice(0, 10);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  try {
+    const insights = await metaAds.getCampaignInsightsForRange(campaign.meta_campaign_id, since, until);
+    res.json({ ok: true, ...insights, since, until });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Could not fetch insights.' });
+  }
+});
+
+// The marketing list itself — see marketing_subscribers in db.js. "active"
+// excludes anyone who has since hit the real unsubscribe link (which sets
+// unsubscribed_at here too, see /api/unsubscribe above) OR who's in the
+// suppressions table directly (e.g. a hard bounce or spam complaint might
+// suppress an address without that address ever calling this table's own
+// unsubscribe path) — so "active" here always matches who mailer.js would
+// actually be willing to send to today, not just this table's own flag.
+app.get('/api/admin/marketing-subscribers', requireAdmin, async (req, res) => {
+  const rows = await db.all(
+    `SELECT ms.email, ms.source, ms.subscribed_at, ms.unsubscribed_at,
+            (ms.unsubscribed_at IS NULL AND s.email IS NULL) AS active
+     FROM marketing_subscribers ms LEFT JOIN suppressions s ON s.email = ms.email
+     ORDER BY ms.subscribed_at DESC`
+  );
+  const activeCount = rows.filter((r) => r.active).length;
+  const bySource = {};
+  for (const r of rows) {
+    if (!r.active) continue;
+    bySource[r.source] = (bySource[r.source] || 0) + 1;
+  }
+  res.json({ subscribers: rows, activeCount, totalCount: rows.length, bySource });
+});
+
+// CSV export of the active list — the practical way to actually use it
+// today (paste into whatever ESP the owner picks later) without this app
+// taking on sending bulk marketing mail itself, which is a real
+// deliverability/compliance undertaking of its own (see docs/audit-
+// assembly.md) and deliberately out of scope here.
+app.get('/api/admin/marketing-subscribers/export.csv', requireAdmin, async (req, res) => {
+  const rows = await db.all(
+    `SELECT ms.email, ms.source, ms.subscribed_at
+     FROM marketing_subscribers ms LEFT JOIN suppressions s ON s.email = ms.email
+     WHERE ms.unsubscribed_at IS NULL AND s.email IS NULL
+     ORDER BY ms.subscribed_at DESC`
+  );
+  const escapeCsv = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = ['email,source,subscribed_at', ...rows.map((r) => [r.email, r.source, r.subscribed_at].map(escapeCsv).join(','))];
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="whiskr-marketing-list.csv"');
+  res.send(lines.join('\n'));
 });
 
 // Orders, for fulfillment. ?status=paid to see what actually needs printing;
@@ -2299,8 +2572,8 @@ app.get('/api/admin/live-stream', requireAdmin, async (req, res) => {
   );
   res.json({
     settings: settings
-      ? { enabled: !!settings.enabled, isLive: !!settings.is_live, embedUrl: settings.embed_url }
-      : { enabled: false, isLive: false, embedUrl: null },
+      ? { enabled: !!settings.enabled, isLive: !!settings.is_live, embedUrl: settings.embed_url, nextSessionAt: settings.next_session_at }
+      : { enabled: false, isLive: false, embedUrl: null, nextSessionAt: null },
     sessions,
   });
 });
@@ -2309,15 +2582,20 @@ app.post('/api/admin/live-stream/settings', requireAdmin, async (req, res) => {
   const enabled = req.body.enabled ? 1 : 0;
   const isLive = req.body.isLive ? 1 : 0;
   const embedUrl = String(req.body.embedUrl || '').trim().slice(0, 500) || null;
+  const nextSessionAtRaw = String(req.body.nextSessionAt || '').trim();
+  const nextSessionAt = nextSessionAtRaw && !isNaN(Date.parse(nextSessionAtRaw))
+    ? new Date(nextSessionAtRaw).toISOString()
+    : null;
   await db.run(
-    `INSERT INTO live_stream_settings (key, enabled, is_live, embed_url, updated_at)
-     VALUES ('main', ?, ?, ?, ?)
+    `INSERT INTO live_stream_settings (key, enabled, is_live, embed_url, next_session_at, updated_at)
+     VALUES ('main', ?, ?, ?, ?, ?)
      ON CONFLICT (key) DO UPDATE SET
        enabled = EXCLUDED.enabled,
        is_live = EXCLUDED.is_live,
        embed_url = EXCLUDED.embed_url,
+       next_session_at = EXCLUDED.next_session_at,
        updated_at = EXCLUDED.updated_at`,
-    [enabled, isLive, embedUrl, new Date().toISOString()]
+    [enabled, isLive, embedUrl, nextSessionAt, new Date().toISOString()]
   );
   res.json({ ok: true });
 });

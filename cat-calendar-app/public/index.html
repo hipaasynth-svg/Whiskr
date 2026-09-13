@@ -182,6 +182,10 @@
         <input type="checkbox" name="photoRights" id="photoRights" required />
         I own this photo and grant Whiskr a license to print and sell it.
       </label>
+      <label class="consent-label">
+        <input type="checkbox" name="marketingOptIn" id="marketingOptIn" />
+        Email me about new contests, promos, and live painting sessions (unchecked is fine — you'll still get your vote link and contest results either way).
+      </label>
       <button type="submit" class="btn btn-primary">Submit entry</button>
       <p class="form-note">No purchase necessary to enter or win — <a href="rules.html">official rules</a>.</p>
       <p class="form-note" id="entryNote"></p>
@@ -318,6 +322,12 @@
 
 <footer class="site-footer">
   <div>Whiskr — a free, real-public-vote cat photo contest, plus custom cat &amp; dog prints.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <form class="footer-signup" id="footerSignupForm">
+    <label for="footerSignupEmail" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">Email for occasional Whiskr updates</label>
+    <input type="email" id="footerSignupEmail" placeholder="Get occasional updates" required />
+    <button type="submit" class="btn btn-ghost">Sign up</button>
+    <span class="footer-signup-note" id="footerSignupNote"></span>
+  </form>
   <div class="footer-links"><a href="rules.html">Official rules</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a> · <a href="#top">Back to top</a></div>
 </footer>
 

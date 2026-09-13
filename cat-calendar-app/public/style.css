@@ -539,6 +539,10 @@ h1, h2, h3, h4 {
 .live-screen iframe { width: 100%; height: 100%; border: 0; display: block; }
 .live-offline { text-align: center; padding: 24px; color: var(--paper); }
 .live-offline p { font-size: 0.95rem; opacity: 0.8; margin: 0; }
+.live-offline-next, .live-offline-last { margin-top: 10px !important; font-size: 0.85rem !important; }
+.live-offline-last a { color: var(--paper); }
+.live-offline-ctas { margin-top: 18px !important; opacity: 1 !important; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.live-offline-ctas .btn { padding: 9px 16px; font-size: 0.85rem; }
 .live-sessions-list h3 { font-size: 1rem; margin-bottom: 12px; }
 .live-sessions-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow-y: auto; }
 .live-sessions-list li {
@@ -788,12 +792,36 @@ h1, h2, h3, h4 {
 .site-footer {
   padding: 28px 36px;
   display: flex;
+  flex-wrap: wrap;
+  gap: 14px 24px;
   justify-content: space-between;
+  align-items: center;
   font-size: 0.85rem;
   color: #6b6552;
   border-top: 1px solid var(--line);
 }
 .footer-links a { text-decoration: none; }
+.footer-signup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.footer-signup input[type="email"] {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 0.85rem;
+  width: 200px;
+  max-width: 100%;
+}
+.footer-signup .btn {
+  padding: 8px 14px;
+  font-size: 0.8rem;
+}
+.footer-signup-note {
+  font-size: 0.8rem;
+}
 
 @media (max-width: 860px) {
   .nav-toggle { display: flex; }

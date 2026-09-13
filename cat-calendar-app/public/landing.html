@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Free Cat Photo Contest, Win an Original Painting — Whiskr</title>
+<meta name="description" content="Enter your cat free, get votes from friends and family, and each month's top vote-getter wins a one-of-a-kind original painting by Cody Carlson." />
+<!-- This page exists for paid traffic, not organic search — it overlaps
+     heavily with index.html's own content, so it's kept out of search
+     results (noindex) with the canonical pointed at the homepage, rather
+     than risk the two competing against each other or reading as
+     duplicate content. Ads can link here freely either way; robots meta
+     and canonical only affect organic search crawling/ranking. -->
+<meta name="robots" content="noindex, follow" />
+<link rel="canonical" href="https://whiskr.lol/" />
+
+<!-- Open Graph / link previews (iMessage, Slack, Facebook, etc.) -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Whiskr" />
+<meta property="og:title" content="Free Cat Photo Contest, Win an Original Painting — Whiskr" />
+<meta property="og:description" content="Enter your cat free, get votes from friends and family, and each month's top vote-getter wins a one-of-a-kind original painting by Cody Carlson." />
+<meta property="og:url" content="https://whiskr.lol/landing.html" />
+
+<!-- Twitter/X card -->
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Free Cat Photo Contest, Win an Original Painting — Whiskr" />
+<meta name="twitter:description" content="Enter free, get votes, and each month's top vote-getter wins an original painting by Cody Carlson." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<!-- Vercel Web Analytics -->
+<script>window.va = window.va || function() { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<div id="siteBackdrop" aria-hidden="true"></div>
+
+<!-- Logo only, no nav menu — a paid-traffic landing page has one job
+     (get to the entry form), so there's nowhere else on-site to click to.
+     vote.html/prints/reviews are all still one scroll away in-page. -->
+<header class="site-header">
+  <a href="#top" class="brand">Whiskr</a>
+</header>
+
+<section id="top" class="hero">
+  <div class="hero-slides" id="heroSlides" aria-hidden="true"></div>
+  <div class="hero-scrim"></div>
+  <div class="hero-content">
+    <p class="ribbon-tag ribbon-fun">Live voting, real competition — free to enter</p>
+    <h1 class="hero-fun-headline">Enter your kitty for a chance to win a one-of-a-kind acrylic painting!</h1>
+    <p class="hero-prize-callout">🏆 Cat of the Month wins an original acrylic portrait, hand-painted by partner artist <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>!</p>
+    <p class="hero-sub">Enter free, then share your link for votes from friends, family, and followers — real votes, no purchase necessary to enter or win. Take your time with the photo: good light and a clean frame give your cat its best shot. We're glad you're here!</p>
+    <div class="hero-actions">
+      <a href="#enter" class="btn btn-primary">Enter your cat free</a>
+    </div>
+  </div>
+  <div class="hero-controls">
+    <button id="heroPause" type="button" aria-label="Pause slideshow">Pause</button>
+    <div class="hero-dots" id="heroDots"></div>
+  </div>
+</section>
+
+<section id="how" class="section how">
+  <p class="ribbon-tag">This is Whiskr</p>
+  <h2>Free entry, real public voting</h2>
+  <ol class="steps">
+    <li>
+      <span class="step-num">1</span>
+      <h3>Enter your cat free</h3>
+      <p>One photo, one email address. That's the whole entry — no purchase necessary to enter or win.</p>
+    </li>
+    <li>
+      <span class="step-num">2</span>
+      <h3>Share your link</h3>
+      <p>Every entrant gets a shareable voting link. Send it to friends, family, and followers — real votes are what get a cat into the top spots.</p>
+    </li>
+    <li>
+      <span class="step-num">3</span>
+      <h3>#1 wins an original portrait</h3>
+      <p>When voting closes, whoever got the most votes is Cat of the Month — and wins a one-of-a-kind 11x16 acrylic portrait of their own cat, hand-painted by artist <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>, free. Every entrant can still grab a solo print of their own cat.</p>
+    </li>
+  </ol>
+  <p class="section-sub"><a href="rules.html">Official contest rules</a> — how votes are counted, eligibility, and what gets an entry disqualified.</p>
+</section>
+
+<section id="originals" class="section originals">
+  <p class="ribbon-tag">A couple to choose from</p>
+  <h2>Originals by our contest artist</h2>
+  <div class="current-teaser" id="originalsGrid" hidden></div>
+  <div class="originals-empty" id="originalsEmpty">
+    <h3>The first one's still drying.</h3>
+    <p>Our first Cat of the Month portrait is being painted right now — check back soon to see it here.</p>
+  </div>
+</section>
+
+<section id="enter" class="section enter">
+  <div class="enter-wrap">
+    <div class="enter-copy">
+      <p class="ribbon-tag">Contest entry is free</p>
+      <h2>Enter your cat</h2>
+      <p>One photo, one email address. We'll send you a shareable vote link the moment you enter — ask friends, family, and followers to vote before this round closes.</p>
+      <p>Take your time with the photo: good light, a clean background, and a shot you're proud of gives your cat its best chance at winning.</p>
+    </div>
+    <form id="entryForm" class="entry-form" enctype="multipart/form-data">
+      <label>
+        Cat's name
+        <input type="text" name="catName" id="catName" maxlength="60" placeholder="Biscuit" required />
+      </label>
+      <label>
+        Your email
+        <input type="email" name="email" id="entryEmail" placeholder="you@example.com" required />
+      </label>
+      <label class="file-label">
+        Photo
+        <input type="file" name="photo" id="entryPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
+        <span class="field-hint">Best quality wins — take your time, get good light, and frame your cat well.</span>
+      </label>
+      <label class="consent-label">
+        <input type="checkbox" name="photoRights" id="photoRights" required />
+        I own this photo and grant Whiskr a license to print and sell it.
+      </label>
+      <label class="consent-label">
+        <input type="checkbox" name="marketingOptIn" id="marketingOptIn" />
+        Email me about new contests, promos, and live painting sessions (unchecked is fine — you'll still get your vote link and contest results either way).
+      </label>
+      <button type="submit" class="btn btn-primary">Submit entry</button>
+      <p class="form-note">No purchase necessary to enter or win — <a href="rules.html">official rules</a>.</p>
+      <p class="form-note" id="entryNote"></p>
+      <div id="entryMockup" hidden></div>
+    </form>
+  </div>
+</section>
+
+<section id="reviews" class="section reviews">
+  <h2>What customers say</h2>
+  <p class="section-sub">Every review here comes from a real, verified order — nothing seeded, nothing bought.</p>
+  <div class="reviews-grid" id="reviewsGrid" style="display:none;"></div>
+  <div class="reviews-empty" id="reviewsEmpty" style="display:none;">
+    <h3>No reviews yet.</h3>
+    <p>Damaged or misprinted, we reprint or refund — no questions asked. Be the first to order and the first to review it.</p>
+  </div>
+  <div class="trust-row">
+    <span class="trust-badge">Secure checkout via Stripe</span>
+    <span class="trust-badge">Reprint guarantee on defects</span>
+    <span class="trust-badge">Printed on demand, shipped direct</span>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div>Whiskr — a free, real-public-vote cat photo contest, plus custom cat &amp; dog prints.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <div class="footer-links"><a href="index.html">Full site</a> · <a href="rules.html">Official rules</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></div>
+</footer>
+
+<script src="imageResize.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

@@ -67,10 +67,14 @@
 
       if (data.contestStatus === 'open') {
         const closes = new Date(data.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+        const referredLine = data.referredVotes > 0
+          ? `<p class="status-sub">${data.referredVotes} vote${data.referredVotes === 1 ? '' : 's'} so far came from people who clicked your share link — nice work!</p>`
+          : '';
         card.innerHTML = `
           <h1 class="ribbon-tag">${data.catName} is currently</h1>
           <div class="status-rank">#${data.liveRank}</div>
           <p class="status-sub">out of ${data.totalEntries} entries this round · voting closes ${closes}</p>
+          ${referredLine}
           <p style="margin-top:24px;"><a href="vote.html?cat=${encodeURIComponent(cat)}" class="btn btn-primary">Share for more votes</a></p>
         `;
       } else {

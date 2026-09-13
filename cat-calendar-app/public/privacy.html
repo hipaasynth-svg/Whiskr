@@ -60,6 +60,8 @@
     <li><strong>Ordering a print:</strong> your email, the photo you upload, your pet's species and name, your shipping address, and payment details. Your card number never touches our servers — Stripe handles payment directly and we only ever see that a charge succeeded.</li>
     <li><strong>Leaving a review:</strong> your review text and an optional display name, tied to the specific order it's about.</li>
     <li><strong>If you arrive from an ad:</strong> an optional cookie (<code>whiskr_utm_campaign</code>) recording which campaign link you followed, so we can tell which ads are working. It doesn't contain anything personally identifying, just a campaign label.</li>
+    <li><strong>Ad measurement:</strong> when we're running ads, Meta's tracking pixel runs on every page (it sets its own <code>_fbp</code>/<code>_fbc</code> cookies) and we tell Meta, in a one-way hashed form it can't reverse, the email address behind a contest entry, an order started, or a completed purchase. This is purely so Meta can measure whether its own ads are working and show them to people likely to be interested — we don't use it to track you anywhere else, and Meta's own policies govern what it does with that signal on its side.</li>
+    <li><strong>Marketing signup:</strong> if you check the "email me about new contests and promos" box on the entry form, or sign up separately in the footer, we keep your email on a list for occasional non-transactional emails — new contests opening, promos, live painting sessions. This is always opt-in, always separate from any contest entry or order, and every marketing email includes an unsubscribe link.</li>
   </ul>
 
   <h2>What we use it for</h2>
@@ -72,10 +74,11 @@
     <li><strong>Printful</strong> — our print-on-demand partner. Receives your photo, quantity, and shipping address to print and ship your order.</li>
     <li><strong>Zoho Mail</strong> — sends the transactional emails this site relies on (entry confirmation, contest results, order updates).</li>
     <li><strong>Vercel</strong> — hosts the site, stores uploaded photos, and provides basic, aggregate visit analytics.</li>
+    <li><strong>Meta (Facebook/Instagram)</strong> — only while we're running ads there, and only the hashed-email ad-measurement signal described above.</li>
   </ul>
 
   <h2>Cookies</h2>
-  <p>Just the two functional cookies described above — no third-party ad-tracking pixels, and no cookie banner selling your browsing history to anyone. Vercel's analytics is aggregate and doesn't use a tracking cookie to follow you across other sites.</p>
+  <p>The functional cookies described above, plus Meta's own <code>_fbp</code>/<code>_fbc</code> cookies while its ad-measurement pixel is active. We don't sell your browsing history to anyone, and there's no cookie banner because we currently only target ads at US visitors, where one isn't required. Vercel's analytics is separately aggregate and doesn't use a tracking cookie to follow you across other sites.</p>
 
   <h2>How long we keep it, and how to delete it</h2>
   <p>Entries, orders, and photos are kept as part of our normal operating and contest records. There's no fully automated self-service deletion tool yet — email us (see Contact below) and we'll delete what we hold digitally. The one thing we can't undo is a photo already used in a shipped print or an already-painted portrait; we can still remove it from our own systems going forward.</p>
