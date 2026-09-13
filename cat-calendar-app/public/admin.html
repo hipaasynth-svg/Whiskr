@@ -237,11 +237,16 @@
         <h2>Marketing / ad spend (ROAS)</h2>
         <p class="sub">Tag your ad links with <code>?utm_campaign=your-campaign-name</code> (must match a campaign name below, case-insensitive) so real orders get attributed here. Spend can be logged manually below, or pulled automatically once a day from Meta if a campaign's name matches a real Meta campaign — <span id="metaStatus">checking Meta connection…</span> Read-only either way: nothing here can pause a campaign or change its budget.</p>
       </div>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <button class="btn btn-ghost refresh-btn" id="syncMetaNow" type="button">Sync from Meta now</button>
+        <input type="number" id="backfillDays" min="1" max="90" value="30" style="width:56px;padding:8px;border:1px solid var(--line);border-radius:3px;" title="Days to backfill" />
+        <button class="btn btn-ghost refresh-btn" id="backfillMeta" type="button">Backfill from Meta</button>
         <button class="btn btn-ghost refresh-btn" id="refreshMarketing" type="button">Refresh</button>
       </div>
     </div>
+
+    <div id="unmatchedUtmPanel" style="margin-bottom:18px;"></div>
+
     <form id="campaignForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
       <label style="font-size:0.8rem;">Campaign name (= utm_campaign)<br/><input type="text" id="campName" placeholder="dallas-meta" style="padding:8px;border:1px solid var(--line);border-radius:3px;" required /></label>
       <label style="font-size:0.8rem;">Platform<br/><input type="text" id="campPlatform" placeholder="meta" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
@@ -459,6 +464,7 @@
 
   async function loadMarketing() {
     marketingList.innerHTML = '<p class="empty">Loading…</p>';
+    loadUnmatchedUtm();
     try {
       const res = await adminFetch('/api/admin/marketing/campaigns');
       const data = await res.json();
@@ -490,7 +496,10 @@
                 <td>$${c.total_spend.toFixed(2)}</td>
                 <td>$${c.total_revenue.toFixed(2)}</td>
                 <td style="${c.roas !== null && c.roas < 2 ? 'color:#b3261e;font-weight:700;' : ''}">${c.roas === null ? '—' : c.roas + 'x'}</td>
-                <td><button type="button" class="toggle-status-btn" data-id="${c.id}" data-status="${c.status}" style="font-size:0.75rem;padding:4px 10px;">${c.status === 'active' ? 'Pause' : 'Activate'}</button></td>
+                <td style="display:flex;gap:6px;">
+                  <button type="button" class="toggle-status-btn" data-id="${c.id}" data-status="${c.status}" style="font-size:0.75rem;padding:4px 10px;">${c.status === 'active' ? 'Pause' : 'Activate'}</button>
+                  ${c.meta_campaign_id ? `<button type="button" class="insights-btn" data-id="${c.id}" style="font-size:0.75rem;padding:4px 10px;">Insights</button>` : ''}
+                </td>
               </tr>
             `).join('')}
           </tbody>
@@ -513,10 +522,80 @@
           }
         });
       });
+      marketingList.querySelectorAll('.insights-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.textContent = 'Loading…';
+          try {
+            const res = await adminFetch(`/api/admin/marketing/campaigns/${btn.dataset.id}/insights?days=30`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Could not load insights.');
+            const ctr = data.impressions > 0 ? ((data.clicks / data.impressions) * 100).toFixed(2) + '%' : '—';
+            const cpc = data.clicks > 0 ? '$' + (data.spend / data.clicks).toFixed(2) : '—';
+            alert(
+              `Last 30 days (${data.since} to ${data.until}):\n` +
+              `Spend: $${data.spend.toFixed(2)}\n` +
+              `Impressions: ${data.impressions}\n` +
+              `Clicks: ${data.clicks}\n` +
+              `CTR: ${ctr}\n` +
+              `CPC: ${cpc}`
+            );
+          } catch (err) {
+            alert(err.message);
+          } finally {
+            btn.disabled = false;
+            btn.textContent = 'Insights';
+          }
+        });
+      });
     } catch (err) {
       keyStatus.textContent = err.message;
       keyStatus.className = 'key-status err';
       marketingList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  const unmatchedUtmPanel = document.getElementById('unmatchedUtmPanel');
+  async function loadUnmatchedUtm() {
+    try {
+      const res = await adminFetch('/api/admin/marketing/unmatched-utm');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load.');
+      if (data.unmatched.length === 0) {
+        unmatchedUtmPanel.innerHTML = '';
+        return;
+      }
+      unmatchedUtmPanel.innerHTML = `
+        <div style="border:1px solid #b3261e;border-radius:6px;padding:14px 16px;background:#fdf2f2;">
+          <p style="margin:0 0 10px;font-weight:600;color:#b3261e;">Unattributed revenue — these utm_campaign values have real paid orders but no matching campaign, so they're invisible above.</p>
+          ${data.unmatched.map((u) => `
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #f0d4d4;">
+              <span><code>${escapeHtml(u.utmCampaign)}</code> — ${u.orderCount} order(s), $${u.totalRevenue.toFixed(2)}</span>
+              <button type="button" class="create-from-utm-btn" data-utm="${escapeHtml(u.utmCampaign)}" style="font-size:0.75rem;padding:4px 10px;">Create campaign</button>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      unmatchedUtmPanel.querySelectorAll('.create-from-utm-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try {
+            const res = await adminFetch('/api/admin/marketing/campaigns', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: btn.dataset.utm }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Create failed.');
+            loadUnmatchedUtm();
+            loadMarketing();
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+      });
+    } catch (err) {
+      // Silent — this is a supplementary panel; the main marketingList load
+      // above already surfaces an admin-key error if that's the cause.
     }
   }
 
@@ -569,6 +648,29 @@
       loadMarketing();
     } catch (err) {
       alert(err.message);
+    }
+  });
+
+  document.getElementById('backfillMeta').addEventListener('click', async (e) => {
+    const btn = e.target;
+    const days = Number(document.getElementById('backfillDays').value) || 30;
+    btn.disabled = true;
+    btn.textContent = 'Backfilling…';
+    try {
+      const res = await adminFetch('/api/admin/marketing/backfill-meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Backfill failed.');
+      alert(data.dryRun ? 'Meta is not connected yet — nothing to backfill.' : `Backfilled ${data.days} day(s), ${data.totalSynced} sync(s) written.`);
+      loadMarketing();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Backfill from Meta';
     }
   });
 

@@ -1628,3 +1628,150 @@ Confirmed every affected input's computed `font-size` is now `16px`.
 Visually confirmed the new hero and entry-section copy render correctly
 and legibly on a 390px viewport. No JS files touched this phase — only
 `style.css`, `index.html`, and `review.html`'s inline styles.
+
+## Update — 2026-09-12/13: production incident response, admin resilience, Gallery Series, live sessions, ad tracking
+
+A long working stretch spanning a live production incident and several
+feature builds. Summarized by theme; every item was shipped as its own
+PR, verified locally against a real Postgres instance before pushing,
+and merged.
+
+**Production incident, found and fixed live**: the owner reported a real
+order that paid but never fulfilled. Root cause, diagnosed jointly with
+the owner reading their own Stripe/Vercel dashboards: `whiskr.lol` and
+`www.whiskr.lol` were both attached in Vercel with `www` set as the real
+Production domain and the apex 308-redirecting to it — Stripe's webhook
+delivery system doesn't follow redirects, so **every webhook delivery
+had been silently failing since launch**, never reaching the app, never
+logging anything (the 308 happens at Vercel's edge). Fixed by the owner
+flipping which domain serves Production. Compounded by a second, unrelated
+bug found immediately after: this Stripe account's API version moved
+checkout shipping data from `session.shipping_details` to
+`session.collected_information.shipping_details` — the webhook was still
+reading the old field, so `shipping_address` was always saved `null`.
+Fixed (`extractShippingJson` in `server.js`, shared by the webhook and a
+new admin retry endpoint that re-fetches the session from Stripe directly,
+since the first order's row already had the bad `null` baked in before
+the fix shipped).
+
+**Built — site-wide admin alerts panel**: every `alertAdmin()` call (a
+failed Printful submission, a refund, a dispute) now also lands in a new
+`admin_alerts` table, surfaced in a dedicated panel at the top of
+`admin.html` — visible even if `ADMIN_EMAIL` is unset or email delivery
+fails, which was a real single-point-of-failure before this. The
+"Retry Printful" button is now bright red by default, green on success.
+
+**Built — four admin-editable homepage content slots**, all hidden until
+the owner adds real content (same never-fake-a-placeholder rule as
+everywhere else): a colored starburst badge over the hero
+(`site_blocks` table), two image+text "feature block" sections mid-page,
+and a static two-row footer photo wall (`footer_strip_images` table).
+
+**Found and fixed — photo uploads silently failing on Vercel**: the
+owner reported being unable to upload a background-slideshow photo.
+Root cause, confirmed directly against Vercel's runtime logs (repeated
+`413`s served from the edge, never reaching the app): Vercel's
+serverless functions hard-reject any request body over ~4.5MB, a
+platform limit this app's own (more generous) multer config never gets
+a chance to enforce. A modern phone photo routinely exceeds that alone —
+this silently affected **every** photo upload on the site, not just the
+one admin form: the contest entry photo and the paid custom-order photo
+too, where a failed upload is a lost entrant or a lost sale that never
+even reaches the server to be logged. Fixed with a shared
+`resizeImageForUpload()` (`public/imageResize.js`) that downscales/
+recompresses a large photo client-side before it's ever sent, capped at
+3000px (above `MIN_PRINT_DIMENSION_PX`, so print quality is unaffected),
+wired into all 7 upload forms on the site.
+
+**Built — Gallery Series, a premium print tier**: three new products
+(framed luster poster, framed matte poster, large gallery canvas) with a
+distinct badge in the shop grid. **Left open, needs the owner**:
+`printfulVariantId` is `null` on all three — `printful.com` isn't
+reachable from this sandbox's network policy to confirm the real
+`variant_id`s the way every other product here has been, and pricing is
+set from typical market rates, not a confirmed Printful cost. A real
+order for one of these pays successfully today but Printful submission
+fails safely afterward (shows in the new admin alerts panel) until the
+owner pastes in real variant IDs.
+
+**Built — "Live painting sessions," Phase 1 infrastructure only**: an
+admin on/off toggle (deliberately not the usual empty-state-hides-itself
+rule, since the owner may want it on before any past session exists to
+list), a video embed slot, and a past-sessions list
+(`live_stream_settings`/`live_sessions` tables). Explicitly does **not**
+yet include real-time chat, a richer offline state (next session time,
+contest promo, a link to codycarlson.art), or a dedicated `/live` page —
+all pending the owner's platform choice (YouTube Live recommended: free
+video + free embeddable live chat, no new backend) and one open question
+from the owner's own spec ("Postgres + a Reddit-related API") that
+doesn't map to anything in this codebase and needs clarifying before
+building against it.
+
+**Built — Meta Pixel + Conversions API, dual-tracked**: `Lead` on
+contest entry, `InitiateCheckout` on custom-order submission, `Purchase`
+fired server-side only from the Stripe webhook (the one point a payment
+is actually confirmed — a client-side "thank you page" event fires on
+redirect regardless of whether payment truly succeeded, which would have
+overcounted). Each client `fbq()` call shares its `event_id` with the
+matching Conversions API call so Meta dedupes rather than double-counts.
+Follows the same dry-run-if-unconfigured pattern as every other
+integration; verified locally that a real API failure (403, fake
+credentials) is caught and logged without affecting checkout or entry.
+Deliberately email-only for user matching, not also raw IP/UA/`fbp`/`fbc`
+— that would mean this app starts persisting more raw visitor data than
+it does today (currently only a one-way IP hash), a real privacy-posture
+call left to the owner rather than a silent default. `privacy.html`'s
+tracking disclosure was updated in the same change (it previously stated
+outright "no third-party ad-tracking pixels"), including a new stated
+commitment that ads are targeted at US visitors only, which is why there
+still isn't a cookie-consent banner — a real operational constraint the
+owner's ad account setup now needs to honor. Also added a dynamic
+`og:image`/`twitter:image` sourced from a real admin-uploaded photo
+(never a placeholder), closing a gap where every shared link previewed
+with no thumbnail.
+
+**Found and fixed — the ROAS ledger's silent-failure mode**: revenue
+attribution has always worked by case-insensitive string match between a
+real order's `utm_campaign` and an `ad_campaigns.name` someone typed by
+hand — a typo or naming mismatch doesn't error, it just silently excludes
+that campaign's real revenue from every report, forever, with no signal
+anything is wrong. Fixed with a new "unattributed revenue" panel
+(`GET /api/admin/marketing/unmatched-utm`) that lists every `utm_campaign`
+value with real paid revenue not currently claimed by any campaign, with
+a one-click "Create campaign" prefilled with the exact value — turns an
+invisible failure into a visible, one-click-fixable one. Also added
+on-demand historical backfill (`syncMetaAdSpend` previously only ever
+pulled yesterday, with no way to backfill a campaign added after spend
+had already accrued) and a live impressions/clicks/CTR/CPC diagnostic
+per campaign (`metaAds.getCampaignInsightsForRange`) so a bad-ROAS
+campaign can be diagnosed — not getting clicked vs. getting clicked but
+not converting — rather than just flagged.
+
+**Verified against a real local Postgres instance** for every item
+above: the webhook fix (Vercel logs showing the actual 308s, then real
+200s after the owner's domain fix); the Stripe API-version fix (real
+session JSON read directly); the alerts panel and retry flow end-to-end
+via Playwright; the four homepage slots' hidden/revealed states in both
+server-rendered HTML and the client hydration path (catching and fixing
+a real `fillEmpty` bug along the way — it silently corrupted DOM
+structure whenever a placeholder had a nested closing tag before its
+own, fixed by matching the existing `#originalsGrid`/`#originalsEmpty`
+pattern instead of patching the helper); the upload fix with a synthetic
+24MB/6000x4000 test photo that came out the other side at 3.7MB and
+3000x2000 and uploaded successfully; the Meta CAPI dry-run and real-
+failure paths; and the ROAS fix's full loop — seeding a paid order with
+a deliberately mismatched `utm_campaign`, confirming it showed as
+unattributed revenue, creating a campaign from it in one click, and
+confirming the revenue then appeared attributed.
+
+**Still open, tracked as an explicit todo/status list for the owner
+rather than left implicit**: real Printful variant IDs and cost
+confirmation for the Gallery Series; the live-sessions platform
+decision and chat/offline-state build-out; a dedicated landing page for
+paid traffic; referral attribution on share links (currently zero —
+sharing carries no attribution back to the sharing entrant); an opt-in
+marketing/email list separate from transactional order records (today
+every email is tied to one specific order/entry row, with no way to
+re-engage a past entrant who never bought); and confirming Meta Pixel
+events land correctly via `META_TEST_EVENT_CODE` once the owner adds
+real credentials.

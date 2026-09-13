@@ -1954,50 +1954,60 @@ app.post('/api/admin/year-award/force-close', requireAdmin, async (req, res) => 
 // ?utm_campaign= value a visitor's link carried — see cleanUtmCampaign
 // and script.js's capture on page load.
 
-// Pulls yesterday's real spend for every active campaign that has a
-// matching Meta campaign (by meta_campaign_id if already linked, else by
-// matching name the first time) and upserts it into ad_spend_entries with
-// source='meta_api' — safe to re-run any time, including manually via the
-// admin endpoint below, since the partial unique index on
-// (campaign_id, spend_date) WHERE source='meta_api' means a re-sync
-// updates that day's number instead of double-counting it. No-ops
-// entirely (returns dryRun: true) if Meta isn't configured — the manual
-// ledger keeps working exactly as before either way.
-async function syncMetaAdSpend() {
+// Resolves campaign.meta_campaign_id — by the stored value if already
+// linked, else by matching name (case-insensitive) against the connected
+// ad account, persisting the link so a later rename in Meta's own UI
+// doesn't break it. `cache` is a plain {} the caller reuses across
+// campaigns in the same run, so the account's campaign list is only
+// fetched once per sync/backfill call, not once per campaign. Returns
+// null if there's no matching Meta campaign (nothing to sync for it yet).
+async function resolveMetaCampaignId(campaign, cache) {
+  if (campaign.meta_campaign_id) return campaign.meta_campaign_id;
+  if (!cache.byName) {
+    const result = await metaAds.listCampaigns();
+    cache.byName = new Map(result.campaigns.map((c) => [c.name.toLowerCase(), c.id]));
+  }
+  const metaCampaignId = cache.byName.get(campaign.name.toLowerCase());
+  if (!metaCampaignId) return null;
+  await db.run(`UPDATE ad_campaigns SET meta_campaign_id = ? WHERE id = ?`, [metaCampaignId, campaign.id]);
+  return metaCampaignId;
+}
+
+// Pulls one day's real spend (default: yesterday, or a specific YYYY-MM-DD
+// for backfilling — see POST /api/admin/marketing/backfill-meta) for every
+// active campaign that has a matching Meta campaign, and upserts it into
+// ad_spend_entries with source='meta_api' — safe to re-run any time,
+// including manually via the admin endpoint below, since the partial
+// unique index on (campaign_id, spend_date) WHERE source='meta_api' means
+// a re-sync updates that day's number instead of double-counting it.
+// No-ops entirely (returns dryRun: true) if Meta isn't configured — the
+// manual ledger keeps working exactly as before either way.
+async function syncMetaAdSpend(dateYmd) {
   if (!metaAds.configured()) return { dryRun: true, synced: 0 };
 
   const campaigns = await db.all(`SELECT * FROM ad_campaigns WHERE status = 'active'`);
   if (campaigns.length === 0) return { dryRun: false, synced: 0 };
 
-  let metaCampaignsByName = null;
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const targetDate = dateYmd || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const cache = {};
   let synced = 0;
 
   for (const campaign of campaigns) {
-    let metaCampaignId = campaign.meta_campaign_id;
-
-    if (!metaCampaignId) {
-      if (!metaCampaignsByName) {
-        const result = await metaAds.listCampaigns();
-        metaCampaignsByName = new Map(result.campaigns.map((c) => [c.name.toLowerCase(), c.id]));
-      }
-      metaCampaignId = metaCampaignsByName.get(campaign.name.toLowerCase());
-      if (!metaCampaignId) continue; // no matching Meta campaign — nothing to sync for this one
-      await db.run(`UPDATE ad_campaigns SET meta_campaign_id = ? WHERE id = ?`, [metaCampaignId, campaign.id]);
-    }
+    const metaCampaignId = await resolveMetaCampaignId(campaign, cache);
+    if (!metaCampaignId) continue; // no matching Meta campaign — nothing to sync for this one
 
     try {
-      const spend = await metaAds.getCampaignSpendForDate(metaCampaignId, yesterday);
+      const spend = await metaAds.getCampaignSpendForDate(metaCampaignId, targetDate);
       await db.run(
         `INSERT INTO ad_spend_entries (campaign_id, spend_date, amount_usd, source, created_at)
          VALUES (?, ?, ?, 'meta_api', ?)
          ON CONFLICT (campaign_id, spend_date) WHERE source = 'meta_api'
          DO UPDATE SET amount_usd = EXCLUDED.amount_usd`,
-        [campaign.id, yesterday, spend.amountUsd, new Date().toISOString()]
+        [campaign.id, targetDate, spend.amountUsd, new Date().toISOString()]
       );
       synced++;
     } catch (err) {
-      console.error(`[meta-ads] spend sync failed for campaign ${campaign.id} (${campaign.name}):`, err.message);
+      console.error(`[meta-ads] spend sync failed for campaign ${campaign.id} (${campaign.name}) on ${targetDate}:`, err.message);
     }
   }
   return { dryRun: false, synced };
@@ -2140,6 +2150,85 @@ app.post('/api/admin/marketing/campaigns/:id/spend', requireAdmin, async (req, r
     [campaignId, spendDate, amount, new Date().toISOString()]
   );
   res.json({ ok: true, id: info.rows[0].id });
+});
+
+// Surfaces the exact failure mode that makes this ledger fragile: revenue
+// matching is a case-insensitive string match between a real order's
+// utm_campaign and an ad_campaigns.name someone typed by hand (see the
+// LEFT JOIN above) — a typo or naming mismatch doesn't error, it just
+// silently excludes that campaign's real revenue from every report. This
+// lists every utm_campaign value with real paid revenue that isn't
+// currently claimed by any campaign, so that money is visible instead of
+// invisible — pair with "Create campaign" in admin.html to fix one in a
+// click, prefilled with the exact value so there's no retyping to get
+// wrong a second time.
+app.get('/api/admin/marketing/unmatched-utm', requireAdmin, async (req, res) => {
+  const rows = await db.all(`
+    SELECT utm_campaign, COUNT(*) AS order_count, SUM(amount_usd) AS total_revenue
+    FROM (
+      SELECT utm_campaign, amount_usd FROM orders WHERE status = 'paid' AND utm_campaign IS NOT NULL
+      UNION ALL
+      SELECT utm_campaign, amount_usd FROM custom_orders WHERE status = 'paid' AND utm_campaign IS NOT NULL
+    ) paid_orders
+    WHERE LOWER(utm_campaign) NOT IN (SELECT LOWER(name) FROM ad_campaigns)
+    GROUP BY utm_campaign
+    ORDER BY total_revenue DESC
+  `);
+  res.json({
+    unmatched: rows.map((r) => ({
+      utmCampaign: r.utm_campaign,
+      orderCount: Number(r.order_count),
+      totalRevenue: Number(r.total_revenue),
+    })),
+  });
+});
+
+// On-demand historical backfill for syncMetaAdSpend, which otherwise only
+// ever pulls yesterday — useful right after adding a campaign that's
+// already been running for a while, or after spend sync was broken/unset
+// for a stretch of real days. Walks backwards day by day (not a single
+// wide date_range call) so it reuses the exact same per-day upsert path
+// the daily cron does, including the same duplicate-safe ON CONFLICT.
+app.post('/api/admin/marketing/backfill-meta', requireAdmin, async (req, res) => {
+  const days = Math.min(90, Math.max(1, Number(req.body.days) || 30));
+  try {
+    let totalSynced = 0;
+    let dryRun = false;
+    for (let i = 1; i <= days; i++) {
+      const dateYmd = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const result = await syncMetaAdSpend(dateYmd);
+      dryRun = result.dryRun;
+      totalSynced += result.synced || 0;
+      if (result.dryRun) break; // Meta isn't configured at all — no point looping further
+    }
+    res.json({ ok: true, dryRun, days, totalSynced });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Backfill failed.' });
+  }
+});
+
+// Spend alone can't tell "this campaign isn't getting clicked" apart from
+// "it gets clicked but doesn't convert" — pulls impressions/clicks live
+// from Meta for a lookback window (not persisted; see
+// getCampaignInsightsForRange in metaAds.js) so a bad-ROAS campaign can
+// actually be diagnosed instead of just flagged.
+app.get('/api/admin/marketing/campaigns/:id/insights', requireAdmin, async (req, res) => {
+  const campaign = await db.get(`SELECT * FROM ad_campaigns WHERE id = ?`, [Number(req.params.id)]);
+  if (!campaign) return res.status(404).json({ error: 'Campaign not found.' });
+  if (!campaign.meta_campaign_id) {
+    return res.status(400).json({ error: "This campaign isn't linked to a real Meta campaign yet — sync spend at least once first." });
+  }
+  const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
+  const until = new Date().toISOString().slice(0, 10);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  try {
+    const insights = await metaAds.getCampaignInsightsForRange(campaign.meta_campaign_id, since, until);
+    res.json({ ok: true, ...insights, since, until });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Could not fetch insights.' });
+  }
 });
 
 // Orders, for fulfillment. ?status=paid to see what actually needs printing;

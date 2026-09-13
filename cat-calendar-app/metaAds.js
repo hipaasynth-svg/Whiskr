@@ -61,4 +61,24 @@ async function getCampaignSpendForDate(metaCampaignId, dateYmd) {
   return { dryRun: false, amountUsd: row ? Number(row.spend) : 0 };
 }
 
-module.exports = { configured, listCampaigns, getCampaignSpendForDate };
+// Spend + the two numbers spend alone can't explain a bad ROAS with:
+// impressions and clicks (so "nobody's clicking" can be told apart from
+// "they click but don't buy"). Not persisted anywhere — this is a live,
+// on-demand diagnostic (see GET /api/admin/marketing/campaigns/:id/insights
+// in server.js), not part of the stored spend ledger.
+async function getCampaignInsightsForRange(metaCampaignId, sinceYmd, untilYmd) {
+  if (!configured()) return { dryRun: true, spend: 0, impressions: 0, clicks: 0 };
+  const data = await metaRequest(`/${metaCampaignId}/insights`, {
+    fields: 'spend,impressions,clicks',
+    time_range: JSON.stringify({ since: sinceYmd, until: untilYmd }),
+  });
+  const row = (data.data || [])[0];
+  return {
+    dryRun: false,
+    spend: row ? Number(row.spend) : 0,
+    impressions: row ? Number(row.impressions) : 0,
+    clicks: row ? Number(row.clicks) : 0,
+  };
+}
+
+module.exports = { configured, listCampaigns, getCampaignSpendForDate, getCampaignInsightsForRange };
