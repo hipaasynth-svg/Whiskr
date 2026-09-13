@@ -1837,10 +1837,64 @@ that status.html renders the share-credit line with the right count and
 grammar (singular "vote" vs. plural "votes").
 
 **Still open**: the live-sessions platform decision and chat build-out;
-real Printful variant IDs for the Gallery Series; a dedicated landing
-page for paid traffic; and confirming Meta Pixel events land correctly
-via `META_TEST_EVENT_CODE` once real credentials are added — see the
-running todo list for the complete, current state.
+real Printful variant IDs for the Gallery Series; and confirming Meta
+Pixel events land correctly via `META_TEST_EVENT_CODE` once real
+credentials are added — see the running todo list for the complete,
+current state.
+
+## Update — 2026-09-13: dedicated landing page for paid ad traffic
+
+Closed the last of the funnel-infra follow-ups: paid clicks had nowhere
+to land but the full homepage — nav links, the shop grid, live
+sessions, footer newsletter, everything the homepage serves for every
+kind of visitor. A paid click has already been sold on one specific
+thing by the ad; every extra path off that page is a chance to lose
+them before they convert.
+
+New `public/landing.html` — genuinely a plain static file, not a new
+server-rendered route. Confirmed first that every dynamic piece it
+needed (background hero photos, the originals showcase, reviews) already
+has a client-side fetch as progressive enhancement on top of index.html's
+server-side prerender (`heroSlideshow()`, the `#originalsGrid` loader,
+`loadReviews()` in script.js — all guarded with an early return if their
+element is missing), so reusing the same element ids/markup and loading
+the same `script.js` gets a fully working, fully dynamic page for free,
+with zero new server code. Same for the entry form itself — `#entryForm`
+with the same field ids/names, including the marketing opt-in checkbox
+from the previous update, "just works" against script.js's existing
+submit handler and the existing `/api/submissions` endpoint.
+
+What's deliberately cut versus the homepage: no header nav (logo only —
+nowhere else on-site to click to, since vote/prints/reviews are still
+one scroll away in-page); no shop grid, live-sessions section, or footer
+newsletter signup (competing CTAs work against a single-path landing
+page); one hero CTA instead of two. What's kept, in persuasion order:
+hero hook → how-it-works (removes "is this legit" friction) → originals
+showcase (proof the prize is real) → the entry form itself → reviews +
+trust badges (proof for anyone still hesitant right before the ask).
+
+Marked `<meta name="robots" content="noindex, follow">` with
+`<link rel="canonical" href="https://whiskr.lol/">` — this page overlaps
+enough with `index.html` that letting both rank would risk duplicate-
+content dilution in organic search, and there's no reason to try to
+rank a paid-traffic-only page organically in the first place. Neither
+tag affects paid traffic at all — ads don't consult robots meta or
+canonical tags, only search crawlers do. Not added to `sitemap.xml`
+either, consistent with that.
+
+**Verified against a real local Postgres instance**: loaded the real
+page in a real browser and confirmed zero page/console errors beyond
+environment-only noise (missing `/_vercel/insights/script.js` in local
+dev, the sandbox's own network policy blocking Google Fonts — both
+identical on `index.html`, nothing landing.html-specific); confirmed
+`#siteNav` is genuinely absent (not just hidden) and the mobile nav
+toggle script no-ops cleanly against it; submitted a real multipart
+entry through the page end-to-end and confirmed the resulting
+`submissions` row; confirmed `?utm_campaign=` capture sets the same
+cookie it does on every other page; visually confirmed via screenshot at
+both desktop and mobile widths (no horizontal overflow at 375px) that
+the page reads as a coherent, focused single-path flow rather than a
+homepage with pieces missing.
 
 ## Update — 2026-09-13: richer offline state for live painting sessions
 
