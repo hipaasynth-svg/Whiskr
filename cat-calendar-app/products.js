@@ -14,6 +14,51 @@
 // where it has them, so the shape shown on the site actually matches what
 // ships.
 const PRODUCTS = [
+  // The Gallery Series — a premium tier above the everyday items below,
+  // listed first so it leads the shop instead of getting lost in the grid
+  // (see the `tier: 'premium'` badge these three get in seo.js/script.js).
+  // UNLIKE every other printfulVariantId in this file, these three are
+  // NOT yet confirmed against Printful's catalog API — printful.com
+  // itself isn't reachable from this environment to look them up. Until a
+  // real variant_id is pasted in here (Printful dashboard → Catalog →
+  // Wall Art → the matching product/size), a real order for one of these
+  // still charges the customer successfully but Printful submission fails
+  // safely afterward (submitCustomOrderToPrintful catches it, marks the
+  // order 'failed', and it shows up in admin.html's alerts panel) rather
+  // than shipping the wrong thing. priceUsd here is set from typical
+  // market rates for this product tier, not a confirmed Printful cost —
+  // sanity-check both against the real numbers in your Printful dashboard
+  // before treating this as final pricing.
+  {
+    id: 'framed-poster-luster-12x18',
+    name: 'Framed Gallery Print',
+    species: 'both',
+    description: "Your pet's photo on luster photo paper, framed in solid wood — the finish Printful itself compares to a real photo-lab print, not a print-on-demand one. Ready to hang, no glass to crack in shipping.",
+    priceUsd: 74.0,
+    printfulVariantId: null, // Printful "Premium Luster Photo Paper Framed Poster", 12"x18" — confirm real variant_id
+    mockupAspect: '2/3',
+    tier: 'premium',
+  },
+  {
+    id: 'framed-poster-matte-12x18',
+    name: 'Framed Matte Print',
+    species: 'both',
+    description: 'Museum-quality matte paper in a real wood frame — quieter and more understated than the luster finish, straight out of the box and onto the wall.',
+    priceUsd: 62.0,
+    printfulVariantId: null, // Printful "Enhanced Matte Paper Framed Poster", 12"x18" — confirm real variant_id
+    mockupAspect: '2/3',
+    tier: 'premium',
+  },
+  {
+    id: 'canvas-18x24',
+    name: 'Large Gallery Canvas',
+    species: 'both',
+    description: "An 18x24\" gallery-wrapped canvas — the statement piece. Same real canvas texture as our smaller size, built for a wall that means it.",
+    priceUsd: 89.0,
+    printfulVariantId: null, // Printful large-format Canvas, 18"x24" — confirm real variant_id
+    mockupAspect: '3/4',
+    tier: 'premium',
+  },
   {
     id: 'mug-11oz',
     name: 'Custom Pet Mug',

@@ -48,8 +48,9 @@ function productsJsonLd(products, baseUrl) {
 
 function renderProductCards(products) {
   return products.map((p) => `
-      <div class="custom-card" data-product-id="${escapeHtml(p.id)}" data-species="${escapeHtml(p.species)}">
+      <div class="custom-card${p.tier === 'premium' ? ' premium' : ''}" data-product-id="${escapeHtml(p.id)}" data-species="${escapeHtml(p.species)}">
         ${p.imagePath ? `<img class="custom-card-photo" src="${escapeHtml(p.imagePath)}" alt="${escapeHtml(p.imageAlt || p.name)}" style="aspect-ratio:${escapeHtml(p.mockupAspect || '1/1')}" loading="lazy" />` : ''}
+        ${p.tier === 'premium' ? '<span class="tier-badge">Gallery Series</span>' : ''}
         <h4>${escapeHtml(p.name)}</h4>
         <p>${escapeHtml(p.description)}</p>
         <div class="price">$${p.priceUsd.toFixed(2)}</div>
@@ -96,6 +97,19 @@ function renderFooterStrip(imagePaths) {
   return `<div class="footer-strip-row">${row(top)}</div><div class="footer-strip-row">${row(bottom)}</div>`;
 }
 
+// Past live painting sessions, listed next to the live screen. A session
+// without a video_url yet (e.g. one that's scheduled but not recorded/
+// uploaded) still shows as plain text rather than a dead link.
+function renderPastSessions(sessions) {
+  return sessions.map((s) => `
+      <li>
+        ${s.video_url
+          ? `<a href="${escapeHtml(s.video_url)}" target="_blank" rel="noopener">${escapeHtml(s.title)}</a>`
+          : `<span>${escapeHtml(s.title)}</span>`}
+        <span class="session-date">${escapeHtml(new Date(s.session_date).toLocaleDateString())}</span>
+      </li>`).join('');
+}
+
 // Replace the content of the element carrying id="ID" with `inner` —
 // matches from the id through the rest of the opening tag to its `>`, then
 // everything up to the next closing tag. Works whether the element started
@@ -138,6 +152,7 @@ module.exports = {
   renderEntryTeaser,
   renderOriginals,
   renderFooterStrip,
+  renderPastSessions,
   fillEmpty,
   setAttr,
   revealHidden,

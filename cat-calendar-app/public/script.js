@@ -310,6 +310,73 @@ captureUtmCampaign();
     .catch((err) => console.error('footer photo wall load failed', err));
 })();
 
+// ---------- live painting sessions ----------
+// Admin-controlled, from /api/live-stream (see admin.html's "Live painting
+// sessions" section). This one's a manual on/off switch rather than the
+// empty-state-hides-itself rule everywhere else — it can be turned on the
+// day of the very first session, before there's any past one to list.
+(function livePaintingSessions() {
+  const section = document.getElementById('liveSessions');
+  const screen = document.getElementById('liveScreen');
+  const list = document.getElementById('pastSessionsList');
+  const empty = document.getElementById('pastSessionsEmpty');
+  if (!section || !screen || !list || !empty) return;
+
+  fetch('/api/live-stream')
+    .then((res) => res.json())
+    .then((data) => {
+      if (!data.enabled) return;
+
+      screen.innerHTML = '';
+      if (data.isLive && data.embedUrl) {
+        const iframe = document.createElement('iframe');
+        iframe.src = data.embedUrl;
+        iframe.title = 'Live painting session';
+        iframe.allow = 'autoplay; encrypted-media';
+        iframe.allowFullscreen = true;
+        iframe.loading = 'lazy';
+        screen.appendChild(iframe);
+      } else {
+        const offline = document.createElement('div');
+        offline.className = 'live-offline';
+        const p = document.createElement('p');
+        p.textContent = 'Not live right now — check back, or watch a past session.';
+        offline.appendChild(p);
+        screen.appendChild(offline);
+      }
+
+      const sessions = data.sessions || [];
+      if (sessions.length > 0) {
+        list.innerHTML = '';
+        sessions.forEach((s) => {
+          const li = document.createElement('li');
+          if (s.videoUrl) {
+            const a = document.createElement('a');
+            a.href = s.videoUrl;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.textContent = s.title;
+            li.appendChild(a);
+          } else {
+            const span = document.createElement('span');
+            span.textContent = s.title;
+            li.appendChild(span);
+          }
+          const dateSpan = document.createElement('span');
+          dateSpan.className = 'session-date';
+          dateSpan.textContent = new Date(s.sessionDate).toLocaleDateString();
+          li.appendChild(dateSpan);
+          list.appendChild(li);
+        });
+        list.hidden = false;
+        empty.hidden = true;
+      }
+
+      section.hidden = false;
+    })
+    .catch((err) => console.error('live painting sessions load failed', err));
+})();
+
 // ---------- live contest status ----------
 async function loadStatus() {
   try {
@@ -658,6 +725,7 @@ loadReviews();
       const card = document.createElement('div');
       card.className = 'custom-card';
       if (p.id === productField.value) card.classList.add('selected');
+      if (p.tier === 'premium') card.classList.add('premium');
 
       if (p.imagePath) {
         const img = document.createElement('img');
@@ -667,6 +735,13 @@ loadReviews();
         img.loading = 'lazy';
         img.style.aspectRatio = p.mockupAspect || '1/1';
         card.appendChild(img);
+      }
+
+      if (p.tier === 'premium') {
+        const badge = document.createElement('span');
+        badge.className = 'tier-badge';
+        badge.textContent = 'Gallery Series';
+        card.appendChild(badge);
       }
 
       const h4 = document.createElement('h4');

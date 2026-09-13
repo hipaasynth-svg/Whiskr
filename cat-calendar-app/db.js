@@ -392,6 +392,33 @@ CREATE TABLE IF NOT EXISTS footer_strip_images (
   position INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
+
+-- Manual on/off switch for the "Live painting sessions" homepage section
+-- — deliberately NOT tied to whether any content exists yet (unlike
+-- site_blocks/background_slides above), since the owner may want to turn
+-- this on the day of the very first session, before there's any past one
+-- to list yet. Single settings row, always keyed 'main'. is_live/embed_url
+-- control what the "screen" shows right now; a real embed URL only
+-- matters while is_live is set.
+CREATE TABLE IF NOT EXISTS live_stream_settings (
+  key TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  is_live INTEGER NOT NULL DEFAULT 0,
+  embed_url TEXT,
+  updated_at TEXT NOT NULL
+);
+
+-- Past live painting sessions, listed next to the screen once the
+-- section above is enabled. video_url is optional — a session can be
+-- listed (e.g. "coming up") before a recording exists to link to.
+CREATE TABLE IF NOT EXISTS live_sessions (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  session_date TEXT NOT NULL,
+  video_url TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
 `;
 
 // Runs once per warm serverless instance (or once at local startup) — see
