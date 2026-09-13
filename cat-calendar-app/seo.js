@@ -110,6 +110,37 @@ function renderPastSessions(sessions) {
       </li>`).join('');
 }
 
+// The live-painting screen's offline state — a visitor who shows up
+// between sessions is still a real visitor, so this surfaces whatever
+// keeps them around instead of a dead end: when the next session is (if
+// scheduled), what the last one was (if any exist yet), and the two
+// evergreen CTAs that are true whether or not anyone's painting right
+// now — enter the open contest, or commission an original outright.
+function renderLiveOffline({ nextSessionAt, lastSession }) {
+  const nextLine = nextSessionAt
+    ? `<p class="live-offline-next">Next session: ${escapeHtml(
+        new Date(nextSessionAt).toLocaleString('en-US', {
+          weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
+        })
+      )}</p>`
+    : '';
+  const lastLine = lastSession
+    ? `<p class="live-offline-last">Last time: ${
+        lastSession.video_url
+          ? `<a href="${escapeHtml(lastSession.video_url)}" target="_blank" rel="noopener">${escapeHtml(lastSession.title)}</a>`
+          : escapeHtml(lastSession.title)
+      }</p>`
+    : '';
+  return `<div class="live-offline">
+    <p>Not live right now — check back, or watch a past session.</p>
+    ${nextLine}${lastLine}
+    <p class="live-offline-ctas">
+      <a href="#enter" class="btn btn-primary">Enter this month's contest</a>
+      <a href="https://codycarlson.art" target="_blank" rel="noopener" class="btn btn-ghost">Commission with Cody Carlson</a>
+    </p>
+  </div>`;
+}
+
 // Replace the content of the element carrying id="ID" with `inner` —
 // matches from the id through the rest of the opening tag to its `>`, then
 // everything up to the next closing tag. Works whether the element started
@@ -153,6 +184,7 @@ module.exports = {
   renderOriginals,
   renderFooterStrip,
   renderPastSessions,
+  renderLiveOffline,
   fillEmpty,
   setAttr,
   revealHidden,

@@ -442,6 +442,11 @@ CREATE TABLE IF NOT EXISTS live_stream_settings (
   embed_url TEXT,
   updated_at TEXT NOT NULL
 );
+-- Optional "when's the next one" for the offline-state screen (see
+-- renderLiveOffline in seo.js) — a plain ISO timestamp the owner sets by
+-- hand, not a schedule the app enforces; clearing it (or leaving it in the
+-- past) just drops that line from the offline state, nothing else changes.
+ALTER TABLE live_stream_settings ADD COLUMN IF NOT EXISTS next_session_at TEXT;
 
 -- Past live painting sessions, listed next to the screen once the
 -- section above is enabled. video_url is optional — a session can be

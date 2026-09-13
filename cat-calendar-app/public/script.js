@@ -354,6 +354,8 @@ window.fbq = window.fbq || function () { (window.fbq.queue = window.fbq.queue ||
     .then((data) => {
       if (!data.enabled) return;
 
+      const sessions = data.sessions || [];
+
       screen.innerHTML = '';
       if (data.isLive && data.embedUrl) {
         const iframe = document.createElement('iframe');
@@ -364,15 +366,62 @@ window.fbq = window.fbq || function () { (window.fbq.queue = window.fbq.queue ||
         iframe.loading = 'lazy';
         screen.appendChild(iframe);
       } else {
+        // Mirrors seo.js's renderLiveOffline — a visitor showing up between
+        // sessions still gets the next-session date (if set), the last
+        // painting (if any exist), and the two evergreen CTAs.
         const offline = document.createElement('div');
         offline.className = 'live-offline';
         const p = document.createElement('p');
         p.textContent = 'Not live right now — check back, or watch a past session.';
         offline.appendChild(p);
+
+        if (data.nextSessionAt) {
+          const nextP = document.createElement('p');
+          nextP.className = 'live-offline-next';
+          nextP.textContent = `Next session: ${new Date(data.nextSessionAt).toLocaleString('en-US', {
+            weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
+          })}`;
+          offline.appendChild(nextP);
+        }
+
+        const lastSession = sessions[0];
+        if (lastSession) {
+          const lastP = document.createElement('p');
+          lastP.className = 'live-offline-last';
+          lastP.append('Last time: ');
+          if (lastSession.videoUrl) {
+            const a = document.createElement('a');
+            a.href = lastSession.videoUrl;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.textContent = lastSession.title;
+            lastP.appendChild(a);
+          } else {
+            lastP.append(lastSession.title);
+          }
+          offline.appendChild(lastP);
+        }
+
+        const ctas = document.createElement('p');
+        ctas.className = 'live-offline-ctas';
+        const enterLink = document.createElement('a');
+        enterLink.href = '#enter';
+        enterLink.className = 'btn btn-primary';
+        enterLink.textContent = "Enter this month's contest";
+        const commissionLink = document.createElement('a');
+        commissionLink.href = 'https://codycarlson.art';
+        commissionLink.target = '_blank';
+        commissionLink.rel = 'noopener';
+        commissionLink.className = 'btn btn-ghost';
+        commissionLink.textContent = 'Commission with Cody Carlson';
+        ctas.appendChild(enterLink);
+        ctas.appendChild(document.createTextNode(' '));
+        ctas.appendChild(commissionLink);
+        offline.appendChild(ctas);
+
         screen.appendChild(offline);
       }
 
-      const sessions = data.sessions || [];
       if (sessions.length > 0) {
         list.innerHTML = '';
         sessions.forEach((s) => {

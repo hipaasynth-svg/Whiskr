@@ -1836,11 +1836,63 @@ fraud-review table renders the new "Referred" column correctly, and
 that status.html renders the share-credit line with the right count and
 grammar (singular "vote" vs. plural "votes").
 
-**Still open**: the live-sessions platform decision and chat/offline-state
-build-out; real Printful variant IDs for the Gallery Series; a dedicated
-landing page for paid traffic; and confirming Meta Pixel events land
-correctly via `META_TEST_EVENT_CODE` once real credentials are added —
-see the running todo list for the complete, current state.
+**Still open**: the live-sessions platform decision and chat build-out;
+real Printful variant IDs for the Gallery Series; a dedicated landing
+page for paid traffic; and confirming Meta Pixel events land correctly
+via `META_TEST_EVENT_CODE` once real credentials are added — see the
+running todo list for the complete, current state.
+
+## Update — 2026-09-13: richer offline state for live painting sessions
+
+The offline state (shown whenever the live-sessions section is on but
+nobody's actually painting — the common case) was a single flat
+sentence: "Not live right now — check back, or watch a past session."
+A visitor who lands there between sessions is still a real visitor;
+this gives them somewhere to go instead of a dead end.
+
+New `renderLiveOffline()` in seo.js (used for the SSR path in
+`renderIndexHtml`) plus a matching client-side rebuild in script.js's
+`livePaintingSessions()` IIFE — the client re-fetches `/api/live-stream`
+and replaces the SSR markup on every real page load, so both paths had
+to build the identical richer state or a real visitor would only ever
+see the plainer one. It now shows, only when the data exists: when the
+next session is (a new optional `live_stream_settings.next_session_at`
+the owner sets by hand — not a schedule the app enforces, just a line
+that appears or doesn't), and what the last painting was (reusing
+whichever past session sorts first in the existing "Past sessions" list
+ordering, so the two stay visually consistent) — plus two CTAs that are
+true whether or not anyone's painting right now: enter this month's
+contest (`#enter`, since this is the same page), and commission an
+original outright at codycarlson.art.
+
+The one real bug caught before it shipped: `admin.html`'s new
+`<input type="datetime-local">` for `next_session_at` shows/edits LOCAL
+wall-clock time with no timezone marker. The naive fix —
+`new Date(iso).toISOString()` for display and `Date.parse(raw)` on the
+server for saving — silently shifts the displayed/stored time by
+whatever the browser's or server's UTC offset happens to be (worse, the
+two don't even have to agree, since Vercel's server almost certainly
+runs UTC while the owner's browser doesn't). Fixed by building the
+input's value from local date/time getters (matching what the input
+actually displays) and having the browser convert its own local input
+back to a real absolute UTC timestamp via `new Date(value).toISOString()`
+before ever sending it to the server — the server only ever handles an
+unambiguous absolute instant, never a naive local string it would have
+to guess a timezone for.
+
+**Verified against a real local Postgres instance**: confirmed the
+`next_session_at` migration lands live; set a real next-session time and
+added a past session with a recording link, then confirmed via direct
+HTTP that the server-rendered `index.html` shows the correct next-session
+line (in the visitor's intended wording, e.g. "Next session: Sunday,
+September 20 at 8:00 PM") and last-painting link; used Playwright to
+confirm the client-side rehydration produces byte-identical markup to
+the SSR version; visually confirmed via screenshot that the two CTA
+buttons and the extra lines read cleanly against the screen's dark
+background; and round-tripped the admin's datetime-local input through a
+real save-and-reload in a real browser to confirm no timezone drift, plus
+confirmed clearing the field removes the next-session line entirely
+rather than leaving a stale or malformed one.
 
 ## Update — 2026-09-13: opt-in marketing list, separate from orders
 

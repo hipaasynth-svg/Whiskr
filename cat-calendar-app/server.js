@@ -613,14 +613,14 @@ async function renderIndexHtml() {
 
   const liveSettings = await db.get(`SELECT * FROM live_stream_settings WHERE key = 'main'`);
   if (liveSettings && liveSettings.enabled) {
-    const screenInner = (liveSettings.is_live && liveSettings.embed_url)
-      ? `<iframe src="${seo.escapeHtml(liveSettings.embed_url)}" title="Live painting session" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe>`
-      : `<div class="live-offline"><p>Not live right now — check back, or watch a past session.</p></div>`;
-    html = seo.fillEmpty(html, 'liveScreen', screenInner);
-
     const pastSessions = await db.all(
       `SELECT title, session_date, video_url FROM live_sessions ORDER BY position ASC, id DESC`
     );
+    const screenInner = (liveSettings.is_live && liveSettings.embed_url)
+      ? `<iframe src="${seo.escapeHtml(liveSettings.embed_url)}" title="Live painting session" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe>`
+      : seo.renderLiveOffline({ nextSessionAt: liveSettings.next_session_at, lastSession: pastSessions[0] || null });
+    html = seo.fillEmpty(html, 'liveScreen', screenInner);
+
     if (pastSessions.length > 0) {
       html = seo.fillEmpty(html, 'pastSessionsList', seo.renderPastSessions(pastSessions));
       html = seo.revealHidden(html, 'pastSessionsList');
@@ -1514,6 +1514,7 @@ app.get('/api/live-stream', async (req, res) => {
     enabled: true,
     isLive: !!settings.is_live,
     embedUrl: settings.embed_url,
+    nextSessionAt: settings.next_session_at,
     sessions: sessions.map((s) => ({ title: s.title, sessionDate: s.session_date, videoUrl: s.video_url })),
   });
 });
@@ -2571,8 +2572,8 @@ app.get('/api/admin/live-stream', requireAdmin, async (req, res) => {
   );
   res.json({
     settings: settings
-      ? { enabled: !!settings.enabled, isLive: !!settings.is_live, embedUrl: settings.embed_url }
-      : { enabled: false, isLive: false, embedUrl: null },
+      ? { enabled: !!settings.enabled, isLive: !!settings.is_live, embedUrl: settings.embed_url, nextSessionAt: settings.next_session_at }
+      : { enabled: false, isLive: false, embedUrl: null, nextSessionAt: null },
     sessions,
   });
 });
@@ -2581,15 +2582,20 @@ app.post('/api/admin/live-stream/settings', requireAdmin, async (req, res) => {
   const enabled = req.body.enabled ? 1 : 0;
   const isLive = req.body.isLive ? 1 : 0;
   const embedUrl = String(req.body.embedUrl || '').trim().slice(0, 500) || null;
+  const nextSessionAtRaw = String(req.body.nextSessionAt || '').trim();
+  const nextSessionAt = nextSessionAtRaw && !isNaN(Date.parse(nextSessionAtRaw))
+    ? new Date(nextSessionAtRaw).toISOString()
+    : null;
   await db.run(
-    `INSERT INTO live_stream_settings (key, enabled, is_live, embed_url, updated_at)
-     VALUES ('main', ?, ?, ?, ?)
+    `INSERT INTO live_stream_settings (key, enabled, is_live, embed_url, next_session_at, updated_at)
+     VALUES ('main', ?, ?, ?, ?, ?)
      ON CONFLICT (key) DO UPDATE SET
        enabled = EXCLUDED.enabled,
        is_live = EXCLUDED.is_live,
        embed_url = EXCLUDED.embed_url,
+       next_session_at = EXCLUDED.next_session_at,
        updated_at = EXCLUDED.updated_at`,
-    [enabled, isLive, embedUrl, new Date().toISOString()]
+    [enabled, isLive, embedUrl, nextSessionAt, new Date().toISOString()]
   );
   res.json({ ok: true });
 });
