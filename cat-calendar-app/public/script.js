@@ -930,3 +930,35 @@ if (checkoutForm) {
     }
   });
 }
+
+// ---------- footer newsletter signup ----------
+// A separate opt-in list from the entry-form checkbox — for a visitor who
+// wants updates without entering the contest or ordering anything (today
+// the only other two ways an email reaches this app). See /api/subscribe
+// and marketing_subscribers in server.js/db.js.
+const footerSignupForm = document.getElementById('footerSignupForm');
+if (footerSignupForm) {
+  const footerSignupNote = document.getElementById('footerSignupNote');
+  footerSignupForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const emailInput = document.getElementById('footerSignupEmail');
+    const submitBtn = footerSignupForm.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    footerSignupNote.textContent = '';
+    try {
+      const res = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput.value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Signup failed.');
+      footerSignupNote.textContent = "You're on the list!";
+      footerSignupForm.reset();
+    } catch (err) {
+      footerSignupNote.textContent = err.message;
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}

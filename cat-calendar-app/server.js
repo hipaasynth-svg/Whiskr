@@ -47,6 +47,7 @@ const VOTE_LIMIT_PER_IP_PER_DAY = Number(process.env.VOTE_LIMIT_PER_IP_PER_DAY |
 // orders can hit either endpoint as fast as it likes without this.
 const SUBMISSION_LIMIT_PER_IP_PER_DAY = Number(process.env.SUBMISSION_LIMIT_PER_IP_PER_DAY || 5);
 const CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY = Number(process.env.CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY || 10);
+const SUBSCRIBE_LIMIT_PER_IP_PER_DAY = Number(process.env.SUBSCRIBE_LIMIT_PER_IP_PER_DAY || 10);
 // Salts the IP hash stored in the votes table so raw IPs are never persisted.
 // Set a real random value in production — the default is fine for local dev
 // only, since anyone who knows it could pre-compute hashes for known IPs.
@@ -739,6 +740,22 @@ function isValidEmail(e) {
   return typeof e === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
+// Add (or re-activate) an explicit marketing-list opt-in. A fresh opt-in
+// always clears any prior unsubscribed_at — a new affirmative "yes" is a
+// new consent event, not something an old unsubscribe should keep hidden.
+// Doesn't check the suppressions table here: recording that someone
+// opted in is harmless bookkeeping even if they're separately suppressed
+// from all mail; mailer.js's isSuppressed check is what actually decides
+// whether an address gets emailed, and stays the single source of truth
+// for that.
+async function subscribeToMarketingList(email, source, ipHash) {
+  await db.run(
+    `INSERT INTO marketing_subscribers (email, source, subscribed_at, unsubscribed_at, ip_hash) VALUES (?, ?, ?, NULL, ?)
+     ON CONFLICT (email) DO UPDATE SET source = EXCLUDED.source, subscribed_at = EXCLUDED.subscribed_at, unsubscribed_at = NULL`,
+    [String(email).toLowerCase(), source, new Date().toISOString(), ipHash || null]
+  );
+}
+
 // Whatever a visitor's ?utm_campaign= link said, captured client-side into
 // a cookie (see script.js) and sent along with entry/order requests — a
 // free-text label matched case-insensitively against ad_campaigns.name at
@@ -1111,6 +1128,14 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
       await db.run(`UPDATE submissions SET notified_entry = 1 WHERE id = ?`, [submissionId]);
     } catch (err) {
       console.error(`[mailer] entry confirmation failed for submission ${submissionId}:`, err.message);
+    }
+
+    // Explicit, unchecked-by-default opt-in (see the marketing_optIn
+    // checkbox on the entry form) — separate from the confirmation email
+    // above, which every entrant gets regardless since it's transactional,
+    // not marketing.
+    if (req.body.marketingOptIn === 'on' || req.body.marketingOptIn === 'true') {
+      await subscribeToMarketingList(email, 'entry_form');
     }
 
     // Ad conversion tracking — never blocks or fails the entry itself.
@@ -1722,11 +1747,47 @@ app.get('/api/unsubscribe', async (req, res) => {
   if (!unsubscribe.verify(email, token)) {
     return res.status(400).send('Invalid or expired unsubscribe link.');
   }
+  const lowerEmail = String(email).toLowerCase();
   await db.run(`INSERT INTO suppressions (email, created_at) VALUES (?, ?) ON CONFLICT (email) DO NOTHING`, [
-    String(email).toLowerCase(),
+    lowerEmail,
     new Date().toISOString(),
   ]);
+  // A suppression is a strict superset of "opted out of marketing" — keep
+  // marketing_subscribers from showing someone as still opted in once
+  // they've unsubscribed from mail entirely.
+  await db.run(`UPDATE marketing_subscribers SET unsubscribed_at = ? WHERE email = ? AND unsubscribed_at IS NULL`, [
+    new Date().toISOString(),
+    lowerEmail,
+  ]);
   res.send('You have been unsubscribed from Whiskr emails.');
+});
+
+// Standalone newsletter/marketing signup — for a visitor who wants updates
+// without entering the contest or placing an order (today's only other two
+// ways an email reaches this app, both transactional). Deliberately no
+// email sent back on success: this endpoint just records consent, it
+// isn't itself a mailer, so there's nothing to confirm yet.
+app.post('/api/subscribe', async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim();
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'A valid email is required.' });
+    }
+    const ipHash = hashIp(req.ip);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const ipCount = await db.get(
+      `SELECT COUNT(*) AS c FROM marketing_subscribers WHERE ip_hash = ? AND subscribed_at >= ?`,
+      [ipHash, dayAgo]
+    );
+    if (Number(ipCount.c) >= SUBSCRIBE_LIMIT_PER_IP_PER_DAY) {
+      return res.status(429).json({ error: 'Too many signups from this connection today — try again tomorrow.' });
+    }
+    await subscribeToMarketingList(email, 'footer_signup', ipHash);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
 });
 
 // Public reviews for the homepage. Only ever rows a human approved after
@@ -2248,6 +2309,48 @@ app.get('/api/admin/marketing/campaigns/:id/insights', requireAdmin, async (req,
     console.error(err);
     res.status(500).json({ error: err.message || 'Could not fetch insights.' });
   }
+});
+
+// The marketing list itself — see marketing_subscribers in db.js. "active"
+// excludes anyone who has since hit the real unsubscribe link (which sets
+// unsubscribed_at here too, see /api/unsubscribe above) OR who's in the
+// suppressions table directly (e.g. a hard bounce or spam complaint might
+// suppress an address without that address ever calling this table's own
+// unsubscribe path) — so "active" here always matches who mailer.js would
+// actually be willing to send to today, not just this table's own flag.
+app.get('/api/admin/marketing-subscribers', requireAdmin, async (req, res) => {
+  const rows = await db.all(
+    `SELECT ms.email, ms.source, ms.subscribed_at, ms.unsubscribed_at,
+            (ms.unsubscribed_at IS NULL AND s.email IS NULL) AS active
+     FROM marketing_subscribers ms LEFT JOIN suppressions s ON s.email = ms.email
+     ORDER BY ms.subscribed_at DESC`
+  );
+  const activeCount = rows.filter((r) => r.active).length;
+  const bySource = {};
+  for (const r of rows) {
+    if (!r.active) continue;
+    bySource[r.source] = (bySource[r.source] || 0) + 1;
+  }
+  res.json({ subscribers: rows, activeCount, totalCount: rows.length, bySource });
+});
+
+// CSV export of the active list — the practical way to actually use it
+// today (paste into whatever ESP the owner picks later) without this app
+// taking on sending bulk marketing mail itself, which is a real
+// deliverability/compliance undertaking of its own (see docs/audit-
+// assembly.md) and deliberately out of scope here.
+app.get('/api/admin/marketing-subscribers/export.csv', requireAdmin, async (req, res) => {
+  const rows = await db.all(
+    `SELECT ms.email, ms.source, ms.subscribed_at
+     FROM marketing_subscribers ms LEFT JOIN suppressions s ON s.email = ms.email
+     WHERE ms.unsubscribed_at IS NULL AND s.email IS NULL
+     ORDER BY ms.subscribed_at DESC`
+  );
+  const escapeCsv = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = ['email,source,subscribed_at', ...rows.map((r) => [r.email, r.source, r.subscribed_at].map(escapeCsv).join(','))];
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="whiskr-marketing-list.csv"');
+  res.send(lines.join('\n'));
 });
 
 // Orders, for fulfillment. ?status=paid to see what actually needs printing;

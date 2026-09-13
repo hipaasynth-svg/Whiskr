@@ -1838,7 +1838,66 @@ grammar (singular "vote" vs. plural "votes").
 
 **Still open**: the live-sessions platform decision and chat/offline-state
 build-out; real Printful variant IDs for the Gallery Series; a dedicated
-landing page for paid traffic; an opt-in marketing/email list; and
-confirming Meta Pixel events land correctly via `META_TEST_EVENT_CODE`
-once real credentials are added — see the running todo list for the
-complete, current state.
+landing page for paid traffic; and confirming Meta Pixel events land
+correctly via `META_TEST_EVENT_CODE` once real credentials are added —
+see the running todo list for the complete, current state.
+
+## Update — 2026-09-13: opt-in marketing list, separate from orders
+
+Closed the other gap noted above: every email this app ever captured was
+tied to one specific transactional reason (a contest entry, a print
+order), with no way to reach a past entrant/customer for anything else —
+a new contest opening, a promo, a live painting session announcement.
+
+New `marketing_subscribers` table (email primary key, `source`,
+`subscribed_at`, `unsubscribed_at`, an optional `ip_hash` for rate-
+limiting the standalone signup path the same way submissions/custom-
+orders already rate-limit theirs). Two ways in, both genuinely opt-in
+and unchecked/empty by default:
+
+1. A new checkbox on the entry form ("email me about new contests,
+   promos, and live painting sessions") — separate from, and below, the
+   required photo-rights consent checkbox, and explicitly not required.
+2. A small standalone signup form added to the homepage footer
+   (`?via=` style attribution wasn't relevant here since this isn't a
+   share mechanic — just an email + submit), for a visitor who wants
+   updates without entering the contest or ordering anything. Scoped to
+   `index.html` only for now rather than every page's footer (the
+   footer markup is duplicated per-file across 11 pages, not a shared
+   partial) — the homepage is the highest-traffic surface, and rolling
+   it out to the lower-traffic legal/utility pages (privacy, terms,
+   shipping, rules) can follow if it proves worth the diff.
+
+A fresh opt-in always clears any prior `unsubscribed_at` on that email —
+a new affirmative yes is a new consent event. Conversely, hitting the
+existing CAN-SPAM unsubscribe link (`/api/unsubscribe`) now updates
+`marketing_subscribers` too, not just `suppressions` — a hard
+unsubscribe is a strict superset of "no longer opted into marketing,"
+and the two tables would otherwise silently drift apart the first time
+someone unsubscribed.
+
+Deliberately did NOT build a bulk-send/campaign feature on top of this —
+actually mailing a list at volume is a real deliverability/compliance
+undertaking (sender reputation, list hygiene, an actual ESP) that's its
+own project, not a natural extension of `mailer.js`'s single-recipient
+transactional sends. Instead, `admin.html` gets a "Marketing list" panel
+(active/total counts, a breakdown by source, a table) and a CSV export
+button, so the list is genuinely usable today — paste it into whichever
+ESP gets picked later — without this app quietly growing into a mailer
+it was never built to be.
+
+**Verified against a real local Postgres instance**: confirmed the
+`marketing_subscribers` migration lands live; used Playwright to submit
+a real multipart entry with the opt-in checkbox checked (row created,
+correct `source: 'entry_form'`) and unchecked (no row at all — the
+absent-vs-present FormData behavior of an unchecked checkbox was
+confirmed, not assumed); exercised the standalone `/api/subscribe`
+endpoint directly (valid email accepted, invalid rejected, a duplicate
+signup upserts rather than erroring) and through the real footer form
+in a browser, including its per-IP daily rate limit actually triggering
+at the configured threshold and the UI showing both the success and
+the rate-limited error text; confirmed hitting a real unsubscribe link
+flips that same email to "Unsubscribed" in the admin panel and drops it
+from the active count; and confirmed the CSV export button in a real
+browser produces a correctly-named download containing only active
+subscribers.

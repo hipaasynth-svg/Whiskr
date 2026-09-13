@@ -212,6 +212,30 @@ CREATE TABLE IF NOT EXISTS suppressions (
   created_at TEXT NOT NULL
 );
 
+-- A real marketing list, deliberately separate from submissions/orders:
+-- everyone who owns a row in those tables gave an email for a specific
+-- transactional reason (their entry, their order) and this app has never
+-- had a way to reach past entrants/customers for anything else. This is
+-- explicit, opt-in-only consent to be contacted for non-transactional
+-- reasons (new contests opening, promos, live painting sessions) — nobody
+-- lands here just by entering or ordering. "source" records where the
+-- opt-in happened (e.g. 'entry_form', 'footer_signup') so a future ESP
+-- migration or a deliverability review can see where the list came from.
+-- unsubscribed_at is set alongside a real suppressions row (see
+-- /api/unsubscribe in server.js) so this table's own "still opted in"
+-- state never drifts from the actual send-blocking source of truth.
+CREATE TABLE IF NOT EXISTS marketing_subscribers (
+  email TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  subscribed_at TEXT NOT NULL,
+  unsubscribed_at TEXT,
+  ip_hash TEXT  -- same sha256(ip + salt) pattern as submissions/votes; nullable
+                -- since an entry-form opt-in already has its own submission
+                -- row's ip_hash, so only the standalone /api/subscribe path
+                -- (no other rate limit on that email) actually sets this.
+);
+CREATE INDEX IF NOT EXISTS marketing_subscribers_ip_hash_idx ON marketing_subscribers(ip_hash, subscribed_at);
+
 -- Custom cat/dog print-on-demand orders: a customer's own photo + a product
 -- from products.js, fulfilled through Printful (see printful.js). Separate
 -- from "orders" (which is always tied to a contest calendar group) because

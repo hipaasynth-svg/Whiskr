@@ -264,6 +264,20 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
+        <h2>Marketing list</h2>
+        <p class="sub">Opted in separately from any order or contest entry — from the entry-form checkbox and the homepage footer signup. Not sent to automatically; export and use with whatever email tool you pick.</p>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost refresh-btn" id="exportSubscribers" type="button">Export CSV</button>
+        <button class="btn btn-ghost refresh-btn" id="refreshSubscribers" type="button">Refresh</button>
+      </div>
+    </div>
+    <div id="subscribersList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
         <h2>Paid calendar orders</h2>
         <p class="sub">What actually needs printing and shipping.</p>
       </div>
@@ -672,6 +686,61 @@
     } finally {
       btn.disabled = false;
       btn.textContent = 'Backfill from Meta';
+    }
+  });
+
+  const subscribersList = document.getElementById('subscribersList');
+  async function loadSubscribers() {
+    subscribersList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/marketing-subscribers');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load subscribers.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.subscribers.length === 0) {
+        subscribersList.innerHTML = '<p class="empty">No signups yet.</p>';
+        return;
+      }
+
+      const sourceSummary = Object.entries(data.bySource).map(([src, n]) => `${escapeHtml(src)}: ${n}`).join(' · ');
+      subscribersList.innerHTML = `
+        <p class="sub"><strong>${data.activeCount}</strong> active of ${data.totalCount} total signups${sourceSummary ? ' — ' + sourceSummary : ''}</p>
+        <table class="orders">
+          <thead><tr><th>Email</th><th>Source</th><th>Signed up</th><th>Status</th></tr></thead>
+          <tbody>
+            ${data.subscribers.map((s) => `
+              <tr>
+                <td>${escapeHtml(s.email)}</td>
+                <td>${escapeHtml(s.source)}</td>
+                <td>${new Date(s.subscribed_at).toLocaleDateString()}</td>
+                <td>${s.active ? 'Active' : 'Unsubscribed'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch (err) {
+      subscribersList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+  document.getElementById('refreshSubscribers').addEventListener('click', loadSubscribers);
+  document.getElementById('exportSubscribers').addEventListener('click', async () => {
+    try {
+      const res = await adminFetch('/api/admin/marketing-subscribers/export.csv');
+      if (!res.ok) throw new Error('Export failed — check your admin key.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'whiskr-marketing-list.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.message);
     }
   });
 
@@ -1372,6 +1441,7 @@
     loadContest();
     loadYearAward();
     loadMarketing();
+    loadSubscribers();
     loadOrders();
     loadCustomOrders();
     loadPendingReviews();
