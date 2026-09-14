@@ -52,6 +52,31 @@
     font-size: 0.85rem; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; z-index: 100;
   }
   .vote-toast.show { opacity: 1; }
+  .vote-starburst {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    pointer-events: none; z-index: 200; opacity: 0;
+  }
+  .vote-starburst.show { animation: voteStarburstPop 900ms ease-out; }
+  .vote-starburst-shape {
+    background: var(--marigold);
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-style: italic;
+    font-size: 1.5rem;
+    width: 170px; height: 170px;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    box-shadow: 0 10px 30px rgba(0,0,0,.3);
+  }
+  @keyframes voteStarburstPop {
+    0% { opacity: 0; transform: scale(0.5) rotate(-8deg); }
+    20% { opacity: 1; transform: scale(1.08) rotate(2deg); }
+    35% { opacity: 1; transform: scale(1) rotate(0deg); }
+    75% { opacity: 1; transform: scale(1) rotate(0deg); }
+    100% { opacity: 0; transform: scale(1.05) rotate(0deg); }
+  }
   .entry-nudge-banner, .entry-nudge-postvote {
     display: flex; align-items: center; justify-content: space-between; gap: 16px;
     flex-wrap: wrap;
@@ -102,6 +127,9 @@
 </div>
 
 <div class="vote-toast" id="voteToast"></div>
+<div class="vote-starburst" id="voteStarburst" aria-hidden="true">
+  <div class="vote-starburst-shape">Voted!</div>
+</div>
 
 <footer class="site-footer">
   <div>Whiskr — a free, real-public-vote cat photo contest.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
@@ -128,6 +156,25 @@
   const empty = document.getElementById('voteEmpty');
   const label = document.getElementById('voteContestLabel');
   const toastEl = document.getElementById('voteToast');
+  const starburstEl = document.getElementById('voteStarburst');
+  let totalEntryCount = 0;
+
+  // Nudge toward the shop only after real engagement (3 votes this
+  // session, or having voted for every cat currently up — whichever
+  // comes first, so a small round with under 3 entries doesn't strand
+  // someone who's genuinely voted for everyone). sessionStorage so it
+  // resets per visit, matching the referral marker above — this isn't a
+  // lifetime cap on voting, just a "have they engaged enough yet" signal
+  // for this one visit.
+  const VOTES_BEFORE_SHOP_NUDGE = 3;
+  function getSessionVoteCount() {
+    try { return Number(sessionStorage.getItem('whiskr_session_votes')) || 0; } catch (_) { return 0; }
+  }
+  function incrementSessionVoteCount() {
+    const next = getSessionVoteCount() + 1;
+    try { sessionStorage.setItem('whiskr_session_votes', String(next)); } catch (_) {}
+    return next;
+  }
 
   function toast(msg) {
     toastEl.textContent = msg;
@@ -187,12 +234,14 @@
         return;
       }
       const closes = new Date(data.contest.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-      label.textContent = `${data.contest.label} — voting closes ${closes}`;
+      const count = data.entries.length;
+      label.textContent = `${data.contest.label} — ${count} cat${count === 1 ? '' : 's'} to vote for — closes ${closes}`;
 
       if (data.entries.length === 0) {
         empty.style.display = 'block';
         return;
       }
+      totalEntryCount = data.entries.length;
 
       const voted = votedSet();
       grid.innerHTML = '';
@@ -259,7 +308,19 @@
       btn.textContent = 'Voted';
       btn.classList.add('voted');
       toast(`Vote counted for ${cat.cat_name}!`);
-      document.getElementById('postVoteNudge').hidden = false;
+
+      starburstEl.classList.remove('show');
+      void starburstEl.offsetWidth; // restart the animation on repeat votes
+      starburstEl.classList.add('show');
+
+      const sessionVotes = incrementSessionVoteCount();
+      const votedForEveryEntry = totalEntryCount > 0 && votedSet().size >= totalEntryCount;
+      if (sessionVotes >= VOTES_BEFORE_SHOP_NUDGE || votedForEveryEntry) {
+        setTimeout(() => { window.location.href = 'index.html#shop-custom'; }, 1100);
+      } else {
+        document.getElementById('postVoteNudge').hidden = false;
+      }
+
       if (turnstileWidgetId !== null && window.turnstile) {
         turnstileToken = null;
         window.turnstile.reset(turnstileWidgetId);
