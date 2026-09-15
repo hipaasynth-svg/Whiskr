@@ -163,6 +163,38 @@ Generator API, which needs a live store to test against. The order form
 instead just previews the customer's own uploaded photo. Worth adding once
 you've verified the basic order flow works end to end.
 
+## 4a. AI photo upscaling (optional)
+
+Not every customer takes a good photo. Printful's own Smart Image Tool
+only nudges borderline-low-DPI files over its minimum — it doesn't fix a
+genuinely blurry or small phone photo. `photoEnhance.js` adds a real fix:
+any custom-order photo under `PHOTO_ENHANCE_MIN_PX` on its long edge gets
+AI-upscaled via [Replicate](https://replicate.com/account/api-tokens)
+(pay-per-use, no subscription) before it's submitted to Printful. Without
+`REPLICATE_API_TOKEN` set, this is a complete no-op — orders print exactly
+the photo the customer uploaded, same as before this existed.
+
+It only runs once, after Stripe confirms payment (inside
+`submitCustomOrderToPrintful`) — never during upload or checkout — so a
+slow AI call can never stall a customer's checkout, and you're never
+paying to enhance a cart that gets abandoned.
+
+**Not exercised against a live Replicate account** — no account exists yet
+to test against, same caveat as Printful's Mockup Generator above. Before
+relying on this for real orders, verify against your own account: that
+`nightmareai/real-esrgan` (or whatever you set `REPLICATE_MODEL` to) still
+works via the plain `owner/name` API path without a pinned version hash,
+and that a real low-res test photo actually comes back sharper. `GFPGAN`
+face restoration (`PHOTO_ENHANCE_FACE=true`) is off by default — it's
+trained on human faces and may distort a cat or dog's face in ways you
+won't want; only turn it on after eyeballing real results yourself.
+
+If you're on Vercel's **Hobby** plan (10s function timeout by default),
+keep `PHOTO_ENHANCE_WAIT_SECONDS` low — this shares the webhook's time
+budget with marking the order paid and submitting to Printful. If you see
+webhook timeouts after turning this on, either lower that further or move
+to a plan with a longer `maxDuration`.
+
 ## 5. Run it
 
 ```bash

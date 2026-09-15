@@ -17,6 +17,7 @@ const discountToken = require('./discountToken');
 const statusToken = require('./statusToken');
 const productCatalog = require('./products');
 const printful = require('./printful');
+const photoEnhance = require('./photoEnhance');
 const phoneCases = require('./phoneCases');
 const metaAds = require('./metaAds');
 const metaConversions = require('./metaConversions');
@@ -177,8 +178,8 @@ async function storePhoto(file) {
 }
 
 // Stores a raw buffer (not a multer file) under uploads/ the same way
-// storePhoto does — used for generated assets like the share card, which
-// don't come from an incoming form upload.
+// storePhoto does — used for generated assets like the share card and
+// AI-enhanced photos, which don't come from an incoming form upload.
 async function storeBuffer(buffer, mimetype, filename) {
   if (BLOB_CONFIGURED) {
     const blob = await putBlob(`uploads/${filename}`, buffer, { access: 'public', contentType: mimetype });
@@ -188,6 +189,33 @@ async function storeBuffer(buffer, mimetype, filename) {
   fs.mkdirSync(uploadDir, { recursive: true });
   fs.writeFileSync(path.join(uploadDir, filename), buffer);
   return `/uploads/${filename}`;
+}
+
+// Downloads the stored photo and runs it through optional AI upscaling
+// (photoEnhance.js — a no-op unless REPLICATE_API_TOKEN is set and the
+// photo is actually low-res). If enhanced, re-stores the result via
+// storeBuffer and returns its new URL/path; otherwise returns photoPath
+// unchanged. Only ever called here, after payment — never at upload or
+// checkout time — so a slow AI call can't block a customer the way a
+// synchronous mailer.js send used to (see docs/audit-assembly.md #9).
+//
+// Complements, not replaces, checkImageQuality below: that flags a low-res
+// photo to the customer before they pay (informed choice); this quietly
+// tries to fix the ones that do get ordered. The two use independent
+// thresholds (MIN_PRINT_DIMENSION_PX vs. photoEnhance's own) — no need to
+// keep them in sync, they're answering different questions.
+async function maybeEnhancePhoto(photoPath) {
+  if (!photoEnhance.configured()) return photoPath;
+
+  const url = photoPath.startsWith('http') ? photoPath : `${BASE_URL}${photoPath}`;
+  const res = await fetch(url).catch(() => null);
+  if (!res || !res.ok) return photoPath;
+  const original = Buffer.from(await res.arrayBuffer());
+
+  const enhanced = await photoEnhance.enhanceIfNeeded(original);
+  if (enhanced === original) return photoPath; // not enhanced — nothing to re-store
+
+  return storeBuffer(enhanced, 'image/png', `${uuid()}-enhanced.png`);
 }
 
 // Composites a real, ready-to-post "vote for me" image from the entrant's
@@ -287,12 +315,17 @@ async function submitCustomOrderToPrintful(orderId) {
     order.email
   );
 
+  const photoPath = await maybeEnhancePhoto(order.photo_path);
+  if (photoPath !== order.photo_path) {
+    await db.run(`UPDATE custom_orders SET photo_path = ? WHERE id = ?`, [photoPath, order.id]);
+  }
+
   try {
     const result = await printful.submitOrder({
       externalId: `custom-${order.id}`,
       variantId: order.variant_id || (product ? product.printfulVariantId : null),
       quantity: order.quantity,
-      photoUrl: order.photo_path.startsWith('http') ? order.photo_path : `${BASE_URL}${order.photo_path}`,
+      photoUrl: photoPath.startsWith('http') ? photoPath : `${BASE_URL}${photoPath}`,
       recipient,
     });
 
