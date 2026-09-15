@@ -13,6 +13,7 @@ const unsubscribe = require('./unsubscribe');
 const reviewLink = require('./reviewLink');
 const productCatalog = require('./products');
 const printful = require('./printful');
+const photoEnhance = require('./photoEnhance');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -100,6 +101,35 @@ async function storePhoto(file) {
   return `/uploads/${filename}`;
 }
 
+// Downloads the stored photo and runs it through optional AI upscaling
+// (photoEnhance.js — a no-op unless REPLICATE_API_TOKEN is set and the
+// photo is actually low-res). If enhanced, re-stores the result and
+// returns its new URL/path; otherwise returns photoPath unchanged. Only
+// ever called here, after payment — never at upload or checkout time — so
+// a slow AI call can't block a customer the way a synchronous mailer.js
+// send used to (see docs/audit-assembly.md #9).
+async function maybeEnhancePhoto(photoPath) {
+  if (!photoEnhance.configured()) return photoPath;
+
+  const url = photoPath.startsWith('http') ? photoPath : `${BASE_URL}${photoPath}`;
+  const res = await fetch(url).catch(() => null);
+  if (!res || !res.ok) return photoPath;
+  const original = Buffer.from(await res.arrayBuffer());
+
+  const enhanced = await photoEnhance.enhanceIfNeeded(original);
+  if (enhanced === original) return photoPath; // not enhanced — nothing to re-store
+
+  const filename = `${uuid()}-enhanced.png`;
+  if (BLOB_CONFIGURED) {
+    const blob = await putBlob(`uploads/${filename}`, enhanced, { access: 'public', contentType: 'image/png' });
+    return blob.url;
+  }
+  const uploadDir = path.join(__dirname, 'public', 'uploads');
+  fs.mkdirSync(uploadDir, { recursive: true });
+  fs.writeFileSync(path.join(uploadDir, filename), enhanced);
+  return `/uploads/${filename}`;
+}
+
 // Submits a paid custom order to Printful for printing + shipping. Only
 // ever called from the webhook below, after Stripe confirms payment — never
 // at checkout time, and never more than once (custom_orders.status guards
@@ -114,12 +144,17 @@ async function submitCustomOrderToPrintful(orderId) {
     order.email
   );
 
+  const photoPath = await maybeEnhancePhoto(order.photo_path);
+  if (photoPath !== order.photo_path) {
+    await db.run(`UPDATE custom_orders SET photo_path = ? WHERE id = ?`, [photoPath, order.id]);
+  }
+
   try {
     const result = await printful.submitOrder({
       externalId: `custom-${order.id}`,
       variantId: product ? product.printfulVariantId : null,
       quantity: order.quantity,
-      photoUrl: order.photo_path.startsWith('http') ? order.photo_path : `${BASE_URL}${order.photo_path}`,
+      photoUrl: photoPath.startsWith('http') ? photoPath : `${BASE_URL}${photoPath}`,
       recipient,
     });
 
