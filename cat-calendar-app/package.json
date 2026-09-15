@@ -1,7 +1,7 @@
 {
   "name": "whiskr",
   "version": "1.0.0",
-  "description": "Custom cat/dog print-on-demand shop, verified-purchase reviews, and a judged monthly photo contest, with Zoho Mail notifications",
+  "description": "Custom cat/dog print-on-demand shop, verified-purchase reviews, and a free public-vote monthly photo contest, with Zoho Mail notifications",
   "main": "server.js",
   "type": "commonjs",
   "engines": {
@@ -12,6 +12,7 @@
     "dev": "node server.js"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "@vercel/blob": "^2.8.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",

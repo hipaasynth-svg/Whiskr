@@ -3,63 +3,76 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Whiskr — Custom Cat &amp; Dog Prints, Plus a Monthly Contest</title>
-<meta name="description" content="Upload your cat or dog's photo, get it printed on a mug, poster, canvas and more — shipped direct. Plus a free monthly Cat of the Month photo contest." />
+<title>Free Cat Photo Contest, Win an Original Painting — Whiskr</title>
+<meta name="description" content="Enter your cat free, get votes from friends and family, and each month's top vote-getter wins a one-of-a-kind original painting by Cody Carlson." />
 <link rel="canonical" href="https://whiskr.lol/" />
 
 <!-- Open Graph / link previews (iMessage, Slack, Facebook, etc.) -->
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Whiskr" />
-<meta property="og:title" content="Whiskr — Custom Cat & Dog Prints, Plus a Monthly Contest" />
-<meta property="og:description" content="Upload your cat or dog's photo, get it printed on a mug, poster, canvas and more — shipped direct. Plus a free monthly Cat of the Month photo contest." />
+<meta property="og:title" content="Free Cat Photo Contest, Win an Original Painting — Whiskr" />
+<meta property="og:description" content="Enter your cat free, get votes from friends and family, and each month's top vote-getter wins a one-of-a-kind original painting by Cody Carlson." />
 <meta property="og:url" content="https://whiskr.lol/" />
 
 <!-- Twitter/X card -->
 <meta name="twitter:card" content="summary" />
-<meta name="twitter:title" content="Whiskr — Custom Cat & Dog Prints, Plus a Monthly Contest" />
-<meta name="twitter:description" content="Upload your cat or dog's photo, get it printed on a mug, poster, canvas and more — shipped direct." />
+<meta name="twitter:title" content="Free Cat Photo Contest, Win an Original Painting — Whiskr" />
+<meta name="twitter:description" content="Enter your cat free, get votes, and each month's top vote-getter wins an original painting by Cody Carlson." />
 
 <!-- Structured data — helps Google show rich results and helps AI
      assistants/shopping agents understand what this business is and sells
-     without having to guess from prose. -->
+     without having to guess from prose. The product catalog gets its own
+     ItemList/Product JSON-LD, injected server-side per request — see
+     seo.js and the "/" route in server.js. -->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "OnlineStore",
   "name": "Whiskr",
   "url": "https://whiskr.lol/",
-  "description": "Custom print-on-demand cat and dog photo products, plus a free monthly judged photo contest.",
+  "description": "A free monthly cat photo contest decided by real public vote, plus custom print-on-demand cat and dog photo products.",
   "sameAs": []
 }
 </script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
+<!-- Vercel Web Analytics -->
+<script>window.va = window.va || function() { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
+<div id="siteBackdrop" aria-hidden="true"></div>
 
 <header class="site-header">
   <a href="#top" class="brand">Whiskr</a>
-  <nav class="site-nav">
-    <a href="#shop-custom">Shop prints</a>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="siteNav">
+    <span></span><span></span><span></span>
+  </button>
+  <nav class="site-nav" id="siteNav">
+    <a href="#how">Contest</a>
+    <a href="vote.html">Vote</a>
+    <a href="#shop-custom">Prints</a>
     <a href="#reviews">Reviews</a>
-    <a href="#current">Contest</a>
-    <a href="#picks">Picks</a>
-    <a href="#shop-custom" class="nav-cta">Get a print</a>
+    <a href="#enter" class="nav-cta">Enter free</a>
   </nav>
 </header>
 
 <section id="top" class="hero">
   <div class="hero-slides" id="heroSlides" aria-hidden="true"></div>
   <div class="hero-scrim"></div>
+  <div class="promo-starburst" id="promoStarburst" hidden>
+    <span id="promoStarburstText"></span>
+  </div>
   <div class="hero-content">
-    <p class="ribbon-tag">Custom prints, always open — plus a free monthly contest</p>
-    <h1>Your cat or dog, printed beautifully.</h1>
-    <p class="hero-sub">Upload one photo, pick a mug, poster, canvas or more, and we print &amp; ship it straight to you. No waiting for a batch — order any day.</p>
+    <p class="ribbon-tag ribbon-fun">Live voting, real competition — free to enter</p>
+    <h1 class="hero-fun-headline">Enter your kitty for a chance to win a one-of-a-kind acrylic painting!</h1>
+    <p class="hero-prize-callout">🏆 Cat of the Month wins an original acrylic portrait, hand-painted by partner artist <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>!</p>
+    <p class="hero-sub">Enter free, then share your link for votes from friends, family, and followers — real votes, no purchase necessary to enter or win. Take your time with the photo: good light and a clean frame give your cat its best shot. We're glad you're here!</p>
     <div class="hero-actions">
-      <a href="#shop-custom" class="btn btn-primary">Shop custom prints</a>
-      <a href="#current" class="btn btn-ghost">See the monthly contest</a>
+      <a href="#enter" class="btn btn-primary">Enter your cat free</a>
+      <a href="vote.html" class="btn btn-ghost">Vote for cats now</a>
     </div>
   </div>
   <div class="hero-controls">
@@ -68,18 +81,131 @@
   </div>
 </section>
 
+<section id="how" class="section how">
+  <p class="ribbon-tag">This is Whiskr</p>
+  <h2>Free entry, real public voting</h2>
+  <ol class="steps">
+    <li>
+      <span class="step-num">1</span>
+      <h3>Enter your cat free</h3>
+      <p>One photo, one email address. That's the whole entry — no purchase necessary to enter or win.</p>
+    </li>
+    <li>
+      <span class="step-num">2</span>
+      <h3>Share your link</h3>
+      <p>Every entrant gets a shareable voting link. Send it to friends, family, and followers — real votes are what get a cat into the top spots.</p>
+    </li>
+    <li>
+      <span class="step-num">3</span>
+      <h3>#1 wins an original portrait</h3>
+      <p>When voting closes, whoever got the most votes is Cat of the Month — and wins a one-of-a-kind 11x16 acrylic portrait of their own cat, hand-painted by artist <a href="https://codycarlson.art" target="_blank" rel="noopener">Cody Carlson</a>, free. Every entrant can still grab a solo print of their own cat.</p>
+    </li>
+  </ol>
+  <p class="section-sub"><a href="rules.html">Official contest rules</a> — how votes are counted, eligibility, and what gets an entry disqualified.</p>
+</section>
+
+<section id="originals" class="section originals">
+  <p class="ribbon-tag">A couple to choose from</p>
+  <h2>Originals by our contest artist</h2>
+  <div class="current-teaser" id="originalsGrid" hidden></div>
+  <div class="originals-empty" id="originalsEmpty">
+    <h3>The first one's still drying.</h3>
+    <p>Our first Cat of the Month portrait is being painted right now — check back soon to see it here.</p>
+  </div>
+  <p class="section-sub"><strong>Don't want to wait for the contest?</strong> Whiskr has partnered with artist Cody Carlson — skip the wait and commission your own original today.</p>
+  <a href="https://codycarlson.art" target="_blank" rel="noopener" class="btn btn-primary">Skip the wait — commission with our artist</a>
+</section>
+
+<section id="liveSessions" class="section live-sessions" hidden>
+  <p class="ribbon-tag">Tune in</p>
+  <h2>Random live painting sessions, by artist Cody Carlson and friends</h2>
+  <div class="live-wrap">
+    <div class="live-screen" id="liveScreen"></div>
+    <div class="live-sessions-list">
+      <h3>Past sessions</h3>
+      <ul id="pastSessionsList" hidden></ul>
+      <p class="empty" id="pastSessionsEmpty">None yet — the first one will show up here.</p>
+    </div>
+  </div>
+</section>
+
+<section id="current" class="section current">
+  <div class="current-card">
+    <div class="current-photo">
+      <img id="winnerPhoto" src="" alt="" />
+    </div>
+    <div class="current-copy">
+      <p class="ribbon-tag" id="currentRibbon">This round is live</p>
+      <h2 id="winnerName">Meet this round's cats</h2>
+      <p id="winnerBlurb">Free to enter, free to vote — the month's top vote-getter wins an original hand-painted portrait. Cast your vote below.</p>
+      <p class="contest-status" id="contestStatus"></p>
+      <a href="vote.html" class="btn btn-primary current-vote-cta">Vote now</a>
+    </div>
+  </div>
+  <div class="current-teaser" id="currentTeaser"></div>
+</section>
+
+<section id="featureBlocks" class="section feature-blocks" hidden>
+  <div class="feature-block" id="featureBlock1" hidden>
+    <img id="featureBlock1Img" src="" alt="" hidden loading="lazy" />
+    <p id="featureBlock1Text"></p>
+  </div>
+  <div class="feature-block" id="featureBlock2" hidden>
+    <img id="featureBlock2Img" src="" alt="" hidden loading="lazy" />
+    <p id="featureBlock2Text"></p>
+  </div>
+</section>
+
+<section id="enter" class="section enter">
+  <div class="enter-wrap">
+    <div class="enter-copy">
+      <p class="ribbon-tag">Contest entry is free</p>
+      <h2>Enter your cat</h2>
+      <p>One photo, one email address. We'll send you a shareable vote link the moment you enter — ask friends, family, and followers to vote before this round closes.</p>
+      <p>Take your time with the photo: good light, a clean background, and a shot you're proud of gives your cat its best chance at winning.</p>
+    </div>
+    <form id="entryForm" class="entry-form" enctype="multipart/form-data">
+      <label>
+        Cat's name
+        <input type="text" name="catName" id="catName" maxlength="60" placeholder="Biscuit" required />
+      </label>
+      <label>
+        Your email
+        <input type="email" name="email" id="entryEmail" placeholder="you@example.com" required />
+      </label>
+      <label class="file-label">
+        Photo
+        <input type="file" name="photo" id="entryPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
+        <span class="field-hint">Best quality wins — take your time, get good light, and frame your cat well.</span>
+      </label>
+      <label class="consent-label">
+        <input type="checkbox" name="photoRights" id="photoRights" required />
+        I own this photo and grant Whiskr a license to print and sell it.
+      </label>
+      <label class="consent-label">
+        <input type="checkbox" name="marketingOptIn" id="marketingOptIn" />
+        Email me about new contests, promos, and live painting sessions (unchecked is fine — you'll still get your vote link and contest results either way).
+      </label>
+      <button type="submit" class="btn btn-primary">Submit entry</button>
+      <p class="form-note">No purchase necessary to enter or win — <a href="rules.html">official rules</a>.</p>
+      <p class="form-note" id="entryNote"></p>
+      <div id="entryMockup" hidden></div>
+    </form>
+  </div>
+</section>
+
 <section id="reviews" class="section reviews">
   <h2>What customers say</h2>
-  <p class="section-sub">Every review here comes from a real, verified Whiskr order — we don't post reviews we didn't earn.</p>
+  <p class="section-sub">Every review here comes from a real, verified order — nothing seeded, nothing bought.</p>
   <div class="reviews-grid" id="reviewsGrid" style="display:none;"></div>
   <div class="reviews-empty" id="reviewsEmpty" style="display:none;">
-    <h3>We're brand new — no reviews yet</h3>
-    <p>Here's our promise in the meantime: if your print arrives damaged or misprinted, we'll reprint it or refund you, no questions asked. Order today and yours could be the first review here.</p>
+    <h3>No reviews yet.</h3>
+    <p>Damaged or misprinted, we reprint or refund — no questions asked. Be the first to order and the first to review it.</p>
   </div>
   <div class="trust-row">
-    <span class="trust-badge">🔒 Secure checkout via Stripe</span>
-    <span class="trust-badge">🖨️ Reprint guarantee on defects</span>
-    <span class="trust-badge">📬 Printed on demand, shipped direct — no inventory markup</span>
+    <span class="trust-badge">Secure checkout via Stripe</span>
+    <span class="trust-badge">Reprint guarantee on defects</span>
+    <span class="trust-badge">Printed on demand, shipped direct</span>
   </div>
 </section>
 
@@ -93,23 +219,36 @@
     <button type="button" data-species="dog">Dogs</button>
   </div>
 
-  <div class="custom-grid" id="customGrid"></div>
+  <div class="rolodex-wrap">
+    <button type="button" class="rolodex-nav prev" aria-label="Previous products">‹</button>
+    <div class="custom-grid rolodex" id="customGrid"></div>
+    <button type="button" class="rolodex-nav next" aria-label="More products">›</button>
+  </div>
 
   <form id="customOrderForm" class="custom-order-form" enctype="multipart/form-data">
     <input type="hidden" name="species" id="customSpecies" value="cat" />
     <input type="hidden" name="productId" id="customProductId" />
+    <p class="form-note" id="customDiscountBanner" hidden></p>
     <p class="form-note" id="customSelectedNote">Pick a product above to get started.</p>
-    <label>
-      Pet's name (optional)
-      <input type="text" name="petName" id="customPetName" maxlength="60" placeholder="Biscuit" />
-    </label>
-    <label>
-      Your email
-      <input type="email" name="email" id="customEmail" placeholder="you@example.com" required />
+    <div class="form-row">
+      <label>
+        Pet's name (optional)
+        <input type="text" name="petName" id="customPetName" maxlength="60" placeholder="Biscuit" />
+      </label>
+      <label>
+        Your email
+        <input type="email" name="email" id="customEmail" placeholder="you@example.com" required />
+      </label>
+    </div>
+    <label id="customPhoneModelLabel" hidden>
+      Your phone model
+      <select name="phoneVariantId" id="customPhoneModel">
+        <option value="">Choose your phone model</option>
+      </select>
     </label>
     <label class="file-label">
       Photo
-      <input type="file" name="photo" id="customPhoto" accept="image/png, image/jpeg, image/webp, image/gif" required />
+      <input type="file" name="photo" id="customPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
       <div class="upload-preview" id="customPreview"></div>
     </label>
     <label>
@@ -125,111 +264,7 @@
   </form>
 </section>
 
-<section id="how" class="section how">
-  <p class="ribbon-tag">The other thing we do</p>
-  <h2>Free monthly photo contest</h2>
-  <ol class="steps">
-    <li>
-      <span class="step-num">1</span>
-      <h3>Submit a photo</h3>
-      <p>Give us your best shot of your cat and an email address. That's the whole entry form.</p>
-    </li>
-    <li>
-      <span class="step-num">2</span>
-      <h3>Wait with eleven others</h3>
-      <p>Once a batch of 12 fills up, our judging table reviews it over a few weeks so every cat gets a fair look.</p>
-    </li>
-    <li>
-      <span class="step-num">3</span>
-      <h3>Everybody hears back</h3>
-      <p>We email the whole batch. One cat is Cat of the Month on the cover; all twelve are in the calendar.</p>
-    </li>
-  </ol>
-</section>
-
-<section id="current" class="section current">
-  <div class="current-card">
-    <div class="current-photo">
-      <img id="winnerPhoto" src="" alt="" />
-    </div>
-    <div class="current-copy">
-      <p class="ribbon-tag">Most recent Cat of the Month</p>
-      <h2 id="winnerName">Judging in progress</h2>
-      <p id="winnerBlurb">The current batch is still filling up or still being judged. Check back soon — or be the twelfth cat that seals it.</p>
-      <p class="spots-left" id="spotsLeft"></p>
-    </div>
-  </div>
-</section>
-
-<section id="calendars" class="section shop">
-  <h2>Calendars from past contest batches</h2>
-  <p class="section-sub">Every calendar holds 12 cats from the same judged round — one cover star, eleven co-stars.</p>
-  <div class="shop-grid">
-    <div class="product-card">
-      <div class="product-badge">Contest exclusive</div>
-      <h3>The 12-Cat Wall Calendar</h3>
-      <p>13 months, thick matte stock, spiral bound. Ships flat, hangs anywhere.</p>
-      <div class="price-row">
-        <div>
-          <span class="price" id="priceOne">$24.99</span>
-          <span class="price-note">one calendar</span>
-        </div>
-        <div>
-          <span class="price price-alt" id="priceMulti">$19.99</span>
-          <span class="price-note">each, for 2+</span>
-        </div>
-      </div>
-      <form id="checkoutForm" class="checkout-form">
-        <label>
-          Group number
-          <input type="number" id="checkoutGroup" min="1" placeholder="e.g. 3" required />
-        </label>
-        <label>
-          Quantity
-          <input type="number" id="checkoutQty" min="1" max="20" value="1" required />
-        </label>
-        <label>
-          Email for the receipt
-          <input type="email" id="checkoutEmail" placeholder="you@example.com" required />
-        </label>
-        <button type="submit" class="btn btn-primary">Go to checkout</button>
-        <p class="form-note" id="checkoutNote"></p>
-      </form>
-    </div>
-  </div>
-</section>
-
-<section id="enter" class="section enter">
-  <div class="enter-wrap">
-    <div class="enter-copy">
-      <p class="ribbon-tag">Contest entry is free</p>
-      <h2>Put your cat in the next batch</h2>
-      <p>One photo, one email address. We'll email you the second judging closes on your batch — whether your cat's on the cover or one of the eleven.</p>
-    </div>
-    <form id="entryForm" class="entry-form" enctype="multipart/form-data">
-      <label>
-        Cat's name
-        <input type="text" name="catName" id="catName" maxlength="60" placeholder="Biscuit" required />
-      </label>
-      <label>
-        Your email
-        <input type="email" name="email" id="entryEmail" placeholder="you@example.com" required />
-      </label>
-      <label class="file-label">
-        Photo
-        <input type="file" name="photo" id="entryPhoto" accept="image/png, image/jpeg, image/webp, image/gif" required />
-      </label>
-      <label class="consent-label">
-        <input type="checkbox" name="photoRights" id="photoRights" required />
-        I own this photo and grant Whiskr a license to print and sell it.
-      </label>
-      <button type="submit" class="btn btn-primary">Submit entry</button>
-      <p class="form-note" id="entryNote"></p>
-    </form>
-  </div>
-</section>
-
-<section id="picks" class="section picks">
+<section id="picks" class="section picks" hidden>
   <h2>Gear we actually use</h2>
   <p class="section-sub">Products for the pets behind Whiskr — cats and dogs both. Some of these links earn us a small commission; it doesn't change your price.</p>
 
@@ -281,14 +316,22 @@
     </a>
   </div>
 
-  <p class="affiliate-disclosure">Replace these href values with your real, tagged affiliate URLs before launch — see README.</p>
 </section>
 
+<div class="footer-strip" id="footerStrip" hidden></div>
+
 <footer class="site-footer">
-  <div>Whiskr — custom cat &amp; dog prints, plus a small, honest monthly photo contest.</div>
-  <div class="footer-links"><a href="#top">Back to top</a></div>
+  <div>Whiskr — a free, real-public-vote cat photo contest, plus custom cat &amp; dog prints.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <form class="footer-signup" id="footerSignupForm">
+    <label for="footerSignupEmail" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">Email for occasional Whiskr updates</label>
+    <input type="email" id="footerSignupEmail" placeholder="Get occasional updates" required />
+    <button type="submit" class="btn btn-ghost">Sign up</button>
+    <span class="footer-signup-note" id="footerSignupNote"></span>
+  </form>
+  <div class="footer-links"><a href="rules.html">Official rules</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a> · <a href="#top">Back to top</a></div>
 </footer>
 
+<script src="imageResize.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

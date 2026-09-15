@@ -1,4 +1,4 @@
-# Whiskr — custom cat/dog prints, verified reviews, and a judged contest
+# Whiskr — custom cat/dog prints, verified reviews, and a real-public-vote contest
 
 A real, runnable Node/Express site with two things going on:
 
@@ -6,9 +6,12 @@ A real, runnable Node/Express site with two things going on:
   product (mug, poster, canvas, phone case, tote, pillow), pay, and it's
   printed and shipped through **Printful** — no inventory, always open,
   doesn't depend on the contest running.
-- **Monthly photo contest**: entries seal into batches of 12; a human (you)
-  picks the cover cat in `public/admin.html`, everyone in the batch gets a
-  calendar offer.
+- **Free, real-public-vote photo contest**: entry is free and always open —
+  no batch to wait for. Anyone can vote for any entered cat, once per cat,
+  at `vote.html`. When a round closes, the top `CONTEST_WINNERS_COUNT`
+  (default 12) vote-getters make that round's calendar; everyone else gets
+  their final placement by email and a nudge toward a solo print. Full
+  mechanics in `public/rules.html`.
 
 Reviews are **real or absent, never fabricated**. There is no seed/fake
 review anywhere in this codebase — a review can only be created by
@@ -17,33 +20,45 @@ following a signed, order-specific link emailed after a real purchase (see
 `admin.html`. Fabricating reviews violates the FTC's rule on fake
 reviews/testimonials (16 CFR Part 465) — don't add a path around this.
 
-Contest winners are similarly **judged, not voted on**. There is no public
-voting anywhere in this app — you review each sealed batch of 12 and pick
-the cover cat yourself. If you don't decide before the judging deadline,
-one is picked at random as a fallback so entrants aren't left waiting
-forever, and (if `ADMIN_EMAIL` is set) you get emailed when that happens.
+Votes are similarly **real, not simulated**. `POST /api/vote` writes a real
+row to the `votes` table, gated by a one-vote-per-cat-per-browser-identity
+`UNIQUE` constraint, two independent rate limits (per voter identity, per
+IP — see `VOTE_LIMIT_*` in `.env.example`), and optional Cloudflare
+Turnstile CAPTCHA (`TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY`). Vote
+tallies stay hidden from the public while a round is open — see
+`docs/audit-assembly.md` for why. `public/admin.html`'s "fraud review"
+section surfaces vote velocity per entry and lets you disqualify one
+(excludes it from tallying and voting, keeps its vote history for review).
 
 ## What's actually here
 
 - `server.js` — Express app: the custom-product + contest submission APIs,
-  judge-pick endpoints, reviews endpoints, Stripe Checkout + webhook
-  (routes both order types and submits paid custom orders to Printful),
-  the daily cron job (contest random-fallback + due review-request
-  emails), admin endpoints.
+  the vote endpoint and anti-fraud checks, the contest tally/close job
+  (promotes the top vote-getters into a `groups` row, reusing the calendar/
+  checkout/PDF/email pipeline unchanged), reviews endpoints, Stripe
+  Checkout + webhook, the daily cron job (contest close + due
+  review-request emails), admin endpoints.
+- `seo.js` — server-side prerendering helpers so the homepage/calendar pages
+  are indexable without running client JS — see its header comment.
 - `db.js` — Postgres (via the `pg` package), through a thin get/all/run
   shim so the rest of the app didn't need a query-by-query rewrite. Needs
   `POSTGRES_URL` — see Deployment below.
-- `products.js` — the custom-print catalog. **Every `printfulVariantId` in
-  here is a placeholder** — see Printful setup below.
+- `products.js` — the custom-print catalog, with real Printful catalog
+  variant IDs already set. `phoneCases.js` holds the per-device variant
+  list for the phone case product — see Printful setup below.
 - `printful.js` — submits paid custom orders to Printful for printing +
   shipping. Dry-run/logs if `PRINTFUL_API_KEY` isn't set, same pattern as
   Stripe/Zoho elsewhere in this app.
 - `mailer.js` — sends through **Zoho Mail's SMTP**, not a third-party ESP.
-- `unsubscribe.js` / `reviewLink.js` — signed-link helpers (HMAC tokens) for
-  one-click unsubscribe and verified-purchase review links, respectively.
+- `unsubscribe.js` / `reviewLink.js` / `discountToken.js` / `statusToken.js`
+  — signed-link helpers (all the same HMAC pattern) for one-click
+  unsubscribe, verified-purchase reviews, time-limited print-shop
+  discounts, and an entrant's private "check my status" link, respectively.
 - `public/` — the storefront + contest landing page (`index.html`), the
-  per-batch calendar/checkout page (`calendar.html`), the review submission
-  page (`review.html`), `admin.html` (judging + fulfillment + review
+  public voting gallery (`vote.html`), official contest rules
+  (`rules.html`), an entrant's private status lookup (`status.html`), the
+  per-round calendar/checkout page (`calendar.html`), the review submission
+  page (`review.html`), `admin.html` (fraud review + fulfillment + review
   moderation — not linked from the public site), CSS, JS.
 
 This is built specifically to run on **Vercel** as a serverless deployment:
@@ -115,22 +130,32 @@ configured), but `printful.js` only logs what it would have submitted —
 nothing gets printed or shipped.
 
 1. Create a [Printful](https://www.printful.com/) account (it's free — you
-   only pay per order, no upfront cost or inventory).
-2. In your Printful store, add each product from `products.js` (11oz mug,
-   12x16 poster, 12x12 canvas, phone case, tote bag, 16x16 pillow) — or
-   substitute your own picks, just keep `products.js` in sync.
-3. For each one, find its **variant ID** (Printful dashboard → your product
-   → Variants tab, or `GET /store/products` on their API) and paste it into
-   the matching `printfulVariantId` in `products.js`. Every one ships as
-   `null` in this repo — orders for a product with no variant ID configured
-   will fail at the Printful-submission step (visible in `/admin.html`
-   under Custom print orders, status `failed`), not silently.
-4. Get a **Private Token** from Printful → Settings → Stores → API, and put
-   it in `.env` as `PRINTFUL_API_KEY`.
-5. Set your real prices in `products.js` (`priceUsd`) — above Printful's
-   base cost + shipping for that product/destination (check current
-   pricing in your Printful dashboard; it varies), or every sale loses
-   money.
+   only pay per order, no upfront cost or inventory), and add a payment
+   method under Settings → Billing — without one, real orders fail even
+   with a valid API key, since Printful charges you for cost + shipping
+   per order.
+2. Get a **Private Token**: Settings → Stores → your store → API → create
+   a token (scope it to a single store, not the whole account, and check
+   Orders + Products + Webhooks). Put it in `.env` / your host's
+   environment variables as `PRINTFUL_API_KEY`.
+3. That's it for the catalog — `products.js` already has real Printful
+   catalog `variant_id`s for every product except the phone case (which
+   has no single variant; see below), verified directly against
+   Printful's catalog API. Nothing needs to be created in the Printful
+   dashboard, since this app orders directly against Printful's public
+   catalog rather than synced store products.
+4. Phone cases are sized per exact device, so there's no single variant
+   ID for "a phone case." The checkout form has a phone-model picker
+   (`GET /api/phone-models`, backed by `phoneCases.js`) that resolves to
+   a real Printful variant server-side — never trust a variant ID
+   straight off a request. Currently covers the Tough Case line for
+   iPhone 11–18 and Samsung Galaxy S20–S26; re-run the same catalog
+   lookup against product IDs 601 (iPhone) / 686 (Samsung) to add newer
+   models as Printful adds them.
+5. Re-check pricing whenever you touch `products.js` — `priceUsd` needs
+   to clear Printful's base cost *and* shipping (which is billed
+   separately, varies by product/destination, and isn't included in the
+   catalog's per-item price) for every sale to be profitable.
 
 Real on-product mockups (showing the customer's photo ON the mug/poster
 before they buy) aren't built — that needs Printful's async Mockup
@@ -176,17 +201,22 @@ to a plan with a longer `maxDuration`.
 npm start
 ```
 Visit `http://localhost:3000`. Try the custom-print shop (upload any photo,
-pick a product) and the contest entry form (submit 12 entries to watch a
-group seal), then go to `http://localhost:3000/admin.html`, enter your
-`ADMIN_KEY`, and pick a cover cat — that sends the winner + "featured"
-emails for real (if Zoho is configured).
+pick a product) and the contest entry form (submit a cat — you're
+immediately entered, no batch to wait for), then vote for it at
+`http://localhost:3000/vote.html`.
 
-If you want to test the contest's random-fallback safety net instead of
-judging manually, force a group's deadline to now and let it auto-pick:
+To see a round actually close and a calendar get created without waiting
+for `CONTEST_LENGTH_DAYS`, force-close the current contest from
+`http://localhost:3000/admin.html` (enter your `ADMIN_KEY`, "Force-close
+now" in the Current contest section), or directly:
 
 ```bash
-curl -X POST http://localhost:3000/api/admin/force-close/1 -H "x-admin-key: <ADMIN_KEY from .env>"
+curl -X POST http://localhost:3000/api/admin/contest/force-close -H "x-admin-key: <ADMIN_KEY from .env>"
 ```
+
+That tallies every entrant's votes, promotes the top `CONTEST_WINNERS_COUNT`
+into a new calendar, sends the winner/featured/final-placement emails for
+real (if Zoho is configured), and opens the next round automatically.
 
 ## 6. Stripe webhook (required for any order to ever show as paid)
 
@@ -271,13 +301,19 @@ timestamp either way. Still worth having counsel confirm the checkbox
 language covers what you actually need (e.g. minors in photos, background
 people/property) before scaling up.
 
-**[RESOLVED] — winners are judged, not simulated-voted.** `Math.random()`
-used to silently pick every winner while the copy claimed "the room votes"
-— a real FTC deceptive-advertising exposure. It's now a real decision: you
-pick the cover cat per batch at `/admin.html`, and the random pick only
-ever fires as a fallback if you miss the judging deadline (with an
-`ADMIN_EMAIL` notification when that happens). Site and email copy now say
-"judged"/"judging table," not "voted."
+**[RESOLVED, later superseded] — winners are judged, not simulated-voted.**
+`Math.random()` used to silently pick every winner while the copy claimed
+"the room votes" — a real FTC deceptive-advertising exposure. The fix at
+the time was human judging: you picked the cover cat per batch at
+`/admin.html`, with a random fallback only if you missed the judging
+deadline. **This was later deliberately reversed** — the owner chose to
+build real public voting on purpose, as a high-volume growth mechanic, this
+time with actual anti-fraud infrastructure (rate limits, optional CAPTCHA,
+hidden live tallies, disqualification) instead of the fake `Math.random()`
+version rejected above. See `docs/audit-assembly.md`'s entry on the
+public-voting rebuild for the full reasoning. The distinction that mattered
+both times: fake voting dressed up as real is the FTC problem; real voting,
+honestly described, never was.
 
 **[RESOLVED] — reviews are real or absent, never fabricated.** See the
 Reviews section above — every review requires a signed, order-specific
@@ -302,11 +338,58 @@ not just a trust problem.
 - Hero photos are pulled live from `cataas.com` (a free public cat-photo
   API) in `public/script.js` — swap in your own photography whenever
   you're ready.
-- Every `printfulVariantId` in `products.js` is a placeholder — see
-  Printful setup above.
+- `products.js`'s Printful variant IDs are real — see Printful setup above
+  if you swap in different products.
 - Affiliate links in `index.html` under `#picks` are real URLs but not
   tagged with your affiliate IDs — swap in your real, tracked affiliate
   URLs (Chewy, Amazon Associates, etc.) before driving traffic to them.
 - Calendar pricing lives in `.env` (`CALENDAR_PRICE_USD`,
   `CALENDAR_2PLUS_PRICE_USD`) and is read by both the shop section and the
   Stripe checkout — change it in one place.
+
+## 11. Marketing / ROAS ledger (optional)
+
+The admin panel (`admin.html` → "Marketing / ad spend") tracks real ad
+spend against real attributed revenue and computes ROAS per named
+campaign. It works two ways, and you don't need this section at all to use
+the manual one:
+
+**Manual (no setup needed).** Add a campaign in the admin panel, tag your
+ad links with `?utm_campaign=your-campaign-name` (must match the campaign
+name you typed, case-insensitive), and log spend yourself from your ad
+platform's own dashboard whenever you check in.
+
+**Where to point the ad itself.** Send paid traffic to
+`/landing.html?utm_campaign=your-campaign-name` rather than the homepage —
+it's the same entry form and proof (how it works, past originals,
+reviews) with the nav and every other on-site distraction stripped out,
+so a click has exactly one place to go: enter. It's marked `noindex` and
+canonical'd back to the homepage on purpose (it overlaps too much with
+`index.html` to want both showing up in search), which has no effect on
+paid traffic — only on organic crawling.
+
+**Automatic spend pulls from Meta (optional).** If you're running Meta
+(Facebook/Instagram) ads and don't want to log spend by hand every day:
+
+1. Create an app at [developers.facebook.com](https://developers.facebook.com/)
+   and add the Marketing API product to it.
+2. In your Meta Business Settings, add a **System User**, and generate an
+   access token for it scoped to **`ads_read`** only — this app never
+   needs `ads_management` since it only ever reads spend, never changes a
+   campaign.
+3. Find your ad account ID in Meta Ads Manager's URL — it looks like
+   `act_1234567890` (include the `act_` prefix).
+4. Put both in `.env` as `META_ACCESS_TOKEN` and `META_AD_ACCOUNT_ID`.
+5. Name your campaign in the admin panel **exactly the same as** the real
+   campaign's name in Meta Ads Manager (case doesn't matter, exact text
+   does) — that's how a campaign gets linked the first time. After that,
+   it's remembered by Meta's own campaign ID, so renaming it in Meta later
+   won't break the link.
+
+Once connected, spend is pulled once a day (see `/api/cron/daily`), or any
+time via the "Sync from Meta now" button. **This is read-only, on
+purpose** — nothing in `metaAds.js` can pause a campaign, change its
+budget, or spend a dollar on your behalf, even with these keys set. If a
+campaign's all-time ROAS drops under `ROAS_ALERT_THRESHOLD` (default
+2.0x), you get a plain alert email at `ADMIN_EMAIL` — you decide what to
+do about it in Meta's own dashboard.
