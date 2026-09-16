@@ -2007,3 +2007,53 @@ flips that same email to "Unsubscribed" in the admin panel and drops it
 from the active count; and confirmed the CSV export button in a real
 browser produces a correctly-named download containing only active
 subscribers.
+
+## Update — 2026-09-14: vote.html engagement polish (count, starburst, shop nudge)
+
+Owner walkthrough of the shared vote-link experience surfaced three real
+gaps against what they wanted: the entry count wasn't shown anywhere on
+the page, there was no celebratory confirmation beyond a small toast and
+a button turning green, and nothing ever pointed an engaged voter toward
+the print shop. One claim in the request ("one vote per day") turned out
+to be a misunderstanding of the actual anti-fraud model rather than a
+real gap — the system has always been one vote per cat, ever (a real
+`UNIQUE(submission_id, voter_token)` constraint, not a daily reset), with
+a separate 30/day ceiling as an anti-bot throttle on top. Confirmed with
+the owner directly rather than silently either implementing false "vote
+daily" copy or silently changing real anti-fraud logic on an assumption
+— they confirmed the current one-vote-per-cat model is correct and
+should stay.
+
+Also confirmed directly, since it was a real product tradeoff and not
+just a bug: whether voting should immediately redirect to the shop
+(matches monetization) or keep the voter on the carousel (matches total
+vote volume, since the entire point of sharing a link is getting many
+real votes). Landed on a middle path per the owner: a starburst
+"Voted!" moment on every single vote (so it never feels like nothing
+happened), but the shop redirect only fires after the 3rd vote in a
+session, or immediately once someone's voted for every currently-open
+entry (so a small round under 3 entries doesn't strand an engaged voter
+who's genuinely voted for everyone). Tracked via a `sessionStorage`
+counter (`whiskr_session_votes`), same per-visit-not-forever pattern as
+the referral marker added earlier — this is an engagement signal, not
+an identity, so it resets every new tab/visit.
+
+The starburst itself is a plain CSS `clip-path` polygon (no image asset),
+fixed-position and viewport-centered rather than clipped inside a
+`.vote-card` (which needs `overflow:hidden` for its image's rounded
+corners, so an in-card overlay would've been clipped) — `void
+starburstEl.offsetWidth` forces the animation to restart cleanly on
+back-to-back votes rather than silently no-opping because the class was
+already present.
+
+Also added the missing entry count to the header ("September 2026 — 7
+cats to vote for — closes October 11").
+
+**Verified against a real local Postgres instance**: confirmed the
+header shows the real live entry count; cast three real votes through a
+real browser and confirmed the starburst fires on every one, the inline
+"thanks for voting" banner shows on votes 1–2, and vote 3 redirects
+cleanly to `index.html#shop-custom` roughly 1.1s after the starburst
+(long enough to actually see it before leaving); screenshotted the
+starburst mid-animation to confirm it reads clearly against the vote
+card underneath it.
