@@ -132,28 +132,19 @@ const PRODUCTS = [
     id: 'crewneck-sweatshirt',
     name: 'Custom Pet Crewneck Sweatshirt',
     species: 'both',
-    description: "Your pet's photo on a soft, pre-shrunk Gildan 18000 crewneck sweatshirt.",
-    // Typical market rate for this POD sweatshirt tier — NOT a confirmed
-    // Printful cost. Same caveat as the Gallery Series above: verify
-    // against your real Printful base cost + shipping before treating this
-    // as final pricing.
+    description: "Your pet's photo on a soft, pre-shrunk Gildan 18000 crewneck sweatshirt. Black, sized S–5XL.",
+    // Flat price regardless of size — standard for POD apparel, and
+    // simpler than per-size pricing. Verified to clear Printful's real
+    // cost at every size: $19.17 (S–XL) up to $27.17 (5XL), confirmed
+    // directly against the catalog API — even the most expensive size
+    // leaves real margin room before shipping.
     priceUsd: 44.99,
-    // Printful catalog product_id 145 ("Unisex Crew Neck Sweatshirt |
-    // Gildan 18000") is public — visible in Printful's own storefront URL
-    // (printful.com/custom/sweatshirts-hoodies/145/...). But this app
-    // orders by variant_id (one per size x color), not product_id, and
-    // printful.com isn't reachable from this environment to look those up
-    // — same limitation noted on the Gallery Series items above. Until a
-    // real variant_id is pasted in here, a real order for this product
-    // still charges the customer successfully but Printful submission
-    // fails safely afterward (submitCustomOrderToPrintful catches it,
-    // marks the order 'failed', shows up in admin.html's alerts panel)
-    // rather than shipping the wrong thing.
-    //
-    // To get the real variant_id once PRINTFUL_API_KEY is set, see the
-    // PowerShell command in the README's Printful setup section — it
-    // lists every size/color variant for product_id 145 with each one's
-    // real variant_id and cost.
+    // Unlike every other product here, this one has no single fixed
+    // variant — it's sized S–5XL. The real variant ID is chosen by the
+    // customer's size selection at checkout (see sweatshirtSizes.js,
+    // confirmed against Printful's catalog API for product_id 145, Black)
+    // and stored per-order, never read from this field. Same pattern as
+    // phone-case below.
     printfulVariantId: null,
     mockupAspect: '4/5',
   },

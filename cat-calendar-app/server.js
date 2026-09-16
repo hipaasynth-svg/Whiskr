@@ -19,6 +19,7 @@ const productCatalog = require('./products');
 const printful = require('./printful');
 const photoEnhance = require('./photoEnhance');
 const phoneCases = require('./phoneCases');
+const sweatshirtSizes = require('./sweatshirtSizes');
 const metaAds = require('./metaAds');
 const metaConversions = require('./metaConversions');
 const seo = require('./seo');
@@ -1480,6 +1481,10 @@ app.get('/api/phone-models', (req, res) => {
   res.json({ models: phoneCases.listPhoneCaseModels() });
 });
 
+app.get('/api/sweatshirt-sizes', (req, res) => {
+  res.json({ sizes: sweatshirtSizes.listSweatshirtSizes() });
+});
+
 // Public, non-secret config the client needs — currently just whether
 // Turnstile CAPTCHA is enabled and, if so, its public site key (the secret
 // key never leaves the server; see verifyTurnstile).
@@ -1613,6 +1618,14 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
         return res.status(400).json({ error: 'Please choose your phone model.' });
       }
       variantId = Number(req.body.phoneVariantId);
+    } else if (product.id === 'crewneck-sweatshirt') {
+      // Same reasoning as phone cases above — apparel needs a size, there's
+      // no single Printful variant for "a sweatshirt," and the client's
+      // choice must resolve to a real catalog variant, never trusted raw.
+      if (!sweatshirtSizes.isValidSweatshirtVariant(req.body.sweatshirtVariantId)) {
+        return res.status(400).json({ error: 'Please choose your size.' });
+      }
+      variantId = Number(req.body.sweatshirtVariantId);
     }
 
     const qty = Math.max(1, Math.min(10, Number(quantity) || 1));

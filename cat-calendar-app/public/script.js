@@ -718,6 +718,8 @@ loadReviews();
   const discountBanner = document.getElementById('customDiscountBanner');
   const phoneModelLabel = document.getElementById('customPhoneModelLabel');
   const phoneModelSelect = document.getElementById('customPhoneModel');
+  const sweatshirtSizeLabel = document.getElementById('customSweatshirtSizeLabel');
+  const sweatshirtSizeSelect = document.getElementById('customSweatshirtSize');
 
   let currentSpecies = 'cat';
   let products = [];
@@ -741,6 +743,26 @@ loadReviews();
     }
   }
   loadPhoneModels();
+
+  // Sweatshirts are sized S-5XL (see sweatshirtSizes.js server-side) —
+  // this list is only ever used to populate the picker; the choice is
+  // re-validated against the real Printful catalog when the order posts.
+  async function loadSweatshirtSizes() {
+    if (!sweatshirtSizeSelect) return;
+    try {
+      const res = await fetch('/api/sweatshirt-sizes');
+      const data = await res.json();
+      (data.sizes || []).forEach((s) => {
+        const opt = document.createElement('option');
+        opt.value = s.variantId;
+        opt.textContent = s.label;
+        sweatshirtSizeSelect.appendChild(opt);
+      });
+    } catch (err) {
+      console.error('sweatshirt size list load failed', err);
+    }
+  }
+  loadSweatshirtSizes();
 
   // A discount can arrive two ways: a link from the entry-confirmation or
   // final-placement email (?discountEmail=&discountExpires=&discountToken=
@@ -864,6 +886,12 @@ loadReviews();
       phoneModelSelect.required = isPhoneCase;
       if (!isPhoneCase) phoneModelSelect.value = '';
     }
+    if (sweatshirtSizeLabel && sweatshirtSizeSelect) {
+      const isSweatshirt = p.id === 'crewneck-sweatshirt';
+      sweatshirtSizeLabel.hidden = !isSweatshirt;
+      sweatshirtSizeSelect.required = isSweatshirt;
+      if (!isSweatshirt) sweatshirtSizeSelect.value = '';
+    }
     renderGrid();
   }
 
@@ -881,6 +909,11 @@ loadReviews();
         phoneModelLabel.hidden = true;
         phoneModelSelect.required = false;
         phoneModelSelect.value = '';
+      }
+      if (sweatshirtSizeLabel && sweatshirtSizeSelect) {
+        sweatshirtSizeLabel.hidden = true;
+        sweatshirtSizeSelect.required = false;
+        sweatshirtSizeSelect.value = '';
       }
       loadProducts(currentSpecies);
     });
