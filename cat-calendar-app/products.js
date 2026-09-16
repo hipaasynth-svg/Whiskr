@@ -128,6 +128,35 @@ const PRODUCTS = [
     printfulVariantId: 16367, // Die-Cut Magnets 4"x4" — cost $3.91
     mockupAspect: '1/1',
   },
+  {
+    id: 'crewneck-sweatshirt',
+    name: 'Custom Pet Crewneck Sweatshirt',
+    species: 'both',
+    description: "Your pet's photo on a soft, pre-shrunk Gildan 18000 crewneck sweatshirt.",
+    // Typical market rate for this POD sweatshirt tier — NOT a confirmed
+    // Printful cost. Same caveat as the Gallery Series above: verify
+    // against your real Printful base cost + shipping before treating this
+    // as final pricing.
+    priceUsd: 44.99,
+    // Printful catalog product_id 145 ("Unisex Crew Neck Sweatshirt |
+    // Gildan 18000") is public — visible in Printful's own storefront URL
+    // (printful.com/custom/sweatshirts-hoodies/145/...). But this app
+    // orders by variant_id (one per size x color), not product_id, and
+    // printful.com isn't reachable from this environment to look those up
+    // — same limitation noted on the Gallery Series items above. Until a
+    // real variant_id is pasted in here, a real order for this product
+    // still charges the customer successfully but Printful submission
+    // fails safely afterward (submitCustomOrderToPrintful catches it,
+    // marks the order 'failed', shows up in admin.html's alerts panel)
+    // rather than shipping the wrong thing.
+    //
+    // To get the real variant_id once PRINTFUL_API_KEY is set, see the
+    // PowerShell command in the README's Printful setup section — it
+    // lists every size/color variant for product_id 145 with each one's
+    // real variant_id and cost.
+    printfulVariantId: null,
+    mockupAspect: '4/5',
+  },
 ];
 
 function listProducts(species) {
