@@ -156,12 +156,42 @@ nothing gets printed or shipped.
    to clear Printful's base cost *and* shipping (which is billed
    separately, varies by product/destination, and isn't included in the
    catalog's per-item price) for every sale to be profitable.
+6. **Adding a new product** (e.g. the crewneck sweatshirt): find its real
+   Printful catalog `product_id` from its storefront URL
+   (`printful.com/custom/.../{product_id}/...`), then list every
+   size/color variant under that product — each has its own `variant_id`
+   and base cost — with `PRINTFUL_API_KEY` set:
 
-Real on-product mockups (showing the customer's photo ON the mug/poster
-before they buy) aren't built — that needs Printful's async Mockup
-Generator API, which needs a live store to test against. The order form
-instead just previews the customer's own uploaded photo. Worth adding once
-you've verified the basic order flow works end to end.
+   ```bash
+   # macOS/Linux
+   curl -s -H "Authorization: Bearer $PRINTFUL_API_KEY" \
+     https://api.printful.com/products/145 | jq
+   ```
+   ```powershell
+   # Windows PowerShell
+   $headers = @{ Authorization = "Bearer $env:PRINTFUL_API_KEY" }
+   (Invoke-RestMethod -Uri "https://api.printful.com/products/145" -Headers $headers).result.variants |
+     Select-Object id, name, size, color, price | Format-Table
+   ```
+   Paste the `variant_id` for the size/color you're selling into that
+   product's `printfulVariantId` in `products.js` (`145` above is the
+   Gildan 18000 Unisex Crewneck Sweatshirt already stubbed in as
+   `crewneck-sweatshirt` — currently `null` until you run this).
+
+Real on-product mockups (showing the customer's own uploaded photo ON the
+mug/poster before they buy) aren't built — that needs Printful's async
+Mockup Generator API, which needs a live store to test against. The order
+form instead just previews the customer's own uploaded photo.
+
+That's different from the **static catalog photo** shown for each product
+in the shop grid (`product_media` in `db.js`, uploaded via `admin.html`'s
+product editor) — that part's already built and just needs a real image
+per product. For a quick, code-free product photo: Printful's own
+[free mockup generator](https://www.printful.com/mockup-generator) (any
+Printful account, no paid plan needed) lets you upload art onto their real
+product photography and download a PNG/JPEG — pick the same product/variant
+you configured above, upload a sample pet photo, download the result, then
+upload it as that product's photo in `admin.html`.
 
 ## 4a. AI photo upscaling (optional)
 

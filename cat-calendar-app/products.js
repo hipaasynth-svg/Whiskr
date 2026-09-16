@@ -128,6 +128,26 @@ const PRODUCTS = [
     printfulVariantId: 16367, // Die-Cut Magnets 4"x4" — cost $3.91
     mockupAspect: '1/1',
   },
+  {
+    id: 'crewneck-sweatshirt',
+    name: 'Custom Pet Crewneck Sweatshirt',
+    species: 'both',
+    description: "Your pet's photo on a soft, pre-shrunk Gildan 18000 crewneck sweatshirt. Black, sized S–5XL.",
+    // Flat price regardless of size — standard for POD apparel, and
+    // simpler than per-size pricing. Verified to clear Printful's real
+    // cost at every size: $19.17 (S–XL) up to $27.17 (5XL), confirmed
+    // directly against the catalog API — even the most expensive size
+    // leaves real margin room before shipping.
+    priceUsd: 44.99,
+    // Unlike every other product here, this one has no single fixed
+    // variant — it's sized S–5XL. The real variant ID is chosen by the
+    // customer's size selection at checkout (see sweatshirtSizes.js,
+    // confirmed against Printful's catalog API for product_id 145, Black)
+    // and stored per-order, never read from this field. Same pattern as
+    // phone-case below.
+    printfulVariantId: null,
+    mockupAspect: '4/5',
+  },
 ];
 
 function listProducts(species) {
