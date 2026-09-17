@@ -4,10 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
-<title>Judging — Whiskr</title>
+<title>Admin — Whiskr</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
+<!-- Vercel Web Analytics -->
+<script>window.va = window.va || function() { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
 <style>
   .admin-wrap { max-width: 1000px; margin: 0 auto; padding: 40px 36px 100px; }
   .key-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 36px; flex-wrap: wrap; }
@@ -36,6 +39,41 @@
   table.orders th, table.orders td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
   table.orders th { color: #6b6552; font-weight: 600; }
   .refresh-btn { font-size: 0.8rem; padding: 6px 12px; }
+  .product-row { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+  .product-row:last-child { border-bottom: none; }
+  .product-row .preview { width: 90px; flex-shrink: 0; }
+  .product-row .preview img { width: 100%; aspect-ratio: 1/1; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
+  .product-row .preview .none { width: 100%; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.68rem; color: #6b6552; border: 1px dashed var(--line); border-radius: 4px; padding: 4px; }
+  .product-row .body { flex: 1; min-width: 0; }
+  .product-row .title-line { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+  .product-row .title-line strong { font-size: 0.95rem; }
+  .product-row .title-line .price { font-size: 0.82rem; color: #6b6552; }
+  .product-row .aspect-hint { font-size: 0.74rem; color: #6b6552; margin-bottom: 10px; }
+  .product-row form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .product-row form .full { grid-column: 1 / -1; }
+  .product-row label { display: flex; flex-direction: column; gap: 3px; font-size: 0.74rem; color: #6b6552; }
+  .product-row input[type=text], .product-row textarea { padding: 7px 8px; border: 1px solid var(--line); border-radius: 3px; font-family: var(--font-body); font-size: 0.85rem; }
+  .product-row textarea { resize: vertical; min-height: 44px; }
+  .product-row .row-actions { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; margin-top: 2px; }
+  .product-row .row-actions button { font-size: 0.8rem; padding: 7px 14px; }
+  .product-row .remove-photo { border: 1px solid #b3261e; color: #b3261e; background: transparent; border-radius: 3px; cursor: pointer; }
+  .product-row .row-note { font-size: 0.78rem; }
+  .alerts-panel { border: 2px solid #b3261e; border-radius: 6px; background: #fdf2f2; padding-top: 4px; }
+  .alerts-panel h2 { color: #b3261e; }
+  .alerts-scroll { max-height: 240px; overflow-y: auto; padding: 0 20px 16px; }
+  .alert-row { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid #f0d4d4; font-size: 0.85rem; }
+  .alert-row:last-child { border-bottom: none; }
+  .alert-row.resolved { opacity: 0.5; }
+  .alert-row .alert-body { flex: 1; min-width: 0; }
+  .alert-row .alert-subject { font-weight: 600; color: #b3261e; }
+  .alert-row.resolved .alert-subject { color: #6b6552; }
+  .alert-row .alert-msg { color: #4a4536; white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+  .alert-row .alert-time { color: #6b6552; font-size: 0.75rem; margin-top: 4px; }
+  .alert-row button { flex-shrink: 0; font-size: 0.75rem; padding: 5px 10px; }
+  .retry-printful-btn { background: #b3261e !important; color: #fff !important; border-color: #b3261e !important; font-weight: 600; transition: background-color 0.2s, border-color 0.2s; }
+  .retry-printful-btn:hover:not(:disabled) { background: #931f18 !important; }
+  .retry-printful-btn.success { background: #2e7d32 !important; border-color: #2e7d32 !important; }
+  .retry-printful-btn:disabled { opacity: 0.85; cursor: default; }
 </style>
 </head>
 <body>
@@ -48,7 +86,7 @@
 </header>
 
 <div class="admin-wrap">
-  <h1 style="font-size:1.6rem;margin-bottom:6px;">Judging &amp; orders</h1>
+  <h1 style="font-size:1.6rem;margin-bottom:6px;">Contest &amp; orders</h1>
   <p class="sub" style="color:#6b6552;margin-bottom:28px;">Not linked from the public site. Protected by your admin key, not by obscurity — don't rely on the URL alone.</p>
 
   <div class="key-bar">
@@ -57,15 +95,185 @@
     <span class="key-status" id="keyStatus"></span>
   </div>
 
+  <div class="admin-section alerts-panel">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px 0;">
+      <div>
+        <h2>Site alerts</h2>
+        <p class="sub">Every failure that needed a human look — a failed Printful submission, a refund, a dispute — lands here in one spot, whether or not email alerts are configured. Unresolved shown first.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshAlerts" type="button">Refresh</button>
+    </div>
+    <div class="alerts-scroll" id="alertsList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
-        <h2>Groups awaiting a pick</h2>
-        <p class="sub">Click a photo to make that cat the cover. Sends the winner + featured emails immediately.</p>
+        <h2>Background slideshow</h2>
+        <p class="sub">Homepage hero background. Empty = no slideshow, just the plain dark background — never a stock-photo fallback. Add a few of your own photos to turn it on.</p>
       </div>
-      <button class="btn btn-ghost refresh-btn" id="refreshGroups" type="button">Refresh</button>
+      <button class="btn btn-ghost refresh-btn" id="refreshBackground" type="button">Refresh</button>
     </div>
-    <div id="groupsList"><p class="empty">Enter your admin key and click Load.</p></div>
+    <form id="backgroundUploadForm" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+      <input type="file" id="backgroundPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
+      <button class="btn btn-primary" type="submit" style="padding:8px 16px;font-size:0.85rem;">Add photo</button>
+      <span class="form-note" id="backgroundUploadNote"></span>
+    </form>
+    <div id="backgroundList" class="pick-grid"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Featured originals</h2>
+        <p class="sub">A couple of your completed grand-prize paintings, shown on the homepage next to the "commission your own" link. Empty = an honest "first one's still drying" message, never a placeholder.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshOriginals" type="button">Refresh</button>
+    </div>
+    <form id="originalUploadForm" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+      <input type="file" id="originalPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
+      <input type="text" id="originalCatName" placeholder="Cat's name (optional)" maxlength="60" style="padding:8px;border:1px solid var(--line);border-radius:3px;" />
+      <button class="btn btn-primary" type="submit" style="padding:8px 16px;font-size:0.85rem;">Add photo</button>
+      <span class="form-note" id="originalUploadNote"></span>
+    </form>
+    <div id="originalsList" class="pick-grid"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Homepage promo messages</h2>
+        <p class="sub">Up to four short messages on the homepage — a starburst badge over the hero (with its own color), and two image+text blocks in the middle of the page. Each one is hidden automatically whenever it's empty.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshSiteBlocks" type="button">Refresh</button>
+    </div>
+    <div id="siteBlocksList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Footer photo wall</h2>
+        <p class="sub">A static, full-width photo strip at the bottom of the homepage — two rows tall, as many columns as photos you add. Empty = no strip at all.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshFooterStrip" type="button">Refresh</button>
+    </div>
+    <form id="footerStripUploadForm" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+      <input type="file" id="footerStripPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
+      <button class="btn btn-primary" type="submit" style="padding:8px 16px;font-size:0.85rem;">Add photo</button>
+      <span class="form-note" id="footerStripUploadNote"></span>
+    </form>
+    <div id="footerStripList" class="pick-grid"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Live painting sessions</h2>
+        <p class="sub">A manual on/off switch, not tied to whether any content exists yet — turn it on the day of the first session, even before there's a past one to list. "Currently live" only matters while the section itself is on.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshLiveStream" type="button">Refresh</button>
+    </div>
+    <form id="liveStreamSettingsForm" style="display:flex;gap:16px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;">
+        <input type="checkbox" name="enabled" /> Show this section on the homepage
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;">
+        <input type="checkbox" name="isLive" /> Currently live
+      </label>
+      <input type="url" name="embedUrl" placeholder="Live embed URL (YouTube/Twitch embed link)" style="flex:1;min-width:260px;padding:8px;border:1px solid var(--line);border-radius:3px;" />
+      <label style="font-size:0.8rem;">Next session (optional, shown in the offline state)<br/><input type="datetime-local" name="nextSessionAt" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
+      <button class="btn btn-primary" type="submit" style="padding:8px 16px;font-size:0.85rem;">Save</button>
+      <span class="form-note" id="liveStreamSettingsNote"></span>
+    </form>
+    <form id="liveSessionAddForm" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+      <input type="text" name="title" placeholder="Session title" maxlength="200" required style="flex:1;min-width:180px;padding:8px;border:1px solid var(--line);border-radius:3px;" />
+      <input type="date" name="sessionDate" required style="padding:8px;border:1px solid var(--line);border-radius:3px;" />
+      <input type="url" name="videoUrl" placeholder="Recording link (optional)" style="flex:1;min-width:180px;padding:8px;border:1px solid var(--line);border-radius:3px;" />
+      <button class="btn btn-primary" type="submit" style="padding:8px 16px;font-size:0.85rem;">Add session</button>
+      <span class="form-note" id="liveSessionAddNote"></span>
+    </form>
+    <div id="liveSessionsAdminList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Shop product photos</h2>
+        <p class="sub">One fixed spot per product — not a free-add list. Upload a real photo of that product (recommended aspect ratio shown per row, matching what actually ships) plus its alt text, SEO title/description, and an optional description override. Empty = the card shows text only, same as today — never a placeholder image.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshProducts" type="button">Refresh</button>
+    </div>
+    <div id="productsList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Current contest — fraud review</h2>
+        <p class="sub">Winners are decided by public vote automatically when the round closes — nothing to pick here. This is for spotting and disqualifying obviously fraudulent entries (bought/bot votes) before that happens. "Votes/hr" is votes in the last 60 minutes; a sudden spike on one entry is the signal to look closer. "Referred" is votes cast by visitors who arrived via that cat's share link — a soft signal for a future top-sharer perk, not itself a fraud check.</p>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost refresh-btn" id="forceCloseContest" type="button" style="border-color:#b3261e;color:#b3261e;">Force-close now</button>
+        <button class="btn btn-ghost refresh-btn" id="refreshContest" type="button">Refresh</button>
+      </div>
+    </div>
+    <div id="contestList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Painting winners</h2>
+        <p class="sub">Every month's #1 vote-getter wins an original painting automatically the instant the round closes — nothing to open or pick here. This is just the record: reply to each winner's own email thread with a mailing address once they send one.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshYearAward" type="button">Refresh</button>
+    </div>
+    <div id="yearAwardList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Marketing / ad spend (ROAS)</h2>
+        <p class="sub">Tag your ad links with <code>?utm_campaign=your-campaign-name</code> (must match a campaign name below, case-insensitive) so real orders get attributed here. Spend can be logged manually below, or pulled automatically once a day from Meta if a campaign's name matches a real Meta campaign — <span id="metaStatus">checking Meta connection…</span> Read-only either way: nothing here can pause a campaign or change its budget.</p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button class="btn btn-ghost refresh-btn" id="syncMetaNow" type="button">Sync from Meta now</button>
+        <input type="number" id="backfillDays" min="1" max="90" value="30" style="width:56px;padding:8px;border:1px solid var(--line);border-radius:3px;" title="Days to backfill" />
+        <button class="btn btn-ghost refresh-btn" id="backfillMeta" type="button">Backfill from Meta</button>
+        <button class="btn btn-ghost refresh-btn" id="refreshMarketing" type="button">Refresh</button>
+      </div>
+    </div>
+
+    <div id="unmatchedUtmPanel" style="margin-bottom:18px;"></div>
+
+    <form id="campaignForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+      <label style="font-size:0.8rem;">Campaign name (= utm_campaign)<br/><input type="text" id="campName" placeholder="dallas-meta" style="padding:8px;border:1px solid var(--line);border-radius:3px;" required /></label>
+      <label style="font-size:0.8rem;">Platform<br/><input type="text" id="campPlatform" placeholder="meta" style="padding:8px;border:1px solid var(--line);border-radius:3px;" /></label>
+      <button class="btn btn-primary" type="submit" style="padding:9px 16px;font-size:0.85rem;">Add campaign</button>
+    </form>
+    <form id="spendForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px;">
+      <label style="font-size:0.8rem;">Log spend for campaign ID<br/><input type="number" id="spendCampaignId" min="1" style="padding:8px;border:1px solid var(--line);border-radius:3px;width:90px;" required /></label>
+      <label style="font-size:0.8rem;">Date<br/><input type="date" id="spendDate" style="padding:8px;border:1px solid var(--line);border-radius:3px;" required /></label>
+      <label style="font-size:0.8rem;">Amount (USD)<br/><input type="number" id="spendAmount" min="0.01" step="0.01" style="padding:8px;border:1px solid var(--line);border-radius:3px;width:100px;" required /></label>
+      <button class="btn btn-primary" type="submit" style="padding:9px 16px;font-size:0.85rem;">Log spend</button>
+    </form>
+    <div id="marketingList"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2>Marketing list</h2>
+        <p class="sub">Opted in separately from any order or contest entry — from the entry-form checkbox and the homepage footer signup. Not sent to automatically; export and use with whatever email tool you pick.</p>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost refresh-btn" id="exportSubscribers" type="button">Export CSV</button>
+        <button class="btn btn-ghost refresh-btn" id="refreshSubscribers" type="button">Refresh</button>
+      </div>
+    </div>
+    <div id="subscribersList"><p class="empty">Enter your admin key and click Load.</p></div>
   </div>
 
   <div class="admin-section">
@@ -102,10 +310,11 @@
   </div>
 </div>
 
+<script src="imageResize.js"></script>
 <script>
   const keyInput = document.getElementById('adminKey');
   const keyStatus = document.getElementById('keyStatus');
-  const groupsList = document.getElementById('groupsList');
+  const contestList = document.getElementById('contestList');
   const ordersList = document.getElementById('ordersList');
 
   // Convenience only, for a solo operator's own browser — not a security
@@ -128,65 +337,413 @@
     return String(str).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
   }
 
-  async function loadGroups() {
-    groupsList.innerHTML = '<p class="empty">Loading…</p>';
+  async function loadContest() {
+    contestList.innerHTML = '<p class="empty">Loading…</p>';
     try {
-      const res = await adminFetch('/api/admin/groups/pending');
+      const res = await adminFetch('/api/admin/contest/current');
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load groups.');
+      if (!res.ok) throw new Error(data.error || 'Failed to load contest.');
       keyStatus.textContent = 'Key OK';
       keyStatus.className = 'key-status ok';
 
-      if (data.groups.length === 0) {
-        groupsList.innerHTML = '<p class="empty">Nothing waiting on you right now.</p>';
+      if (!data.contest) {
+        contestList.innerHTML = '<p class="empty">No contest is currently open.</p>';
         return;
       }
 
-      groupsList.innerHTML = data.groups.map((g) => `
-        <div class="group-card" data-group="${g.groupId}">
+      const closes = new Date(data.contest.closesAt).toLocaleString();
+      contestList.innerHTML = `
+        <div class="group-card">
           <div class="group-head">
-            <h3>Group #${g.groupId}</h3>
-            <span class="deadline">Auto-picks at random on ${new Date(g.judgingDeadline).toLocaleDateString()} if you don't decide first</span>
+            <h3>${escapeHtml(data.contest.label)} (#${data.contest.id})</h3>
+            <span class="deadline">${data.entries.length} entries · closes ${closes}</span>
           </div>
-          <div class="pick-grid">
-            ${g.cats.map((cat) => `
-              <div class="pick-cell">
-                <img src="${cat.photo_path}" alt="${escapeHtml(cat.cat_name)}" data-submission="${cat.id}" data-group="${g.groupId}" class="pick-img" />
-                <div class="name">${escapeHtml(cat.cat_name)}</div>
-                <button type="button" class="pick-btn" data-submission="${cat.id}" data-group="${g.groupId}">Make cover</button>
-              </div>
-            `).join('')}
-          </div>
+          <table class="orders">
+            <thead><tr><th>Cat</th><th>Votes</th><th>Votes/hr</th><th>Referred</th><th>Photo</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              ${data.entries.map((e) => `
+                <tr data-submission="${e.id}">
+                  <td>${escapeHtml(e.cat_name)}</td>
+                  <td>${e.vote_count}</td>
+                  <td style="${e.votes_last_hour >= 20 ? 'color:#b3261e;font-weight:700;' : ''}">${e.votes_last_hour}</td>
+                  <td>${e.referred_votes > 0 ? e.referred_votes : '—'}</td>
+                  <td>${e.photo_width ? `${e.photo_width}×${e.photo_height}${e.low_resolution ? ' (low-res)' : ''}` : '—'}</td>
+                  <td>${e.disqualified ? `Disqualified: ${escapeHtml(e.disqualified_reason || '')}` : 'Eligible'}</td>
+                  <td>
+                    ${e.disqualified
+                      ? `<button type="button" class="requalify-btn" data-id="${e.id}" style="font-size:0.75rem;padding:4px 10px;">Requalify</button>`
+                      : `<button type="button" class="disqualify-btn" data-id="${e.id}" style="font-size:0.75rem;padding:4px 10px;border-color:#b3261e;color:#b3261e;">Disqualify</button>`}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
         </div>
-      `).join('');
+      `;
 
-      groupsList.querySelectorAll('.pick-btn, .pick-img').forEach((el) => {
-        el.addEventListener('click', () => pick(el.dataset.group, el.dataset.submission));
+      contestList.querySelectorAll('.disqualify-btn').forEach((btn) => {
+        btn.addEventListener('click', () => disqualify(btn.dataset.id));
+      });
+      contestList.querySelectorAll('.requalify-btn').forEach((btn) => {
+        btn.addEventListener('click', () => requalify(btn.dataset.id));
       });
     } catch (err) {
       keyStatus.textContent = err.message;
       keyStatus.className = 'key-status err';
-      groupsList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+      contestList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
     }
   }
 
-  async function pick(groupId, submissionId) {
-    const card = groupsList.querySelector(`.group-card[data-group="${groupId}"]`);
-    card.querySelectorAll('button').forEach((b) => (b.disabled = true));
+  async function disqualify(id) {
+    const reason = window.prompt('Reason for disqualifying this entry (shown to no one but you):');
+    if (reason === null) return;
     try {
-      const res = await adminFetch(`/api/admin/groups/${groupId}/pick`, {
+      const res = await adminFetch(`/api/admin/submissions/${id}/disqualify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ submissionId: Number(submissionId) }),
+        body: JSON.stringify({ reason }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Pick failed.');
-      loadGroups();
+      if (!res.ok) throw new Error(data.error || 'Disqualify failed.');
+      loadContest();
     } catch (err) {
       alert(err.message);
-      card.querySelectorAll('button').forEach((b) => (b.disabled = false));
     }
   }
+
+  async function requalify(id) {
+    try {
+      const res = await adminFetch(`/api/admin/submissions/${id}/requalify`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Requalify failed.');
+      loadContest();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  document.getElementById('forceCloseContest').addEventListener('click', async () => {
+    if (!window.confirm('Close the current contest right now and tally votes? This cannot be undone.')) return;
+    try {
+      const res = await adminFetch('/api/admin/contest/force-close', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Force-close failed.');
+      alert(`Contest #${data.contestId} closed. Winner recorded (round #${data.groupId}).`);
+      loadContest();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  const yearAwardList = document.getElementById('yearAwardList');
+
+  async function loadYearAward() {
+    yearAwardList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/year-award');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.awards.length === 0) {
+        yearAwardList.innerHTML = '<p class="empty">No round has closed yet — the first winner will show up here automatically.</p>';
+        return;
+      }
+
+      yearAwardList.innerHTML = `
+        <table class="orders">
+          <thead><tr><th>Date</th><th>Round</th><th>Cat</th><th>Email</th><th>Painting target</th></tr></thead>
+          <tbody>
+            ${data.awards.map((a) => `
+              <tr>
+                <td>${new Date(a.created_at).toLocaleDateString()}</td>
+                <td>${escapeHtml(a.label)}</td>
+                <td>${escapeHtml(a.cat_name || '—')}</td>
+                <td>${escapeHtml(a.email || '—')}</td>
+                <td>${a.sculpture_deadline ? new Date(a.sculpture_deadline).toLocaleDateString() : '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      yearAwardList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  document.getElementById('refreshYearAward').addEventListener('click', loadYearAward);
+
+  const marketingList = document.getElementById('marketingList');
+
+  async function loadMarketing() {
+    marketingList.innerHTML = '<p class="empty">Loading…</p>';
+    loadUnmatchedUtm();
+    try {
+      const res = await adminFetch('/api/admin/marketing/campaigns');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load.');
+
+      const metaStatusEl = document.getElementById('metaStatus');
+      if (metaStatusEl) {
+        metaStatusEl.textContent = data.metaConfigured
+          ? 'Meta is connected.'
+          : 'Meta is not connected yet (set META_ACCESS_TOKEN/META_AD_ACCOUNT_ID) — log spend manually below.';
+      }
+
+      if (data.campaigns.length === 0) {
+        marketingList.innerHTML = '<p class="empty">No campaigns yet — add one above.</p>';
+        return;
+      }
+
+      marketingList.innerHTML = `
+        <table class="orders">
+          <thead><tr><th>ID</th><th>Name</th><th>Platform</th><th>Meta link</th><th>Status</th><th>Spend</th><th>Revenue</th><th>ROAS</th><th></th></tr></thead>
+          <tbody>
+            ${data.campaigns.map((c) => `
+              <tr data-id="${c.id}">
+                <td>${c.id}</td>
+                <td>${escapeHtml(c.name)}</td>
+                <td>${escapeHtml(c.platform || '—')}</td>
+                <td>${c.meta_campaign_id ? 'Linked' : '—'}</td>
+                <td>${escapeHtml(c.status)}</td>
+                <td>$${c.total_spend.toFixed(2)}</td>
+                <td>$${c.total_revenue.toFixed(2)}</td>
+                <td style="${c.roas !== null && c.roas < 2 ? 'color:#b3261e;font-weight:700;' : ''}">${c.roas === null ? '—' : c.roas + 'x'}</td>
+                <td style="display:flex;gap:6px;">
+                  <button type="button" class="toggle-status-btn" data-id="${c.id}" data-status="${c.status}" style="font-size:0.75rem;padding:4px 10px;">${c.status === 'active' ? 'Pause' : 'Activate'}</button>
+                  ${c.meta_campaign_id ? `<button type="button" class="insights-btn" data-id="${c.id}" style="font-size:0.75rem;padding:4px 10px;">Insights</button>` : ''}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      marketingList.querySelectorAll('.toggle-status-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const newStatus = btn.dataset.status === 'active' ? 'paused' : 'active';
+          try {
+            const res = await adminFetch(`/api/admin/marketing/campaigns/${btn.dataset.id}/status`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: newStatus }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Update failed.');
+            loadMarketing();
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+      });
+      marketingList.querySelectorAll('.insights-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.textContent = 'Loading…';
+          try {
+            const res = await adminFetch(`/api/admin/marketing/campaigns/${btn.dataset.id}/insights?days=30`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Could not load insights.');
+            const ctr = data.impressions > 0 ? ((data.clicks / data.impressions) * 100).toFixed(2) + '%' : '—';
+            const cpc = data.clicks > 0 ? '$' + (data.spend / data.clicks).toFixed(2) : '—';
+            alert(
+              `Last 30 days (${data.since} to ${data.until}):\n` +
+              `Spend: $${data.spend.toFixed(2)}\n` +
+              `Impressions: ${data.impressions}\n` +
+              `Clicks: ${data.clicks}\n` +
+              `CTR: ${ctr}\n` +
+              `CPC: ${cpc}`
+            );
+          } catch (err) {
+            alert(err.message);
+          } finally {
+            btn.disabled = false;
+            btn.textContent = 'Insights';
+          }
+        });
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      marketingList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  const unmatchedUtmPanel = document.getElementById('unmatchedUtmPanel');
+  async function loadUnmatchedUtm() {
+    try {
+      const res = await adminFetch('/api/admin/marketing/unmatched-utm');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load.');
+      if (data.unmatched.length === 0) {
+        unmatchedUtmPanel.innerHTML = '';
+        return;
+      }
+      unmatchedUtmPanel.innerHTML = `
+        <div style="border:1px solid #b3261e;border-radius:6px;padding:14px 16px;background:#fdf2f2;">
+          <p style="margin:0 0 10px;font-weight:600;color:#b3261e;">Unattributed revenue — these utm_campaign values have real paid orders but no matching campaign, so they're invisible above.</p>
+          ${data.unmatched.map((u) => `
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #f0d4d4;">
+              <span><code>${escapeHtml(u.utmCampaign)}</code> — ${u.orderCount} order(s), $${u.totalRevenue.toFixed(2)}</span>
+              <button type="button" class="create-from-utm-btn" data-utm="${escapeHtml(u.utmCampaign)}" style="font-size:0.75rem;padding:4px 10px;">Create campaign</button>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      unmatchedUtmPanel.querySelectorAll('.create-from-utm-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try {
+            const res = await adminFetch('/api/admin/marketing/campaigns', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: btn.dataset.utm }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Create failed.');
+            loadUnmatchedUtm();
+            loadMarketing();
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+      });
+    } catch (err) {
+      // Silent — this is a supplementary panel; the main marketingList load
+      // above already surfaces an admin-key error if that's the cause.
+    }
+  }
+
+  document.getElementById('campaignForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('campName').value.trim();
+    const platform = document.getElementById('campPlatform').value.trim();
+    if (!name) return;
+    try {
+      const res = await adminFetch('/api/admin/marketing/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, platform }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Add failed.');
+      document.getElementById('campaignForm').reset();
+      loadMarketing();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById('spendForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const campaignId = document.getElementById('spendCampaignId').value;
+    const spendDate = document.getElementById('spendDate').value;
+    const amountUsd = document.getElementById('spendAmount').value;
+    try {
+      const res = await adminFetch(`/api/admin/marketing/campaigns/${campaignId}/spend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ spendDate, amountUsd }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Log failed.');
+      document.getElementById('spendForm').reset();
+      loadMarketing();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+  document.getElementById('refreshMarketing').addEventListener('click', loadMarketing);
+  document.getElementById('syncMetaNow').addEventListener('click', async () => {
+    try {
+      const res = await adminFetch('/api/admin/marketing/sync-meta', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Sync failed.');
+      alert(data.dryRun ? 'Meta is not connected yet — nothing to sync.' : `Synced spend for ${data.synced} campaign(s).`);
+      loadMarketing();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById('backfillMeta').addEventListener('click', async (e) => {
+    const btn = e.target;
+    const days = Number(document.getElementById('backfillDays').value) || 30;
+    btn.disabled = true;
+    btn.textContent = 'Backfilling…';
+    try {
+      const res = await adminFetch('/api/admin/marketing/backfill-meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Backfill failed.');
+      alert(data.dryRun ? 'Meta is not connected yet — nothing to backfill.' : `Backfilled ${data.days} day(s), ${data.totalSynced} sync(s) written.`);
+      loadMarketing();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Backfill from Meta';
+    }
+  });
+
+  const subscribersList = document.getElementById('subscribersList');
+  async function loadSubscribers() {
+    subscribersList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/marketing-subscribers');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load subscribers.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.subscribers.length === 0) {
+        subscribersList.innerHTML = '<p class="empty">No signups yet.</p>';
+        return;
+      }
+
+      const sourceSummary = Object.entries(data.bySource).map(([src, n]) => `${escapeHtml(src)}: ${n}`).join(' · ');
+      subscribersList.innerHTML = `
+        <p class="sub"><strong>${data.activeCount}</strong> active of ${data.totalCount} total signups${sourceSummary ? ' — ' + sourceSummary : ''}</p>
+        <table class="orders">
+          <thead><tr><th>Email</th><th>Source</th><th>Signed up</th><th>Status</th></tr></thead>
+          <tbody>
+            ${data.subscribers.map((s) => `
+              <tr>
+                <td>${escapeHtml(s.email)}</td>
+                <td>${escapeHtml(s.source)}</td>
+                <td>${new Date(s.subscribed_at).toLocaleDateString()}</td>
+                <td>${s.active ? 'Active' : 'Unsubscribed'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch (err) {
+      subscribersList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+  document.getElementById('refreshSubscribers').addEventListener('click', loadSubscribers);
+  document.getElementById('exportSubscribers').addEventListener('click', async () => {
+    try {
+      const res = await adminFetch('/api/admin/marketing-subscribers/export.csv');
+      if (!res.ok) throw new Error('Export failed — check your admin key.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'whiskr-marketing-list.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   async function loadOrders() {
     ordersList.innerHTML = '<p class="empty">Loading…</p>';
@@ -225,6 +782,54 @@
     }
   }
 
+  const alertsList = document.getElementById('alertsList');
+  async function loadAlerts() {
+    alertsList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/alerts');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load alerts.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.alerts.length === 0) {
+        alertsList.innerHTML = '<p class="empty">No alerts. Everything\'s running clean.</p>';
+        return;
+      }
+
+      alertsList.innerHTML = data.alerts.map((a) => `
+        <div class="alert-row${a.resolved ? ' resolved' : ''}">
+          <div class="alert-body">
+            <div class="alert-subject">${escapeHtml(a.subject)}</div>
+            <div class="alert-msg">${escapeHtml(a.message)}</div>
+            <div class="alert-time">${new Date(a.created_at).toLocaleString()}</div>
+          </div>
+          ${a.resolved ? '' : `<button type="button" class="btn btn-ghost resolve-alert-btn" data-alert-id="${a.id}">Resolve</button>`}
+        </div>
+      `).join('');
+
+      alertsList.querySelectorAll('.resolve-alert-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.alertId;
+          btn.disabled = true;
+          btn.textContent = 'Resolving…';
+          try {
+            const res = await adminFetch(`/api/admin/alerts/${id}/resolve`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Resolve failed.');
+          } catch (err) {
+            alert(`Could not resolve: ${err.message}`);
+          }
+          loadAlerts();
+        });
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      alertsList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
   const customOrdersList = document.getElementById('customOrdersList');
   async function loadCustomOrders() {
     customOrdersList.innerHTML = '<p class="empty">Loading…</p>';
@@ -242,7 +847,7 @@
 
       customOrdersList.innerHTML = `
         <table class="orders">
-          <thead><tr><th>Date</th><th>Product</th><th>Species</th><th>Pet</th><th>Email</th><th>Qty</th><th>Amount</th><th>Status</th></tr></thead>
+          <thead><tr><th>Date</th><th>Product</th><th>Species</th><th>Pet</th><th>Email</th><th>Qty</th><th>Amount</th><th>Discount</th><th>Photo</th><th>Status</th><th></th></tr></thead>
           <tbody>
             ${data.orders.map((o) => `
               <tr>
@@ -253,12 +858,39 @@
                 <td>${escapeHtml(o.email)}</td>
                 <td>${o.quantity}</td>
                 <td>$${Number(o.amount_usd).toFixed(2)}</td>
+                <td>${o.discount_percent ? o.discount_percent + '%' : '—'}</td>
+                <td>${o.photo_width ? `${o.photo_width}×${o.photo_height}${o.low_resolution ? ' (low-res)' : ''}` : '—'}</td>
                 <td>${escapeHtml(o.status)}</td>
+                <td>${o.status === 'failed' ? `<button type="button" class="btn btn-ghost retry-printful-btn" data-order-id="${o.id}">Retry Printful</button>` : ''}</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
       `;
+      customOrdersList.querySelectorAll('.retry-printful-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.orderId;
+          btn.disabled = true;
+          btn.textContent = 'Retrying…';
+          try {
+            const res = await adminFetch(`/api/admin/custom-orders/${id}/retry-printful`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Retry failed.');
+            if (data.status === 'submitted_to_printful') {
+              btn.classList.add('success');
+              btn.textContent = 'Success!';
+            } else {
+              btn.textContent = 'Still failed';
+            }
+            alert(`Order #${id} is now '${data.status}'${data.printfulOrderId ? ` (Printful order ${data.printfulOrderId})` : ''}.`);
+          } catch (err) {
+            btn.textContent = 'Failed';
+            alert(`Order #${id} retry failed: ${err.message}`);
+          }
+          loadCustomOrders();
+          loadAlerts();
+        });
+      });
     } catch (err) {
       keyStatus.textContent = err.message;
       keyStatus.className = 'key-status err';
@@ -322,15 +954,533 @@
     }
   }
 
+  const backgroundList = document.getElementById('backgroundList');
+  async function loadBackground() {
+    backgroundList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/background');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load background photos.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.slides.length === 0) {
+        backgroundList.innerHTML = '<p class="empty">No background photos yet — the homepage hero is just the plain dark background.</p>';
+        return;
+      }
+
+      backgroundList.innerHTML = data.slides.map((s) => `
+        <div class="pick-cell" data-slide="${s.id}">
+          <img src="${s.image_path}" alt="" />
+          <button type="button" class="bg-delete" data-id="${s.id}">Remove</button>
+        </div>
+      `).join('');
+
+      backgroundList.querySelectorAll('.bg-delete').forEach((btn) => {
+        btn.addEventListener('click', () => deleteBackgroundSlide(btn.dataset.id));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      backgroundList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function deleteBackgroundSlide(id) {
+    try {
+      const res = await adminFetch(`/api/admin/background/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Remove failed.');
+      loadBackground();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  document.getElementById('backgroundUploadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById('backgroundPhoto');
+    const note = document.getElementById('backgroundUploadNote');
+    const file = fileInput.files[0];
+    if (!file) return;
+    note.classList.remove('error');
+    note.textContent = 'Uploading…';
+    const formData = new FormData();
+    formData.append('photo', await resizeImageForUpload(file));
+    try {
+      const res = await adminFetch('/api/admin/background', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed.');
+      note.textContent = 'Added.';
+      fileInput.value = '';
+      loadBackground();
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+    }
+  });
+
+  const originalsList = document.getElementById('originalsList');
+  async function loadOriginals() {
+    originalsList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/originals');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load originals.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.originals.length === 0) {
+        originalsList.innerHTML = '<p class="empty">None yet — the homepage shows "the first one\'s still drying."</p>';
+        return;
+      }
+
+      originalsList.innerHTML = data.originals.map((o) => `
+        <div class="pick-cell" data-original="${o.id}">
+          <img src="${o.image_path}" alt="${escapeHtml(o.cat_name || '')}" />
+          <div class="name">${escapeHtml(o.cat_name || '—')}</div>
+          <button type="button" class="original-delete" data-id="${o.id}">Remove</button>
+        </div>
+      `).join('');
+
+      originalsList.querySelectorAll('.original-delete').forEach((btn) => {
+        btn.addEventListener('click', () => deleteOriginal(btn.dataset.id));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      originalsList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function deleteOriginal(id) {
+    try {
+      const res = await adminFetch(`/api/admin/originals/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Remove failed.');
+      loadOriginals();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  document.getElementById('originalUploadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById('originalPhoto');
+    const catName = document.getElementById('originalCatName');
+    const note = document.getElementById('originalUploadNote');
+    const file = fileInput.files[0];
+    if (!file) return;
+    note.classList.remove('error');
+    note.textContent = 'Uploading…';
+    const formData = new FormData();
+    formData.append('photo', await resizeImageForUpload(file));
+    formData.append('catName', catName.value);
+    try {
+      const res = await adminFetch('/api/admin/originals', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed.');
+      note.textContent = 'Added.';
+      fileInput.value = '';
+      catName.value = '';
+      loadOriginals();
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+    }
+  });
+
+  const SITE_BLOCK_LABELS = {
+    starburst: 'Starburst badge (top of hero)',
+    feature_1: 'Feature block 1 (middle of page)',
+    feature_2: 'Feature block 2 (middle of page)',
+  };
+
+  const siteBlocksList = document.getElementById('siteBlocksList');
+  async function loadSiteBlocks() {
+    siteBlocksList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/site-blocks');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load promo messages.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      const b = data.blocks;
+      siteBlocksList.innerHTML = Object.keys(SITE_BLOCK_LABELS).map((slot) => {
+        const block = b[slot] || { text: null, imagePath: null, color: null };
+        const isStarburst = slot === 'starburst';
+        return `
+          <div class="group-card">
+            <div class="group-head"><h3>${SITE_BLOCK_LABELS[slot]}</h3></div>
+            <form class="site-block-form" data-slot="${slot}" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <input type="text" name="text" placeholder="Short message" maxlength="200" value="${escapeHtml(block.text || '')}" style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:3px;" />
+              ${isStarburst
+                ? `<label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;">Color <input type="color" name="color" value="${escapeHtml(block.color || '#e8a33d')}" /></label>`
+                : `<input type="file" name="photo" accept="image/png,image/jpeg,image/webp,image/gif" />`
+              }
+              <button class="btn btn-primary" type="submit" style="padding:7px 14px;font-size:0.82rem;">Save</button>
+              ${block.imagePath ? `<button type="button" class="btn btn-ghost site-block-remove-photo" data-slot="${slot}" style="padding:7px 14px;font-size:0.82rem;">Remove photo</button>` : ''}
+              <span class="form-note"></span>
+            </form>
+            ${block.imagePath ? `<img src="${escapeHtml(block.imagePath)}" alt="" style="width:120px;aspect-ratio:1/1;object-fit:cover;border-radius:4px;border:1px solid var(--line);margin-top:10px;" />` : ''}
+          </div>
+        `;
+      }).join('');
+
+      siteBlocksList.querySelectorAll('.site-block-form').forEach((form) => {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const slot = form.dataset.slot;
+          const note = form.querySelector('.form-note');
+          note.classList.remove('error');
+          note.textContent = 'Saving…';
+          const formData = new FormData();
+          formData.append('text', form.text.value);
+          if (form.color) formData.append('color', form.color.value);
+          if (form.photo && form.photo.files[0]) formData.append('photo', await resizeImageForUpload(form.photo.files[0]));
+          try {
+            const res = await adminFetch(`/api/admin/site-blocks/${slot}`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Save failed.');
+            note.textContent = 'Saved.';
+            // Brief pause so "Saved." is actually visible before the list
+            // (including this same note element) gets rebuilt from fresh data.
+            setTimeout(loadSiteBlocks, 700);
+          } catch (err) {
+            note.textContent = err.message;
+            note.classList.add('error');
+          }
+        });
+      });
+
+      siteBlocksList.querySelectorAll('.site-block-remove-photo').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const slot = btn.dataset.slot;
+          try {
+            const res = await adminFetch(`/api/admin/site-blocks/${slot}/photo`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Remove failed.');
+            loadSiteBlocks();
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      siteBlocksList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  const footerStripList = document.getElementById('footerStripList');
+  async function loadFooterStrip() {
+    footerStripList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/footer-strip');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load footer photos.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      if (data.images.length === 0) {
+        footerStripList.innerHTML = '<p class="empty">No footer photos yet — no strip shows on the homepage.</p>';
+        return;
+      }
+
+      footerStripList.innerHTML = data.images.map((img) => `
+        <div class="pick-cell" data-footer-img="${img.id}">
+          <img src="${img.image_path}" alt="" />
+          <button type="button" class="footer-strip-delete" data-id="${img.id}">Remove</button>
+        </div>
+      `).join('');
+
+      footerStripList.querySelectorAll('.footer-strip-delete').forEach((btn) => {
+        btn.addEventListener('click', () => deleteFooterStripImage(btn.dataset.id));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      footerStripList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function deleteFooterStripImage(id) {
+    try {
+      const res = await adminFetch(`/api/admin/footer-strip/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Remove failed.');
+      loadFooterStrip();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  document.getElementById('footerStripUploadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById('footerStripPhoto');
+    const note = document.getElementById('footerStripUploadNote');
+    const file = fileInput.files[0];
+    if (!file) return;
+    note.classList.remove('error');
+    note.textContent = 'Uploading…';
+    const formData = new FormData();
+    formData.append('photo', await resizeImageForUpload(file));
+    try {
+      const res = await adminFetch('/api/admin/footer-strip', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed.');
+      note.textContent = 'Added.';
+      fileInput.value = '';
+      loadFooterStrip();
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+    }
+  });
+
+  const liveSessionsAdminList = document.getElementById('liveSessionsAdminList');
+  // A datetime-local input shows/edits LOCAL wall-clock time with no
+  // timezone info — new Date(...).toISOString() would silently shift it
+  // by this browser's UTC offset, so build the "YYYY-MM-DDTHH:mm" string
+  // from local getters instead.
+  function toDatetimeLocalValue(isoString) {
+    const d = new Date(isoString);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  const liveStreamSettingsForm = document.getElementById('liveStreamSettingsForm');
+  async function loadLiveStream() {
+    liveSessionsAdminList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/live-stream');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load live sessions.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      liveStreamSettingsForm.enabled.checked = data.settings.enabled;
+      liveStreamSettingsForm.isLive.checked = data.settings.isLive;
+      liveStreamSettingsForm.embedUrl.value = data.settings.embedUrl || '';
+      // datetime-local wants "YYYY-MM-DDTHH:mm" in LOCAL time components,
+      // not a UTC ISO string (toISOString() would silently shift the
+      // displayed time by this browser's UTC offset) — see
+      // toDatetimeLocalValue below.
+      liveStreamSettingsForm.nextSessionAt.value = data.settings.nextSessionAt
+        ? toDatetimeLocalValue(data.settings.nextSessionAt)
+        : '';
+
+      if (data.sessions.length === 0) {
+        liveSessionsAdminList.innerHTML = '<p class="empty">No past sessions yet.</p>';
+        return;
+      }
+
+      liveSessionsAdminList.innerHTML = `
+        <table class="orders">
+          <thead><tr><th>Title</th><th>Date</th><th>Recording</th><th></th></tr></thead>
+          <tbody>
+            ${data.sessions.map((s) => `
+              <tr>
+                <td>${escapeHtml(s.title)}</td>
+                <td>${escapeHtml(new Date(s.session_date).toLocaleDateString())}</td>
+                <td>${s.video_url ? `<a href="${escapeHtml(s.video_url)}" target="_blank" rel="noopener">Watch</a>` : '—'}</td>
+                <td><button type="button" class="btn btn-ghost live-session-delete" data-id="${s.id}">Remove</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      liveSessionsAdminList.querySelectorAll('.live-session-delete').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try {
+            const res = await adminFetch(`/api/admin/live-stream/sessions/${btn.dataset.id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Remove failed.');
+            loadLiveStream();
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      liveSessionsAdminList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  liveStreamSettingsForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const note = document.getElementById('liveStreamSettingsNote');
+    note.classList.remove('error');
+    note.textContent = 'Saving…';
+    try {
+      // The input's raw value is naive local time — new Date(value) parses
+      // it as this browser's local time and .toISOString() converts that
+      // to a real absolute UTC timestamp, so the server never has to guess
+      // which timezone the digits it received were in.
+      const nextSessionAtValue = liveStreamSettingsForm.nextSessionAt.value;
+      const nextSessionAtIso = nextSessionAtValue ? new Date(nextSessionAtValue).toISOString() : '';
+      const res = await adminFetch('/api/admin/live-stream/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: liveStreamSettingsForm.enabled.checked,
+          isLive: liveStreamSettingsForm.isLive.checked,
+          embedUrl: liveStreamSettingsForm.embedUrl.value,
+          nextSessionAt: nextSessionAtIso,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed.');
+      note.textContent = 'Saved.';
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+    }
+  });
+
+  document.getElementById('liveSessionAddForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const note = document.getElementById('liveSessionAddNote');
+    note.classList.remove('error');
+    note.textContent = 'Adding…';
+    try {
+      const res = await adminFetch('/api/admin/live-stream/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: form.title.value,
+          sessionDate: form.sessionDate.value,
+          videoUrl: form.videoUrl.value,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Add failed.');
+      note.textContent = 'Added.';
+      form.reset();
+      loadLiveStream();
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+    }
+  });
+
+  function aspectHint(ratio) {
+    const parts = String(ratio || '1/1').split('/').map(Number);
+    const w = parts[0], h = parts[1];
+    const baseW = 1000;
+    const baseH = Math.round((h / w) * baseW);
+    const label = w === h ? 'Square' : (h > w ? 'Portrait' : 'Landscape');
+    return `${label} photo, ${w}:${h} — e.g. ${baseW}×${baseH}px`;
+  }
+
+  const productsList = document.getElementById('productsList');
+  async function loadProducts() {
+    productsList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/products');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load products.');
+      keyStatus.textContent = 'Key OK';
+      keyStatus.className = 'key-status ok';
+
+      productsList.innerHTML = data.products.map((p) => `
+        <div class="product-row">
+          <div class="preview">
+            ${p.imagePath ? `<img src="${p.imagePath}" alt="" />` : `<div class="none">No photo yet</div>`}
+          </div>
+          <div class="body">
+            <div class="title-line"><strong>${escapeHtml(p.name)}</strong><span class="price">$${p.priceUsd.toFixed(2)}</span></div>
+            <div class="aspect-hint">${aspectHint(p.mockupAspect)}</div>
+            <form class="product-form" data-id="${p.id}">
+              <input type="file" name="photo" accept="image/png,image/jpeg,image/webp,image/gif" class="full" />
+              <label>Alt text<input type="text" name="imageAlt" value="${escapeHtml(p.imageAlt || '')}" placeholder="${escapeHtml(p.name)}" maxlength="200" /></label>
+              <label>SEO title<input type="text" name="seoTitle" value="${escapeHtml(p.seoTitle || '')}" placeholder="${escapeHtml(p.name)}" maxlength="200" /></label>
+              <label class="full">SEO description<textarea name="seoDescription" placeholder="${escapeHtml(p.description)}" maxlength="500">${escapeHtml(p.seoDescription || '')}</textarea></label>
+              <label class="full">Description override<textarea name="description" placeholder="${escapeHtml(p.description)}" maxlength="500">${escapeHtml(p.descriptionOverride || '')}</textarea></label>
+              <div class="row-actions">
+                <button type="submit" class="btn btn-primary">Save</button>
+                ${p.imagePath ? `<button type="button" class="remove-photo" data-id="${p.id}">Remove photo</button>` : ''}
+                <span class="row-note" data-note></span>
+              </div>
+            </form>
+          </div>
+        </div>
+      `).join('');
+
+      productsList.querySelectorAll('.product-form').forEach((form) => {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const id = form.dataset.id;
+          const note = form.querySelector('[data-note]');
+          note.classList.remove('error');
+          note.textContent = 'Saving…';
+          const formData = new FormData(form);
+          if (form.photo && form.photo.files[0]) formData.set('photo', await resizeImageForUpload(form.photo.files[0]));
+          try {
+            const res = await adminFetch(`/api/admin/products/${id}`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Save failed.');
+            note.textContent = 'Saved.';
+            loadProducts();
+          } catch (err) {
+            note.textContent = err.message;
+            note.classList.add('error');
+          }
+        });
+      });
+
+      productsList.querySelectorAll('.remove-photo').forEach((btn) => {
+        btn.addEventListener('click', () => deleteProductPhoto(btn.dataset.id));
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      productsList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function deleteProductPhoto(id) {
+    try {
+      const res = await adminFetch(`/api/admin/products/${id}/photo`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Remove failed.');
+      loadProducts();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
   function loadAll() {
-    loadGroups();
+    loadAlerts();
+    loadBackground();
+    loadOriginals();
+    loadSiteBlocks();
+    loadFooterStrip();
+    loadLiveStream();
+    loadProducts();
+    loadContest();
+    loadYearAward();
+    loadMarketing();
+    loadSubscribers();
     loadOrders();
     loadCustomOrders();
     loadPendingReviews();
   }
 
   document.getElementById('loadBtn').addEventListener('click', loadAll);
-  document.getElementById('refreshGroups').addEventListener('click', loadGroups);
+  document.getElementById('refreshAlerts').addEventListener('click', loadAlerts);
+  document.getElementById('refreshBackground').addEventListener('click', loadBackground);
+  document.getElementById('refreshOriginals').addEventListener('click', loadOriginals);
+  document.getElementById('refreshSiteBlocks').addEventListener('click', loadSiteBlocks);
+  document.getElementById('refreshFooterStrip').addEventListener('click', loadFooterStrip);
+  document.getElementById('refreshLiveStream').addEventListener('click', loadLiveStream);
+  document.getElementById('refreshProducts').addEventListener('click', loadProducts);
+  document.getElementById('refreshContest').addEventListener('click', loadContest);
   document.getElementById('refreshOrders').addEventListener('click', loadOrders);
   document.getElementById('refreshCustomOrders').addEventListener('click', loadCustomOrders);
   document.getElementById('refreshReviews').addEventListener('click', loadPendingReviews);

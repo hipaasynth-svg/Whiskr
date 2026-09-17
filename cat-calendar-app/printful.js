@@ -80,6 +80,12 @@ async function submitOrder({ externalId, variantId, quantity, photoUrl, recipien
         files: [{ url: photoUrl }],
       },
     ],
+    // Printful creates orders as unconfirmed drafts by default (a manual
+    // review step before it charges your Printful balance and starts
+    // production). Stripe has already confirmed payment by the time this
+    // function is called, so there's nothing left to review — submit
+    // straight to production instead of leaving it stuck as a draft.
+    confirm: true,
   };
 
   const response = await printfulRequest('/orders', { method: 'POST', body: JSON.stringify(body) });

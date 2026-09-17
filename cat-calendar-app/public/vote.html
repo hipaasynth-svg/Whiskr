@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vote for a cat — Whiskr</title>
+<meta name="description" content="Vote free for your favorite cat in Whiskr's monthly photo contest. No purchase necessary. The month's top vote-getter wins an original hand-painted portrait." />
+<link rel="canonical" href="https://whiskr.lol/vote.html" />
+
+<!-- Open Graph / link previews (iMessage, Slack, Facebook, etc.) -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Whiskr" />
+<meta property="og:title" content="Vote for a cat — Whiskr" />
+<meta property="og:description" content="Vote free for your favorite cat in Whiskr's monthly photo contest. No purchase necessary. The month's top vote-getter wins an original hand-painted portrait." />
+<meta property="og:url" content="https://whiskr.lol/vote.html" />
+
+<!-- Twitter/X card -->
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Vote for a cat — Whiskr" />
+<meta name="twitter:description" content="Vote free for your favorite cat in Whiskr's monthly photo contest — no purchase necessary." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<!-- Vercel Web Analytics -->
+<script>window.va = window.va || function() { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
+<style>
+  .vote-wrap { max-width: 1080px; margin: 0 auto; padding: 50px 36px 100px; }
+  .vote-header { margin-bottom: 30px; }
+  .vote-card {
+    width: min(760px, 85vw);
+    background: var(--paper-card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: box-shadow 0.15s ease;
+  }
+  .vote-card.highlighted { box-shadow: 0 0 0 3px var(--marigold); }
+  .vote-card img { width: 100%; aspect-ratio: 1/1; object-fit: cover; }
+  .vote-card-body { padding: 24px 28px; display: flex; flex-direction: column; gap: 14px; flex: 1; }
+  .vote-card-name { font-family: var(--font-display); font-size: 1.7rem; }
+  .vote-card-actions { display: flex; gap: 14px; margin-top: auto; }
+  .vote-card-actions button { flex: 1; font-size: 1.05rem; padding: 16px; }
+  .vote-btn.voted { background: var(--forest); color: #fff; cursor: default; }
+  .vote-empty, .vote-note { color: #55503f; }
+  #turnstileWidget { margin: 20px 0; }
+  .vote-toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 4px;
+    font-size: 0.85rem; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; z-index: 100;
+  }
+  .vote-toast.show { opacity: 1; }
+  .vote-starburst {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    pointer-events: none; z-index: 200; opacity: 0;
+  }
+  .vote-starburst.show { animation: voteStarburstPop 900ms ease-out; }
+  .vote-starburst-shape {
+    background: var(--marigold);
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-style: italic;
+    font-size: 1.5rem;
+    width: 170px; height: 170px;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    box-shadow: 0 10px 30px rgba(0,0,0,.3);
+  }
+  @keyframes voteStarburstPop {
+    0% { opacity: 0; transform: scale(0.5) rotate(-8deg); }
+    20% { opacity: 1; transform: scale(1.08) rotate(2deg); }
+    35% { opacity: 1; transform: scale(1) rotate(0deg); }
+    75% { opacity: 1; transform: scale(1) rotate(0deg); }
+    100% { opacity: 0; transform: scale(1.05) rotate(0deg); }
+  }
+  .entry-nudge-banner, .entry-nudge-postvote {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    flex-wrap: wrap;
+    background: var(--forest); color: #fff;
+    padding: 14px 20px; border-radius: 6px; margin-bottom: 24px;
+  }
+  .entry-nudge-postvote { margin-top: 24px; margin-bottom: 0; }
+  .entry-nudge-banner span, .entry-nudge-postvote span { font-weight: 500; }
+</style>
+</head>
+<body>
+<div id="siteBackdrop" aria-hidden="true"></div>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="siteNav">
+    <span></span><span></span><span></span>
+  </button>
+  <nav class="site-nav" id="siteNav">
+    <a href="index.html#enter">Enter your cat</a>
+    <a href="rules.html">Rules</a>
+  </nav>
+</header>
+
+<div class="vote-wrap">
+  <div class="vote-header">
+    <p class="ribbon-tag" id="voteContestLabel">Loading contest…</p>
+    <h1>Vote for your favorite cat</h1>
+    <p class="vote-note">Free to vote, no purchase necessary. One vote per cat per person — see <a href="rules.html">official rules</a>. Vote totals stay hidden until this round closes, so it's a fair count, not a popularity snowball. Votes are checked for abuse; suspicious activity is removed.</p>
+    <div id="turnstileWidget"></div>
+  </div>
+
+  <div class="entry-nudge-banner">
+    <span>Have a cat? Entering takes 60 seconds — get your own voting link.</span>
+    <a href="index.html#enter" class="btn btn-primary">Enter my cat free</a>
+  </div>
+
+  <div class="rolodex-wrap">
+    <button type="button" class="rolodex-nav prev" aria-label="Previous cats">‹</button>
+    <div class="rolodex" id="voteGrid"></div>
+    <button type="button" class="rolodex-nav next" aria-label="More cats">›</button>
+  </div>
+  <div class="entry-nudge-postvote" id="postVoteNudge" hidden>
+    <span>Thanks for voting! Got a cat of your own? This round's still open.</span>
+    <a href="index.html#enter" class="btn btn-primary">Enter free</a>
+  </div>
+  <p class="vote-empty" id="voteEmpty" style="display:none;">No entries yet this round — be the first to <a href="index.html#enter">enter your cat</a>.</p>
+</div>
+
+<div class="vote-toast" id="voteToast"></div>
+<div class="vote-starburst" id="voteStarburst" aria-hidden="true">
+  <div class="vote-starburst-shape">Voted!</div>
+</div>
+
+<footer class="site-footer">
+  <div>Whiskr — a free, real-public-vote cat photo contest.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <div class="footer-links"><a href="index.html">Home</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a></div>
+</footer>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const highlightId = params.get('cat');
+  const grid = document.getElementById('voteGrid');
+
+  // Soft referral capture: landing here via a cat's share link (?cat=X&via=share)
+  // remembers which cat brought this visit for the rest of the browser tab
+  // session — see referred_by_submission_id in db.js. sessionStorage (not
+  // localStorage) is deliberate: the credit should only cover this one
+  // visit, not follow the browser around forever.
+  if (params.get('via') === 'share' && highlightId) {
+    try { sessionStorage.setItem('whiskr_referred_by', highlightId); } catch (_) {}
+  }
+  function referredBy() {
+    try { return sessionStorage.getItem('whiskr_referred_by'); } catch (_) { return null; }
+  }
+
+  const empty = document.getElementById('voteEmpty');
+  const label = document.getElementById('voteContestLabel');
+  const toastEl = document.getElementById('voteToast');
+  const starburstEl = document.getElementById('voteStarburst');
+  let totalEntryCount = 0;
+
+  // Nudge toward the shop only after real engagement (3 votes this
+  // session, or having voted for every cat currently up — whichever
+  // comes first, so a small round with under 3 entries doesn't strand
+  // someone who's genuinely voted for everyone). sessionStorage so it
+  // resets per visit, matching the referral marker above — this isn't a
+  // lifetime cap on voting, just a "have they engaged enough yet" signal
+  // for this one visit.
+  const VOTES_BEFORE_SHOP_NUDGE = 3;
+  function getSessionVoteCount() {
+    try { return Number(sessionStorage.getItem('whiskr_session_votes')) || 0; } catch (_) { return 0; }
+  }
+  function incrementSessionVoteCount() {
+    const next = getSessionVoteCount() + 1;
+    try { sessionStorage.setItem('whiskr_session_votes', String(next)); } catch (_) {}
+    return next;
+  }
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    setTimeout(() => toastEl.classList.remove('show'), 2500);
+  }
+
+  function votedSet() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('whiskr_voted') || '[]'));
+    } catch (_) {
+      return new Set();
+    }
+  }
+  function markVoted(id) {
+    const set = votedSet();
+    set.add(String(id));
+    try { localStorage.setItem('whiskr_voted', JSON.stringify([...set])); } catch (_) {}
+  }
+
+  // ---------- optional Turnstile CAPTCHA ----------
+  // Only appears once the owner sets TURNSTILE_SITE_KEY/SECRET_KEY — see
+  // README. Without it, /api/vote just skips CAPTCHA verification entirely
+  // (same dry-run-if-unconfigured pattern as Stripe/Printful/Zoho elsewhere
+  // in this app), so voting still works today without any CAPTCHA setup.
+  let turnstileToken = null;
+  let turnstileWidgetId = null;
+  async function initTurnstile() {
+    try {
+      const res = await fetch('/api/config');
+      const data = await res.json();
+      if (!data.turnstileSiteKey) return;
+      const script = document.createElement('script');
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+      script.onload = () => {
+        turnstileWidgetId = window.turnstile.render('#turnstileWidget', {
+          sitekey: data.turnstileSiteKey,
+          callback: (token) => { turnstileToken = token; },
+        });
+      };
+    } catch (err) {
+      console.error('turnstile config load failed', err);
+    }
+  }
+  initTurnstile();
+
+  async function loadContest() {
+    try {
+      const res = await fetch('/api/contest/current');
+      const data = await res.json();
+      if (!data.contest) {
+        label.textContent = 'No contest is open right now — check back soon.';
+        empty.style.display = 'block';
+        return;
+      }
+      const closes = new Date(data.contest.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+      const count = data.entries.length;
+      label.textContent = `${data.contest.label} — ${count} cat${count === 1 ? '' : 's'} to vote for — closes ${closes}`;
+
+      if (data.entries.length === 0) {
+        empty.style.display = 'block';
+        return;
+      }
+      totalEntryCount = data.entries.length;
+
+      const voted = votedSet();
+      grid.innerHTML = '';
+      data.entries.forEach((cat) => {
+        const card = document.createElement('div');
+        card.className = 'vote-card';
+        if (highlightId && String(cat.id) === highlightId) card.classList.add('highlighted');
+
+        const img = document.createElement('img');
+        img.src = cat.photo_path;
+        img.alt = cat.cat_name;
+        card.appendChild(img);
+
+        const body = document.createElement('div');
+        body.className = 'vote-card-body';
+
+        const name = document.createElement('div');
+        name.className = 'vote-card-name';
+        name.textContent = cat.cat_name;
+        body.appendChild(name);
+
+        const actions = document.createElement('div');
+        actions.className = 'vote-card-actions';
+
+        const voteBtn = document.createElement('button');
+        voteBtn.type = 'button';
+        voteBtn.className = 'btn btn-primary vote-btn';
+        const alreadyVoted = voted.has(String(cat.id));
+        voteBtn.textContent = alreadyVoted ? 'Voted' : 'Vote';
+        if (alreadyVoted) { voteBtn.classList.add('voted'); voteBtn.disabled = true; }
+        voteBtn.addEventListener('click', () => castVote(cat, voteBtn));
+        actions.appendChild(voteBtn);
+
+        const shareBtn = document.createElement('button');
+        shareBtn.type = 'button';
+        shareBtn.className = 'btn btn-ghost';
+        shareBtn.style.color = 'var(--ink)';
+        shareBtn.style.borderColor = 'var(--ink)';
+        shareBtn.textContent = 'Share';
+        shareBtn.addEventListener('click', () => shareCat(cat));
+        actions.appendChild(shareBtn);
+
+        body.appendChild(actions);
+        card.appendChild(body);
+        grid.appendChild(card);
+      });
+    } catch (err) {
+      label.textContent = 'Could not load the contest right now.';
+      console.error(err);
+    }
+  }
+
+  async function castVote(cat, btn) {
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/vote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: cat.id, turnstileToken, referredBy: referredBy() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Vote failed.');
+      markVoted(cat.id);
+      btn.textContent = 'Voted';
+      btn.classList.add('voted');
+      toast(`Vote counted for ${cat.cat_name}!`);
+
+      starburstEl.classList.remove('show');
+      void starburstEl.offsetWidth; // restart the animation on repeat votes
+      starburstEl.classList.add('show');
+
+      const sessionVotes = incrementSessionVoteCount();
+      const votedForEveryEntry = totalEntryCount > 0 && votedSet().size >= totalEntryCount;
+      if (sessionVotes >= VOTES_BEFORE_SHOP_NUDGE || votedForEveryEntry) {
+        setTimeout(() => { window.location.href = 'index.html#shop-custom'; }, 1100);
+      } else {
+        document.getElementById('postVoteNudge').hidden = false;
+      }
+
+      if (turnstileWidgetId !== null && window.turnstile) {
+        turnstileToken = null;
+        window.turnstile.reset(turnstileWidgetId);
+      }
+    } catch (err) {
+      toast(err.message);
+      btn.disabled = false;
+    }
+  }
+
+  async function shareCat(cat) {
+    const url = `${window.location.origin}/vote.html?cat=${cat.id}&via=share`;
+    const text = `Vote for ${cat.cat_name} in Whiskr's free cat photo contest! I'd owe you one:`;
+    try {
+      if (cat.share_image_path && navigator.canShare) {
+        const resp = await fetch(cat.share_image_path);
+        const blob = await resp.blob();
+        const file = new File([blob], 'vote-card.jpg', { type: blob.type || 'image/jpeg' });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: text, text, url });
+          return;
+        }
+      }
+      if (navigator.share) {
+        await navigator.share({ title: text, text, url });
+        return;
+      }
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+    }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(`${text} ${url}`).then(() => toast('Link copied — go paste it!'));
+    } else {
+      window.prompt('Copy this link:', url);
+    }
+  }
+
+  loadContest();
+</script>
+<script src="script.js"></script>
+</body>
+</html>

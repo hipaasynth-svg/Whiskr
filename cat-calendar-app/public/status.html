@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Your cat's status — Whiskr</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<!-- Vercel Web Analytics -->
+<script>window.va = window.va || function() { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
+<style>
+  .status-wrap { max-width: 560px; margin: 0 auto; padding: 60px 36px 100px; text-align: center; }
+  .status-card { background: var(--paper-card); border: 1px solid var(--line); border-radius: 8px; padding: 40px 30px; }
+  .status-rank { font-family: var(--font-display); font-size: 3rem; color: var(--marigold-text); margin: 10px 0; }
+  .status-sub { color: #55503f; }
+</style>
+</head>
+<body>
+<div id="siteBackdrop" aria-hidden="true"></div>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="siteNav">
+    <span></span><span></span><span></span>
+  </button>
+  <nav class="site-nav" id="siteNav">
+    <a href="vote.html">Vote</a>
+  </nav>
+</header>
+
+<div class="status-wrap">
+  <div class="status-card" id="statusCard">
+    <h1 class="ribbon-tag">Your status</h1>
+    <p>Loading…</p>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div>Whiskr — a free, real-public-vote cat photo contest.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <div class="footer-links"><a href="index.html">Home</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a></div>
+</footer>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const card = document.getElementById('statusCard');
+
+  async function load() {
+    const cat = params.get('cat');
+    const email = params.get('email');
+    const token = params.get('token');
+    if (!cat || !email || !token) {
+      card.innerHTML = '<h1 class="ribbon-tag">Your status</h1><p>This link looks incomplete — use the link from your entry-confirmation email.</p>';
+      return;
+    }
+    try {
+      const res = await fetch(`/api/my-status?cat=${encodeURIComponent(cat)}&email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not load status.');
+
+      if (data.disqualified) {
+        card.innerHTML = `<h1 class="ribbon-tag">${data.catName}</h1><p class="status-sub">This entry was disqualified${data.reason ? ': ' + data.reason : '.'}</p>`;
+        return;
+      }
+
+      if (data.contestStatus === 'open') {
+        const closes = new Date(data.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+        const referredLine = data.referredVotes > 0
+          ? `<p class="status-sub">${data.referredVotes} vote${data.referredVotes === 1 ? '' : 's'} so far came from people who clicked your share link — nice work!</p>`
+          : '';
+        card.innerHTML = `
+          <h1 class="ribbon-tag">${data.catName} is currently</h1>
+          <div class="status-rank">#${data.liveRank}</div>
+          <p class="status-sub">out of ${data.totalEntries} entries this round · voting closes ${closes}</p>
+          ${referredLine}
+          <p style="margin-top:24px;"><a href="vote.html?cat=${encodeURIComponent(cat)}" class="btn btn-primary">Share for more votes</a></p>
+        `;
+      } else {
+        const won = data.finalRank === 1;
+        card.innerHTML = `
+          <h1 class="ribbon-tag">${data.catName}'s final result</h1>
+          <div class="status-rank">#${data.finalRank}</div>
+          <p class="status-sub">${won ? 'Cat of the Month! An original hand-painted portrait is on its way — check your email.' : 'Thanks for entering this round!'}</p>
+          <p style="margin-top:24px;"><a href="index.html#shop-custom" class="btn btn-primary">Get a solo print</a></p>
+        `;
+      }
+    } catch (err) {
+      card.innerHTML = `<h1 class="ribbon-tag">Your status</h1><p>${err.message}</p>`;
+    }
+  }
+  load();
+</script>
+<script src="script.js"></script>
+</body>
+</html>

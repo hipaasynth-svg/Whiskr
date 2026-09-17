@@ -365,3 +365,1695 @@ sign up for and manage before launch, consistent with keeping the
 owner's account/dashboard surface area small. **Still needs real
 tagged affiliate URLs before launch** — these are plain, untagged
 search links, same caveat as before.
+
+## Update — 2026-09-08: stopped leaking the live entry count publicly
+
+`GET /api/status` ran a raw `COUNT(*)` on real submissions and shipped it
+straight to the public homepage as "X of 12 spots left." For a new,
+low-traffic business, that's a permanent public sign reading "almost
+nobody has entered" until 12 strangers actually show up — and it sat in
+the raw JSON response even where the UI didn't render the number. Fixed:
+`/api/status` now returns a coarse `fillStatus` enum
+(`empty`/`filling`/`almost_full`/`sealed`) computed server-side; no exact
+count leaves the server anymore. Shipped as
+[PR #6](https://github.com/hipaasynth-svg/Whiskr/pull/6), merged.
+
+## Update — 2026-09-08: contest-first redesign, real background slideshow, server-rendered indexing
+
+The owner's read on the site as it stood: apologetic copy ("We're brand
+new — no reviews yet"), decorative emoji in trust badges and transactional
+email subjects, a print-shop-first homepage when the contest is the actual
+funnel, a hero background pulling random placeholder cats from a third-party
+service (cataas.com) with no way to swap in real photography, and a
+product/contest catalog that only existed inside client-side JavaScript —
+invisible to a crawler or AI assistant that doesn't execute it. All fixed
+this pass, no code left half-done:
+
+- **Copy**: removed every decorative emoji from the site (trust-row: 🔒 🖨️
+  📬) and transactional emails (`mailer.js`: 🐾 🏆 📅 across entry
+  confirmation, winner, and featured-cat emails). Rewrote the "brand new"
+  reviews empty-state to state the reprint guarantee directly instead of
+  apologizing for having no reviews yet. Rating stars (★/☆) and the
+  verified-purchase checkmark (✓) were left alone — those are real UI
+  glyphs, not decoration, confirmed by checking each match individually
+  rather than blanket-stripping anything non-ASCII.
+- **Homepage reordered contest-first**: hero → how it works → current
+  winner → entry form → calendar shop → reviews → custom print shop →
+  affiliate picks → footer (was: hero → reviews → print shop → how it
+  works → current winner → calendar shop → entry form → picks). Nav and
+  hero copy/CTAs reprioritized to match (primary CTA is now "Enter the
+  free contest," not "Shop custom prints"). The print shop and its Stripe
+  checkout are untouched — still evergreen, still works every day — just
+  no longer first in the scroll.
+- **Real, admin-controlled background slideshow**: new `background_slides`
+  table (`db.js`), `GET /api/background` (public), `POST`/`DELETE
+  /api/admin/background` (admin — reuses the existing `storePhoto()`/Blob
+  pattern from contest/print-order uploads). Empty table = plain dark hero
+  background, never a placeholder; the owner's own photos are what shows,
+  and the slideshow only appears once at least one is uploaded. New
+  "Background slideshow" section in `admin.html` (upload, thumbnail grid,
+  remove). This follows the same shape as the background-slideshow feature
+  in the owner's other site, `codycarlson.art` (`README.md`'s "Background
+  slideshow" section, admin-managed photo slots, empty = fallback), cloned
+  read-only into this session to confirm the pattern before building it here.
+- **Server-side rendering for indexing** (`seo.js`, new): `/` and
+  `/index.html` now run through a prerender step before `express.static`
+  ever sees them — real contest status, the last winner's name/photo, the
+  full product catalog (as both visible HTML cards and `Product`/`ItemList`
+  JSON-LD), and any uploaded background photos are baked into the HTML
+  response. `script.js` still runs and rebuilds the same containers from
+  its own `fetch()` calls — same idempotent-rebuild pattern the reviews
+  and product grids already used — so a real visitor sees no behavior
+  change; a crawler that never runs JavaScript (or runs it badly) now sees
+  the actual site instead of empty containers. `/calendar.html` gets the
+  same treatment for per-batch `<title>`/OG/JSON-LD (`Product` schema,
+  price, availability) keyed off `?group=N`. `/sitemap.xml` changed from a
+  static one-URL file to a live route listing every *completed* contest
+  batch, regenerated per request from the `groups` table — a new batch is
+  discoverable the moment judging finishes, no redeploy needed. The static
+  `public/sitemap.xml` file was deleted (the route now owns that path
+  entirely; leaving the file would've been dead, confusing weight).
+  `llms.txt` updated to match the contest-first framing and point AI
+  agents at the JSON-LD instead of only the raw JSON endpoints. This
+  mirrors `codycarlson.art`'s `api/home.js`/`api/sitemap.js` pattern
+  (prerender the template, keep client JS as the same idempotent rebuild),
+  adapted from that site's per-route Vercel functions to this app's single
+  Express process.
+
+**Bug caught and fixed during verification, not left for later**: the
+first version of the prerender helper (`fillEmpty` in `seo.js`) only
+injected content into elements that were already empty. `winnerName` and
+`winnerBlurb` ship with non-empty placeholder text for the pre-judging
+state ("Judging in progress" / "The current batch is still filling up...")
+— so the regex silently no-opped on exactly the two fields most likely to
+matter to a crawler. Caught by running a real end-to-end test, not by
+inspection: fixed the regex to replace existing content generally, re-ran
+the same test, confirmed the winner's real name/photo/blurb now appear in
+the raw HTML response.
+
+**Verified against a real local Postgres instance** (started locally in
+this sandbox for the purpose, not left to "should work"): submitted 12
+real entries via `POST /api/submissions` to seal a batch, confirmed
+`fillStatus` transitions, judged the batch via
+`POST /api/admin/groups/:id/pick`, confirmed the completed batch appeared
+in `/sitemap.xml` and its `/calendar.html?group=N` carried the right
+prerendered title/OG/JSON-LD, uploaded and deleted a real photo via the
+new background-slide admin endpoints and confirmed the homepage hero
+picked it up and dropped it, confirmed static assets (`style.css`,
+`script.js`, `robots.txt`, `admin.html`) still serve correctly alongside
+the new routes intercepting `/`, `/index.html`, `/calendar.html`, and
+`/sitemap.xml`, and confirmed `node --check` passes on every changed file.
+
+**Left open, not done here**: `calendar.html`'s photo grid itself is still
+client-rendered only (the per-batch *meta tags* are server-rendered; the
+visible 12-photo grid is not) — lower priority than the catalog/contest
+content since individual contest photos are less likely to be a search or
+shopping-agent target than the product catalog was. Background-slide
+deletion removes the database row but doesn't delete the underlying Blob/
+disk file — matches the precedent already set elsewhere in this codebase
+(nothing else here does storage cleanup on delete either), but worth a
+real cleanup job once slide churn is common enough to matter. No manual
+reordering of background slides beyond upload order (oldest first) — fine
+for a handful of photos, would want a drag-to-reorder control if the
+owner uploads many.
+
+## Update — 2026-09-08: reversed the judging decision — real public voting, built properly this time
+
+The owner made a deliberate business call to reverse the "human judges, not
+the public" decision from earlier in this document: open entry to hundreds
+of cats per month, let the public actually vote, and use both the viral
+reach of "share your link for votes" and a per-entrant final-placement
+upsell ("you placed #47 — get a solo print") as the growth engine. This is
+not the same mistake the app avoided last time: last time the problem was
+`Math.random()` silently picking winners while the copy claimed "the room
+votes" — a fabrication. **Real public voting, built with real anti-fraud
+infrastructure and described honestly, was never the problem** — the two
+things flagged then (FTC exposure from fake voting, and not wanting to
+build anti-fraud/anti-bot infrastructure) are addressed here by building
+the mechanism for real instead of avoiding it.
+
+**Built:**
+- **Open, continuous entry** replaces the seal-at-12 batch model.
+  `contests` table: one open-entry period at a time (`CONTEST_LENGTH_DAYS`,
+  default 30), auto-opens the next round the instant one closes so entry
+  never hits a dead end. `submissions` gained `contest_id`, `vote_count`,
+  `final_rank` (1..N for *every* entrant, not just winners — what makes
+  "you placed #47" possible), `disqualified`/`disqualified_reason`.
+- **Real voting** (`POST /api/vote`): a `votes` table with
+  `UNIQUE(submission_id, voter_token)` is the actual enforcement of
+  one-vote-per-cat, not just an application-level check. `voter_token` is a
+  random value in a long-lived first-party cookie; IPs are never stored raw,
+  only `sha256(salt + ip)`. Two independent rate limits (per voter identity,
+  per IP hash, both configurable, default 30/day and 60/day) so clearing
+  cookies alone doesn't bypass the IP limit and vice versa. Optional
+  Cloudflare Turnstile CAPTCHA — skipped entirely (same
+  dry-run-if-unconfigured pattern as Stripe/Printful/Zoho elsewhere in this
+  app) until `TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY` are set, so voting
+  works today without requiring the owner to set up a CAPTCHA account
+  first. None of this makes vote-buying impossible — nothing free does —
+  it's what keeps a casual bot or script from being trivial, same baseline
+  real small contest operators run without full device fingerprinting.
+- **Vote tallies are deliberately hidden from the public** while a round is
+  open (`GET /api/contest/current` never includes vote counts) — this
+  removes the "verify my paid votes worked" feedback loop vote-sellers rely
+  on, and prevents early leaders from snowballing purely from visibility
+  rather than real support. The share-driven virality mechanic the owner
+  wants is fully intact: entrants get a personal share link
+  (`vote.html?cat=ID`) the moment they enter, with Web Share API / clipboard
+  fallback built in.
+- **Contest close & tally** (`tallyAndCloseContest` in `server.js`): ranks
+  every non-disqualified entrant by vote count (ties broken by earliest
+  entry — deterministic, no coin flips to dispute), promotes the top
+  `CONTEST_WINNERS_COUNT` (default 12) into a `groups` row so the *entire
+  existing calendar/Stripe/checkout/PDF/email pipeline runs completely
+  unchanged* for the shared-calendar product — only entry, voting, and
+  per-entrant ranking are new subsystems. Every entrant gets emailed: #1
+  gets the existing "Cat of the Month" email, #2-12 get the existing
+  "featured" email, everyone else gets a new `sendFinalRankEmail` stating
+  their real placement out of the real entry count, with a link to the
+  existing custom print shop as the non-winner upsell (a bespoke
+  rank-badge POD product template is future work, not built here — the
+  upsell today is real and functional, just not custom-designed yet).
+- **Admin fraud review** replaces the old manual judge-pick screen (there's
+  nothing to manually pick anymore — the vote count decides): the current
+  contest's entrants with vote-count and votes-in-the-last-hour side by
+  side (a sudden spike is the signal a human should look at), and
+  disqualify/requalify actions. This is explicitly *not* an ML fraud model
+  — it's the number an operator needs to eyeball obvious abuse, same as any
+  small real contest runs.
+- **Official rules page** (`public/rules.html`, new): no-purchase-necessary
+  language, eligibility, exactly how votes and winners are determined,
+  disqualification policy, sponsor identification. This didn't exist before
+  because there was no real contest requiring one; real public voting with
+  an implied competitive outcome is a materially different legal shape than
+  a business owner picking a favorite, and needed the paperwork to match.
+- Retired the now-obsolete "spots left" homepage mechanic from the previous
+  session (`fillStatus`: empty/filling/almost_full/sealed made sense for a
+  batch that seals at exactly 12; it doesn't mean anything under continuous
+  open entry) and replaced it with contest countdown copy. Applied the same
+  principle as that session's original fix: at low entry counts, show
+  "entries are open" with no number; only show the real entry count once it
+  clears a threshold (25) where it reads as a real number, not a confession
+  of low traffic — same reasoning, recalibrated to the new scale.
+- Homepage, `llms.txt`, and both READMEs rewritten to describe the current
+  mechanic accurately rather than left describing the retired one. The
+  README's original "[RESOLVED] — winners are judged, not simulated-voted"
+  note was kept, not deleted, with a note appended explaining the reversal
+  — the historical record of why judging was chosen stays accurate for
+  what it was at the time; deleting it would have made a real audit look
+  like it never happened.
+
+**Verified against a real local Postgres instance** (not just read for
+plausibility): submitted multiple real entries into a fresh open contest,
+cast real votes against them (including confirming the `UNIQUE` constraint
+rejects a duplicate vote from the same voter-token, and that the per-voter
+and per-IP daily rate limits correctly return 429 once exceeded), disabled
+entries via the admin disqualify endpoint and confirmed a disqualified
+entry can no longer be voted for or tallied, forced a contest close and
+confirmed: every entrant received a `final_rank` (not just the winners), a
+new `groups` row was created containing exactly the top
+`CONTEST_WINNERS_COUNT` submissions with the #1 vote-getter as
+`winner_submission_id`, the resulting calendar's existing
+`/calendar.html?group=N` page rendered correctly unmodified, a new contest
+auto-opened immediately after close, and the right email type (winner /
+featured / final-rank) was dry-run-logged for the right entrants in the
+right order. Confirmed `/api/contest/current` never includes a vote count
+in its response at any point. Confirmed `node --check` passes on every
+changed file.
+
+**Left open, not done here**: no bespoke rank-badge POD product template
+for the non-winner upsell yet — it points to the existing generic custom
+print shop, which is real and functional but not custom-designed around a
+cat's placement. `calendar.html`'s photo grid stays client-rendered (see
+the previous entry — unchanged by this pass). Turnstile CAPTCHA needs the
+owner's own Cloudflare account and site keys before it's actually active;
+until then voting relies on the cookie + rate-limit layers alone.
+Consult a lawyer on `rules.html` before relying on it at real scale — it's
+a good-faith, standard-shape rules page, not legal advice, same caveat this
+document has given on every other legal-adjacent item throughout.
+
+## Update — 2026-09-08: monetization pass — refused paid votes, built the rest
+
+The owner asked for a "gamified voting engine with automated POD
+monetization" modeled on a spec that included paid vote bundles ($5-$30 for
+extra votes toward the leaderboard), a Next.js/Supabase/Redis/S3 rewrite,
+and a full Prodigi/Gelato PDF-compilation pipeline. Two decisions, put to
+the owner directly before writing code:
+
+**Refused: selling votes that affect the real contest outcome.** Charging
+money for something that improves your odds of winning a prize is the
+textbook definition of an illegal lottery in the states that regulate
+"prize, chance, and consideration" (most of them) the moment a free
+alternative method of entry doesn't fully neutralize the paid advantage —
+and here it explicitly wouldn't, since the whole pitch was "buy votes to
+climb the leaderboard faster." Separately, Stripe's own Prohibited and
+Restricted Businesses policy covers gambling-adjacent mechanics, so this
+also risked the account processing every other payment on this site. Put
+to the owner as a choice (cosmetic-only paid boost, drop it entirely, or
+build it anyway on record as a knowing decision); the owner chose to drop
+paid votes entirely and keep voting 100% free, as already built.
+
+**Declined the stack rewrite.** Next.js/Supabase/Redis/S3/Prodigi would
+have thrown away the contest/voting/anti-fraud system built and verified
+this same day, for infrastructure this app's actual scale (hundreds of
+entries/month, not millions) doesn't need — Postgres handles the vote
+concurrency fine, Vercel Blob already does what S3 would, and a second
+stack is a second thing to operate. Extended the existing Express/Postgres
+app instead, per the owner's choice.
+
+**Built, from the legitimate parts of the spec:**
+- **Image print-quality check** (`checkImageQuality` in `server.js`, via
+  the new `sharp` dependency): reads real pixel dimensions on every contest
+  entry and custom order, flags anything under `MIN_PRINT_DIMENSION_PX`
+  (default 2000px either side) — but never blocks the submission. A
+  business would rather sell a slightly soft print than lose the sale
+  outright; the flag surfaces as a warning to the customer before checkout
+  and as a column in `admin.html`'s order tables, not a hard rejection.
+- **Post-entry discount, done honestly instead of the spec's "3D digital
+  mockup."** This codebase already has a documented principle (see the
+  main README's Printful setup section) against fabricating product
+  mockups it can't actually render — a fake photoreal 3D calendar cover
+  would have been worse than no mockup at all. Built instead: a real,
+  honest preview (the entrant's own uploaded photo in a simple styled
+  frame, CSS only, no fabricated rendering) plus a genuine time-limited
+  discount (`CONTEST_DISCOUNT_PERCENT`, default 20%, `ENTRY_DISCOUNT_HOURS`
+  window) on the existing evergreen print shop. The discount is a signed,
+  expiring HMAC token (`discountToken.js`, same pattern as
+  `reviewLink.js`/`unsubscribe.js`) verified server-side at checkout —
+  never trusted from the link or the client's own math — and tied to the
+  entrant's own email so it can't be redeemed by someone else who happens
+  to see the link.
+- **The same discount, reissued, in the final-placement email** for
+  non-winners (`FINAL_RANK_DISCOUNT_HOURS`, a longer 72h window since it's
+  the last-chance nudge) — this is the spec's "non-winner merch upsell,"
+  now with a real incentive attached instead of just a bare link.
+- **Fridge magnet** added to `products.js` — named explicitly in the spec's
+  non-winner upsell list, wasn't in the catalog.
+- **Rank-drop alerts, the free version** (`sendRankDropAlerts` in
+  `server.js`, daily cron): the spec's "gamified urgency" mechanic (e.g.
+  "Mittens just fell to #13") kept, but the call to action is "share your
+  link" — never "buy votes to reclaim your spot," since that's exactly the
+  mechanic refused above. Throttled by a new `last_notified_rank` column so
+  an entrant isn't emailed every single day over normal rank noise — only
+  when their live rank has worsened by `RANK_DROP_THRESHOLD` places (default
+  5) or they've crossed out of the winner zone entirely, compared against
+  their own last-alerted position.
+- **Private "check my status" link** (`statusToken.js`, `/api/my-status`,
+  `status.html`) — the safe version of the spec's "real-time leaderboard
+  rendering." A public real-time leaderboard would undo last session's
+  deliberate decision to hide vote tallies while a round is open (kills the
+  "verify my bought votes worked" loop and stops early-leader snowballing);
+  this instead lets each entrant privately check their own live rank or
+  final result, token-gated so nobody can look up anyone else's. Sent in
+  the entry-confirmation email alongside the vote/share link.
+
+**Bugs caught during verification, not left for later** (three, all real,
+none theoretical):
+1. `low_resolution` was computed as a JS boolean and bound straight into an
+   `INTEGER` column — SQLite would have coerced it silently; real Postgres
+   rejected every submission with `invalid input syntax for type integer:
+   "true"`. Fixed at the source (`checkImageQuality` now returns 0/1).
+2. The custom-order discount was silently never applying: the HTML/email
+   links and the client's hidden form field both use `discountExpires`,
+   but the server destructured `discountExpiresAt` off `req.body` — always
+   `undefined`, so `discountToken.verify()` always failed closed (safe
+   failure mode, but a failure). Fixed the field name to match.
+3. The discount links built in `mailer.js` put the query string *after*
+   the `#shop-custom` hash fragment (`/#shop-custom?discountEmail=...`) —
+   everything after `#` is the fragment, not the query string, so
+   `location.search` on the landing page would never have seen these
+   params at all. Fixed to `/?discountEmail=...#shop-custom` (query first,
+   hash last).
+
+**Verified against a real local Postgres instance**, same standard as
+every other pass in this document: submitted a deliberately tiny (1×1px)
+test image and confirmed `lowResolution: true` in the response before the
+Postgres bug above was found and fixed, confirmed the entry-confirmation
+email dry-run log carries the vote link, discount block, and status link
+together, called `/api/my-status` with the issued token and got back a
+correct live rank, submitted custom orders with no discount / a valid
+discount / a wrong-email discount / an expired discount and confirmed via
+direct DB query that only the valid case actually applied
+`discount_percent = 20` and the reduced `amount_usd` (both other cases
+correctly landed at `discount_percent = 0`, confirming verification fails
+closed), force-closed a contest and confirmed the final-rank emails carry
+a fresh 72-hour discount, and — for the rank-drop alerts — ran the check
+once to establish a silent baseline (confirmed zero emails sent), cast
+votes to deliberately push two entrants out of a 3-winner zone, ran the
+check again, and confirmed exactly those two received "just fell to #N"
+emails while an entrant who dropped only slightly (still inside the winner
+zone) correctly received nothing. Confirmed `node --check` passes on every
+changed file and a full repo-wide emoji grep stays clean.
+
+**Left open, not done here**: no Prodigi/Gelato/automated-PDF-compilation
+fulfillment pipeline for the shared 12-cat calendar — that's genuinely a
+separate project (a calendar is a structurally different POD product, 12
+image slots instead of one, and Printful's own calendar product would need
+its own submission logic distinct from `printful.js`'s current
+single-image path), scoped out rather than half-built, same as the
+rank-badge merch template scoped out in the previous session. Real
+Printful Mockup Generator integration (an actual photoreal product render,
+not the honest CSS-framed preview built here) is still the README's
+pre-existing "worth adding once verified" item, unchanged by this pass.
+The discount is time-limited but not single-use — the same signed link
+works for every order placed before it expires, a deliberate simplicity
+choice, not an oversight.
+
+## Update — 2026-09-09: real funnel audit against the live site, a new grand prize, and a deliberate reversal on decorative emoji
+
+The owner sent live-site feedback (an external review of whiskr.lol) plus
+two follow-up copy packages, and asked for the critical fixes and the
+strongest funnel upgrades to actually be built — not just discussed. Every
+claim was verified against the real code first, not taken at face value:
+
+**Confirmed and fixed, real bugs:**
+1. The "Gear we actually use" section had a literal dev note visible in
+   production: "Replace these href values with your real, tagged affiliate
+   URLs before launch — see README." Removed from the page; the
+   instruction already lives in the README, so nothing was lost.
+2. `loadProducts()` in `script.js` unconditionally blanked `#customGrid` to
+   "Loading…" on every call, and to an error message on any fetch failure —
+   overwriting the real product cards `renderProductCards` (see `seo.js`)
+   already server-rendered into that exact container. A crawler was never
+   actually affected (SSR already covers that), but every real visitor saw
+   a flash, and a slow or failed fetch replaced good content with worse.
+   Fixed to only touch the grid when it's still empty.
+3. The homepage's "most recent winner" card showed a dead-end "Voting in
+   progress… check back soon" for the entire length of the first-ever
+   round (it only ever populates once a round has closed) — exactly the
+   dead traffic the review flagged. Fixed without touching the hidden-vote-
+   count principle from the previous session: added a small teaser of a
+   few of the current round's real entries, random order, no vote counts
+   and no ranking-by-vote (same rule the vote page already states), server-
+   rendered (`renderEntryTeaser` in `seo.js`) and client-refreshed
+   (`loadCurrentTeaser` in `script.js`) — social proof without reopening
+   the exact fraud-verification/snowball loop that principle was built to
+   close.
+
+**Rejected as written, then built the honest version:** the review's own
+draft leaderboard fix ("show the current top 3–5 vote-getters… with vote
+counts") would have undone that same hidden-tally design outright. Built
+the random, count-free teaser above instead.
+
+**Rejected as written, not built at all:** the forwarded "full kit"
+proposed daily/staged emails that state exact vote counts ("Fluffy has 0
+votes," "leader has 87 votes"). This app already has a real urgency
+mechanic for this — `sendRankDropAlerts`, which emails on a genuine rank
+change or falling out of the winner zone, deliberately without a raw
+count, for the same reason votes stay hidden publicly: a number lets
+someone verify whether a fraud attempt "worked." Left that mechanic as-is
+rather than adding a second, count-leaking one beside it. Also not built:
+single-use discount codes, a calendar-buyer referral/friend-code system,
+and non-entrant email capture — each is a real, reasonable roadmap item,
+but a genuine new schema/infra piece, scoped out rather than half-built in
+the same pass as everything else here.
+
+**Built, real conversion loop:**
+- Vote page: a persistent "have a cat? enter free" banner, and a one-time
+  post-vote nudge to the entry form — the review's "biggest single bet."
+- Entry form: a direct rules link next to the submit button (previously
+  only reachable from the "how it works" section), and an anti-fraud line
+  on the vote page ("votes are checked for abuse; suspicious activity is
+  removed") next to the existing hidden-tally explanation.
+- A real share-card image, not just a link: `generateShareCard` in
+  `server.js` composites the entrant's own uploaded photo (via `sharp`,
+  already a dependency) into a 1080×1080 image with their cat's name and
+  the site's URL overlaid, generated once at entry time and stored the
+  same way an uploaded photo is (Vercel Blob or local disk). Wired into
+  the entry-confirmation email, the post-entry "Share for votes" button,
+  and the vote page's existing Share button (Web Share Level 2's `files`
+  API when the browser supports sharing an actual file, falling back to a
+  link+text share, then clipboard) — the same asset reused in all three
+  places. Caught and fixed one real defect before treating this as done:
+  the first version put a 🗳️ emoji in the server-side SVG text, which
+  rendered as a broken glyph box in a real generated image (verified by
+  actually reading the output file, not just checking the response was
+  200) — an emoji is only as good as whatever font happens to be installed
+  wherever `sharp`/librsvg run, which server-side is not guaranteed the
+  way a browser's emoji font is. Removed it; plain text renders correctly
+  everywhere. **Still not proven**: this sandbox has a system sans-serif
+  font installed, so SVG text rendering worked here — Vercel's serverless
+  Node runtime does not ship fonts by default, and `sharp`'s SVG text
+  support depends on librsvg/pango finding one. The very first real
+  submission on the deployed site should be checked for whether the share
+  card's text actually renders (vs. rendering blank) — if it doesn't,
+  the fix is a bundled/embedded font, not a rewrite of this feature.
+
+**New grand prize, and a deliberate reversal of the "no decorative emoji"
+rule:** the owner asked for a real, physical prize — a one-of-a-kind cat
+sculpture handmade by Cody Carlson (a fellow HipAAsynth LLC brand,
+codycarlson.art) for the round's #1 vote-getter — plus a fun, bright,
+big-font hero treatment to announce it. Because this changes what's
+actually promised to a real winner, the prize was made accurate everywhere
+it's legally load-bearing, not just on the homepage banner: `rules.html`'s
+Prizes section now states it explicitly (no cash prize, no cash-equivalent
+substitution, no purchase necessary still applies), and `sendWinnerEmail`
+in `mailer.js` now tells the actual winner directly and asks them to reply
+with a mailing address to claim it — otherwise this would have become
+exactly the kind of gap between marketing copy and reality this codebase's
+audits exist to catch. Flagging, not blocking: a physical prize of
+non-trivial value can trip NY/FL/RI-style sweepstakes registration/bonding
+thresholds depending on its actual value — a business decision for the
+owner to make with real numbers, not a reason to withhold the copy change.
+The fun/bright hero treatment (a new `Baloo 2` display font, bright
+teal/pink/yellow accents, a 🏆 in the prize callout, a 🐾 placeholder
+for the pre-first-round winner photo slot) is a deliberate, scoped
+reversal of the earlier "removed every decorative emoji from the site"
+decision (see the 2026-09-08 redesign entry above) for these two specific
+new elements only — the rest of the site (nav, forms, reviews, footer)
+keeps the calmer editorial palette and type unchanged. The repo-wide
+emoji-grep check that gates every other pass in this log intentionally
+does not stay clean after this one; that's the reversal, not a miss.
+
+**Verified against a real local Postgres instance**: started the server
+against `whiskr_dev`, confirmed `/api/status`'s existing-winner path still
+renders `currentRibbon`/`winnerName`/`winnerBlurb` correctly (this repo's
+dev DB already had a completed round from earlier sessions), confirmed the
+teaser SQL query returns real random entries for an open contest,
+submitted a real JPEG through `/api/submissions` end-to-end and confirmed
+`shareImageUrl` came back non-null, confirmed the row's `share_image_path`
+column was set, and — critically — read the actual generated JPEG back as
+an image rather than just checking the file existed, which is what caught
+the broken-emoji defect above. Confirmed `node --check` passes on every
+changed JS file and the new/edited HTML files have balanced tags.
+
+## Update — 2026-09-09: sculpture prize moved from monthly to annual, Cat of the Year added
+
+Follow-up from the owner after the pass above: the wooden sculpture prize
+(handmade by Cody Carlson, confirmed valued under $5,000 — so no NY/FL/RI
+sweepstakes registration/bonding threshold is actually tripped, which the
+previous pass had flagged as a real risk to check) should be the prize for
+a new annual **Cat of the Year** award, not something promised every
+single month. That's also the operationally sane call independent of the
+legal question: commissioning a unique wooden sculpture every month for
+every monthly winner isn't a sustainable prize to fulfill; once a year is.
+
+**Built, a real second contest mechanic, not a copy-paste of the first:**
+Cat of the Year is a separate, admin-opened public vote among that year's
+monthly Cat of the Month winners (auto-populated from `groups` — no
+nomination step, every eligible winner is automatically a finalist),
+living in its own tables (`year_awards`, `year_award_finalists`,
+`year_award_votes`) rather than reusing the monthly `contests`/`votes`
+tables, because the actual voting rule is different: **one ballot per
+person for the whole award**, not repeatable daily voting over a 30-day
+window — enforced with `UNIQUE(year_award_id, voter_token)`, not
+`UNIQUE(finalist_id, voter_token)`, so a voter can't pick a favorite, get
+told "already voted," and just pick a second favorite instead. Verified
+this distinction actually holds by testing both cases directly: voting
+twice for the same finalist fails, and voting for a *different* finalist
+with the same voter cookie also fails.
+
+Deliberately admin-triggered on both ends (`/api/admin/year-award/open`
+and `/force-close`), never cron-automated — crowning Cat of the Year is a
+once-a-year, deliberate moment the operator should choose (and review the
+auto-populated finalist list for) rather than something that fires
+unattended on a schedule the way the monthly contest does.
+
+**Reverted the previous pass's monthly winner email and Prizes-page
+copy** — both had (correctly, at the time) promised the sculpture to every
+Cat of the Month, which is exactly the promise this update replaces.
+`sendWinnerEmail` no longer mentions a sculpture at all, only that the
+winner is "now in the running for Cat of the Year"; a new
+`sendCatOfYearEmail` carries the actual grand-prize notification and
+fulfillment ask (reply with a mailing address) once an award closes.
+`rules.html`'s Prizes section now states both tiers explicitly, including
+the under-$5,000 value cap and a plain description of the one-ballot
+voting rule, and a new "Cat of the Year" section explains it has no
+separate entry/nomination step.
+
+**New public surface**: `year-award.html` (mirrors `vote.html`'s look,
+different voting rule as above) and a homepage banner
+(`#yearAwardBanner`) that only renders anything while an award is
+actually open — most of the year `/api/year-award/current` returns
+`{award: null}` and the banner stays hidden/empty, same "never show a
+fake/empty state" rule this app has followed everywhere else. Added to
+`sitemap.xml` alongside the other static pages.
+
+**Verified against a real local Postgres instance**, using this repo's
+existing completed-round test data (three prior contest winners already
+in the dev DB from earlier sessions — no fixtures needed): opened a year
+award via the admin endpoint and confirmed it auto-populated exactly those
+three as finalists; confirmed the public endpoint returns finalists with
+no vote counts; cast a vote and confirmed both anti-double-vote cases
+above; confirmed the admin view shows real per-finalist vote counts;
+force-closed the award and confirmed it crowned the actual highest-vote
+finalist, sent the Cat of the Year email with the correct sculpture
+deadline text, and that `/api/year-award/current` correctly goes back to
+`{award: null}` once completed; separately force-closed a live monthly
+contest and confirmed its winner email no longer mentions a sculpture, to
+catch a regression on the reverted copy rather than assume it. A stray
+backtick inside a SQL comment inside `db.js`'s DDL template literal (fine
+as a comment, but backticks close a JS template string wherever they
+appear) broke `node --check db.js` immediately — caught and fixed before
+any of the above testing, not after.
+
+**Left open, not done here**: the marketing/ad-spend/ROAS tracking layer
+from the original Sentinel plan the owner referenced — that's a distinct
+follow-up pass, not folded into this one.
+
+## Update — 2026-09-09: lightweight marketing/ROAS ledger, no live ad-platform automation
+
+The follow-up promised above. The owner's original "Sentinel" plan (a
+different, earlier project — a youth-sports nomination funnel, not
+Whiskr) called for a Python engine that logged ad spend/revenue, computed
+ROAS per city/batch, and could auto-pause a live Meta ad campaign below a
+2.0x ROAS threshold. Asked the owner how much of that to build for
+Whiskr; they chose the lightweight option: a real ledger inside this same
+Node/Postgres app, no live ad-platform API integration — nothing here can
+touch a real ad campaign. The other two options on the table (full live
+Meta auto-pause automation, or a separate Python service per the original
+spec) were both real, valid choices with a materially different risk
+profile — live automation that can pause real ad spend is a financial-
+automation surface that deserves its own dedicated build-and-test pass
+before being trusted unattended, and a second service is a second
+codebase/deploy to maintain — so this was worth asking rather than
+guessing.
+
+**What "multiple" meant, clarified before building**: the owner's
+original ask ("we should have multiple") was ambiguous across three real
+readings — multiple prize winners per round, multiple simultaneous
+contests (e.g. cats and dogs each running their own), or multiple
+concurrent geo/ad-targeting batches (Sentinel's original per-city model).
+Confirmed it was the third. `ad_campaigns.name` is a free-text label (not
+an enum), so any number of concurrently-tracked named campaigns/geos are
+already supported without further schema changes.
+
+**Built**: `ad_campaigns` (name/platform/status/notes) and
+`ad_spend_entries` (manually logged date+amount per campaign) — genuinely
+manual, matching a real ad platform's own dashboard rather than pretending
+to pull live numbers this app has no connection to fetch. Revenue is real,
+not estimated: a new `utm_campaign` column on `submissions`, `orders`, and
+`custom_orders`, captured client-side from a `?utm_campaign=` link into a
+first-touch-only cookie (never overwritten by a later organic visit, so
+credit for the ad that actually brought someone in doesn't get erased) and
+sent along with every entry/order request. The admin ROAS view
+(`/api/admin/marketing/campaigns`) sums real paid-order revenue matched
+case-insensitively against each campaign's name — verified this
+specifically, not assumed: attributed a submission tagged `DALLAS-META`
+and a simulated paid order tagged `Dallas-Meta` (deliberately mismatched
+case) to a campaign named `dallas-meta`, confirmed both counted, and
+confirmed a third paid order tagged with an unrelated campaign name
+correctly did **not** count toward it. New admin.html section to add
+campaigns, log spend, and pause/activate a campaign as a note-to-self (not
+a live toggle — there is no live campaign on the other end of it).
+
+**Verified against a real local Postgres instance**: created a campaign,
+rejected a duplicate name cleanly, logged two spend entries and confirmed
+their sum, submitted a real entry with a case-mismatched utm tag and
+confirmed it stored correctly, simulated two paid orders (one matching the
+campaign case-insensitively, one deliberately not) and confirmed the ROAS
+math (`$200 revenue / $75 spend = 2.67x`) only counted the matching one,
+confirmed the spend-history and status-toggle endpoints, and screenshotted
+the admin panel with Playwright to confirm it actually renders the real
+numbers, not just that the API returns them. Caught the same class of bug
+as the previous update before any of this: a stray backtick inside a new
+SQL comment in `db.js`'s DDL template literal broke `node --check`
+immediately — checked for it explicitly this time (`grep` inside the
+template-literal boundaries) given it had just bitten this exact file.
+`node --check` passes on every changed file; new/edited HTML files have
+balanced tags.
+
+## Update — 2026-09-09: automatic (read-only) spend pulls from Meta, plus a real ROAS alert
+
+The owner came back after the lightweight ledger above: they wanted the
+"automatic self-funding version, just without auto-pause," not the manual
+one. That phrase bundles two different asks with two different risk
+profiles, so before writing code: (1) confirmed no Meta Marketing API
+token/ad account exists yet — a hard prerequisite, since this can't be
+tested or work at all without one, the same way Stripe/Printful/Zoho
+don't work here without their own real keys; (2) asked which part should
+actually be automatic, since "self-funding" is the half that moves real
+money — automatically *reading* spend and computing ROAS is safe (nothing
+but a GET request to Meta), automatically *writing* budget increases to
+reinvest profit is a live financial-automation surface with its own risk
+profile regardless of the auto-pause question. The owner chose read-only:
+automatic spend pulls, automatic ROAS math, no automatic budget changes of
+any kind; and for a below-threshold campaign, an alert email instead of
+the auto-pause they'd already ruled out.
+
+**Built**: `metaAds.js`, a new integration module following the exact
+`printful.js`/Stripe dry-run pattern already established in this app — if
+`META_ACCESS_TOKEN`/`META_AD_ACCOUNT_ID` aren't set, every call returns a
+dry-run result and the manual ledger from the previous update keeps
+working exactly as before. It can only ever read (`ads_read` is the only
+permission the README setup instructions ask for) — there is no function
+in this module that can create, pause, or resize a campaign, and there
+won't be without a separate, explicit decision to add one.
+
+A daily sync (`syncMetaAdSpend`, wired into the existing `/api/cron/daily`
+alongside contest-closing and review requests, plus a manual "Sync from
+Meta now" admin button) links each `ad_campaigns` row to a real Meta
+campaign by matching name the first time, remembers it by Meta's own
+campaign id afterward (a later rename in Meta's UI doesn't break the
+link), and upserts yesterday's real spend — safe to re-run any time
+without double-counting, via a partial unique index on
+`(campaign_id, spend_date) WHERE source = 'meta_api'` that only
+constrains automatically-synced rows, leaving manual entries untouched.
+`checkRoasAlerts` emails `ADMIN_EMAIL` (the same address already used for
+Printful submission failures) when an active campaign's all-time ROAS
+drops under `ROAS_ALERT_THRESHOLD` — never pausing or changing anything —
+throttled by `last_roas_alert_at` so a campaign that stays bad doesn't
+re-email every single day, and floored by `ROAS_ALERT_MIN_SPEND` so a
+campaign with a few dollars of spend and one lucky order doesn't trigger
+on noise.
+
+**Deliberately isolated in the cron handler**: `syncMetaAdSpend` got its
+own try/catch inside `/api/cron/daily`, separate from the existing steps
+(contest closing, rank-drop alerts, review requests). Those don't touch a
+third party and have run reliably; a Meta API hiccup — rate limit, an
+expired token, a transient outage — is a new and comparatively likely
+failure mode this pass introduces, and it should never block the
+unrelated, more reliable steps around it. Verified this isn't theoretical:
+tested with a real (deliberately invalid) token against Meta's actual API,
+got a genuine 403 back, confirmed the manual sync endpoint surfaces it as
+a clean error rather than crashing, and confirmed `/api/cron/daily` still
+returned `{ok: true}` and ran its other steps regardless.
+
+**Verified**: unit-tested `metaAds.js` in isolation with a mocked `fetch`
+(this sandbox has no real Meta credentials to test against) — correct
+URL/query construction including the `time_range` JSON encoding, correct
+`access_token` attachment, correct spend parsing, an empty insights
+response correctly treated as zero spend rather than an error, and a 401
+response correctly thrown with the status code in the message. Against
+real local Postgres: confirmed the new columns/partial-unique-index
+migrate cleanly, confirmed `metaConfigured` reports correctly in both
+states, confirmed the existing manual-entry flow from the previous update
+is unchanged (regression check), and confirmed the full ROAS-alert path
+end to end — created a campaign with genuinely bad ROAS (real spend
+logged, real revenue attributed via a simulated paid order, netting well
+under threshold), ran the alert check, confirmed the email fired with
+correct numbers, confirmed a second immediate run did **not** re-alert
+(cooldown working), and confirmed `last_roas_alert_at` was actually
+persisted on that exact campaign. `node --check` passes on every changed
+and new file (checked for stray backticks inside `db.js`'s DDL template
+literal a third time, on purpose, given the first two).
+
+**Left open, not done here, on purpose**: any automatic write to a live ad
+account — reinvestment, budget scaling, pausing — is out of scope until
+the owner asks for it as its own explicit decision, not folded into "make
+it automatic." Also not done: Google/TikTok/other ad platforms — this
+integrates only Meta, per what was actually asked for; the same
+`ad_campaigns.platform` free-text field and revenue-attribution logic
+would support another platform's own read-only module later without
+schema changes.
+
+## Update — 2026-09-11: two sessions diverged on the same contest redesign; Cat of the Year prize swapped from sculpture to painting, cadence to monthly
+
+A separate concurrent Claude Code session, working from a stale local
+checkout that predated PRs #6–#16, spent this session building an entire
+parallel, incompatible contest redesign (sealed batches of 40, a human
+judge instead of public voting, a new bi-weekly hand-painted-original
+prize) — none of which was aware that public voting, `CONTEST_WINNERS_COUNT`,
+`RANK_DROP_THRESHOLD`, and the Cat of the Year sculpture award described
+in that session's own task brief were already real, shipped features on
+`main`. That work was closed unmerged (PR #17) once the divergence was
+caught — worth recording here as a real process failure, not swept under
+the rug: **always `git fetch origin` before concluding a described feature
+doesn't exist**, especially when multiple sessions may be working the same
+repo concurrently. Nothing under this update touches contest mechanics,
+voting, or judging — those are exactly as the prior updates above left
+them.
+
+What the owner did want, confirmed directly: hide the homepage
+calendar-purchase section for now (section kept intact, just `hidden` —
+zero-cost to re-enable), and change the Cat of the Year grand prize from
+a wooden sculpture to an **original 11x16 acrylic painting**, still
+hand-painted by Cody Carlson, still free to the winner, still capped
+well under the $5,000 sweepstakes-registration threshold (approximate
+value used in `rules.html`: $160). The owner also wants this award to run
+**roughly monthly instead of annually** going forward.
+
+**Deliberately not restructured for the cadence change**: `/api/admin/year-award/open`
+and `/force-close` were already fully admin-triggered with a free `label`
+and a `[sinceDate, untilDate]` window — nothing in the code actually
+enforced "once a year," that was purely how often the owner had been
+opening one. So the cadence change is a copy/operational change, not a
+schema or endpoint change: `year_awards`/`year_award_finalists`/
+`year_award_votes`, the `sculpture_deadline` column, and the
+`sculptureDeadline` variable/param names throughout `server.js`/`mailer.js`/
+`admin.html` were all kept as-is for continuity with existing routes and
+the sitemap — only user-facing copy changed (site pages, emails, rules,
+`.env.example` comments) to say "painting"/"hand-painted" instead of
+"sculpture"/"handmade," and "roughly monthly"/"recent winners" instead of
+"once a year"/"that year's winners." Also fixed a pre-existing bug caught
+in the process: `index.html`'s `<title>`/meta description wrongly credited
+the grand prize to "Cat of the Month" instead of "Cat of the Year" —
+corrected as part of this pass.
+
+**Verified**: `node --check` on every changed file; ran the real app
+locally against a fresh Postgres instance (confirmed schema/migrations
+untouched and unaffected); confirmed via headless-browser screenshot that
+the homepage renders correctly with the calendar section hidden, the nav
+link removed, and no new console/page errors. Did not re-run the full
+contest/voting/year-award test suite from the prior updates above, since
+no code paths in those flows were touched — only string literals.
+
+**Left open, not done here**: the `RANK_DROP_THRESHOLD`/final-placement
+discount emails, the existing paid-but-unfulfilled-calendar-orders
+question, and a heads-up email to entrants already in an open round about
+any prize change are all pre-existing open items, unrelated to this pass,
+not newly introduced by it.
+
+## Update — 2026-09-11: collapsed monthly + Cat of the Year into one automatic win, calendar dropped from all copy
+
+The owner asked for this made "super clear": every month the real public
+vote picks a winner, and that winner directly gets an original acrylic
+painting of their submitted photo — full stop, no calendar mentioned
+anywhere (not ready to promote), no separate second vote first.
+
+**What changed:** `tallyAndCloseContest` now calls a new `awardPainting`
+the instant a round's #1 is decided — it inserts an already-`completed`
+`year_awards` row (reusing that table/schema exactly as it was, just
+skipping the `'open'` state) and sends one merged email
+(`sendWinnerEmail`, rewritten) announcing both the win and the painting
+together. There is no longer a second, separate "Cat of the Year" vote
+among accumulated monthly winners — the round's own real vote already
+decided it. Ranks 2+ all get the same `sendFinalRankEmail` now (no more
+"featured" tier in between #1 and everyone else — `sendFeaturedEmail`
+was deleted). Every "top 12 win the calendar" / "calendar cover" promise
+was stripped from public copy (`index.html`, `vote.html`, `llms.txt`,
+every mailer.js template) and from `rules.html`'s Prizes section, which
+now states one prize, plainly.
+
+**Deliberately not deleted:** `tallyAndCloseYearAward` and its
+`/api/admin/year-award/open` + `/force-close` routes are dormant, not
+removed — kept only as a manual-override path (e.g. to hand-correct a
+past round) that nothing links to anymore. `year-award.html` is now
+noindexed and unlinked (its own award will just never be open). The
+homepage's `#yearAwardBanner` section and its `loadYearAwardBanner` JS
+were removed outright rather than left dormant, since they did a live
+fetch on every page load for a state (an open award) that can now never
+occur — dead network traffic, not just dead markup. The homepage's
+calendar-purchase section (already hidden in a prior pass) was deleted
+outright for the same reason "no calendar to mention" applies to code as
+much as prose; `calendar.html`, its Stripe checkout route, and
+`/api/calendar/:groupId` are left completely alone as dormant
+infrastructure — nothing currently links to them, but no reason to touch
+working code that isn't part of what changed. Admin.html's "Cat of the
+Year" section (open-a-vote form) was replaced with a read-only "Painting
+winners" list backed by a new `GET /api/admin/year-award` endpoint, since
+there's no longer anything to manually open.
+
+**Verified against a real local Postgres instance**, not just read for
+plausibility: submitted 3 entries, cast votes so a specific cat won 2-1,
+force-closed the contest, and confirmed in the mailer log that the
+winner got exactly one merged email ("Cat of the Month — you're getting
+an original painting!") with no calendar language, the two non-winners
+each got a real-placement + discount email with no calendar language,
+`GET /api/admin/year-award` showed the win recorded automatically with
+no manual step, `GET /api/year-award/current` correctly stayed
+`{award: null}` (nothing ever opens), `/api/status`'s homepage "recent
+winner" lookup still worked (unaffected — reads `groups`, not
+`year_awards`), and `/sitemap.xml` no longer lists `year-award.html` or
+per-round calendar pages. Screenshotted the homepage, rules.html, and
+admin.html with Playwright to confirm the rendered copy, not just the
+API responses. Caught and fixed one real bug in the process: a
+duplicated `async function tallyAndCloseYearAward(yearAwardId) {` line
+from an in-progress edit broke `node --check` before any of the above
+testing — caught immediately, not after.
+
+**Left open, not done here**: the small "Featured Originals" showcase +
+commission-to-codycarlson.art CTA and the Cody Carlson partnership
+copy upgrade are a separate, following pass — see the next update if one
+exists above this line, or the current session if not.
+
+## Update — 2026-09-11: featured-originals showcase + honest Cody Carlson partnership disclosure
+
+Follow-up from the pass above. Owner's direction, confirmed directly:
+no shop/checkout for original paintings on Whiskr — that stays on
+codycarlson.art, where his own commission pricing and intake live.
+Whiskr just shows "a couple to choose from" and drives commission
+traffic out with a clear CTA, and the existing "hand-painted by Cody
+Carlson" credit should read as an actual disclosed partnership rather
+than an unexplained personal touch — which it in fact is, since Cody
+Carlson is also the artist behind Whiskr itself (both HipAAsynth LLC
+brands, same as the Sponsor disclosure this doc already carries).
+
+**Built**: `featured_originals` (image_path, cat_name, position) mirrors
+`background_slides` exactly — same admin upload/delete pattern, same
+honest-empty-state rule (zero rows = "the first one's still drying,"
+never a placeholder image), same server-rendered-then-client-idempotent
+approach via a new `seo.renderOriginals` used both in `renderIndexHtml`
+and `public/script.js`'s `originalsShowcase()`. New homepage section
+(reusing the existing `.current-teaser`/`.teaser-card` grid styling
+rather than inventing new CSS) sits right after "how it works," since
+that's the moment someone's just learned about the prize and is the
+strongest point to offer "don't want to wait — commission your own."
+The CTA text states the HipAAsynth LLC affiliation plainly rather than
+implying an arms-length partnership that doesn't exist — added the same
+disclosure to `rules.html`'s Sponsor section (the formal document) and
+to `llms.txt` for AI assistants summarizing the site. New public
+`GET /api/originals` and admin `GET/POST/DELETE /api/admin/originals`
+endpoints, all following the exact shape of the background-photo routes
+they're modeled on. Admin.html's "Featured originals" section (upload +
+grid + remove) mirrors "Background slideshow" line for line.
+
+**Deliberately not built**: any purchase flow, pricing, or Printful
+integration for the originals themselves — that was the owner's own
+call to simplify, not a limitation worked around. Real photographed
+mockups (the painting shown on a framed print, etc.) aren't possible yet
+either, for the mundane reason that no painting has been made and
+photographed — the empty state is honest about that rather than faking
+a placeholder image, same principle this app has followed for reviews
+and the background slideshow from day one.
+
+**Verified against a real local Postgres instance**: confirmed
+`GET /api/originals` returns `[]` on a fresh database and the homepage
+renders the honest empty state with no console errors; uploaded a test
+photo through the real `POST /api/admin/originals` endpoint and
+confirmed it appears via both the public API and (server-rendered,
+checked against raw HTML — not just what script.js draws) the homepage
+itself, with the `hidden` attribute correctly removed from the grid and
+added to the empty state; confirmed the admin.html upload form and
+remove button work end to end; screenshotted both the empty and
+populated homepage states and the new admin section with Playwright.
+`node --check` passes on every changed JS file.
+
+## Update — 2026-09-11: "HipAAsynth LLC" removed from all public-facing copy
+
+The previous entry above added an explicit "Whiskr and Cody Carlson are
+both HipAAsynth LLC brands" disclosure — on the homepage originals CTA,
+in `rules.html`'s Sponsor section and Eligibility list, and in
+`llms.txt` — reasoning it was the more cautious call on shared corporate
+ownership between Whiskr and codycarlson.art. The owner overrode that:
+they don't want HipAAsynth LLC named anywhere on the site, and consider
+the common ownership between the two properties immaterial to disclose.
+That's a legal/business call within the owner's judgment, not a case
+this app's own reasoning treats as a hard violation if left unstated, so
+it's implemented as asked rather than re-argued.
+
+Removed every "HipAAsynth LLC" mention from public copy: the homepage
+originals CTA, `rules.html` (Sponsor paragraph and the Eligibility
+"employees of Whiskr/HipAAsynth LLC" line), and `llms.txt`. In each spot
+the surrounding sentence was rewritten rather than just deleting the
+clause, so the copy still reads as a deliberate, explicit partnership
+("Whiskr has partnered with artist Cody Carlson...") instead of leaving
+an awkward gap. Per this doc's own no-rewrite-history rule, the prior
+entry above is left as-is — it accurately records what was built and why
+at the time; this entry records the reversal rather than editing that
+one.
+
+Not touched: `cat-calendar-app/README.md`'s references to the
+`hipaasynth-svg/Whiskr` GitHub repo path — that's the actual org/repo
+name for deployment instructions, not a public-facing business-entity
+disclosure, so it's out of scope here.
+
+## Update — 2026-09-11: full-stack audit, then a punch-list pass through it
+
+Ran a from-scratch audit of the whole app — backend (server.js, db.js,
+mailer.js, the Printful/Stripe integration), every public page, the npm
+dependency tree, and this entire log read cover to cover for previously
+flagged but never-closed items — and published it as a standalone report
+(28 findings, Critical/High/Medium/Low, with a suggested fix sequence).
+The owner then asked to work straight down the list. What follows is
+everything actually fixed in that pass; a handful of items need the
+owner's own input or a live account and are called out as still open at
+the end.
+
+**Money-losing failure modes, closed:**
+- Stripe webhook idempotency: `checkout.session.completed` for both
+  `orders` and `custom_orders` now guards its `UPDATE` with
+  `WHERE status = 'pending'` and only calls `submitCustomOrderToPrintful`
+  if that update actually changed a row. Before this, a retried webhook
+  delivery reset an already-`submitted_to_printful` order back to `'paid'`,
+  which defeated that function's own status check and re-submitted the
+  same order to Printful a second time.
+- Added `charge.refunded`/`charge.dispute.created` handling: looks the
+  order up by `payment_intent` via `stripe.checkout.sessions.list`, marks
+  it `refunded`/`disputed`, and emails the owner (new shared `alertAdmin`
+  helper, also now used for the existing failed-Printful-submission
+  alert). Before this, a refund or dispute never touched order status and
+  never notified anyone — a refunded item could still ship.
+- The old "calendar" checkout — retired from every page's copy months ago
+  but still a fully live, unauthenticated Stripe checkout — is now gated
+  behind `CALENDAR_CHECKOUT_ENABLED` (default false). `/calendar.html`,
+  `/api/calendar/:groupId`, and `/api/checkout` all return 410 while it's
+  off, `/calendar.html` serving a small on-brand "no longer available"
+  page instead of falling through to the stale static file. The dormant
+  template itself (`calendar.html`) is kept, not deleted — its own stale
+  "cat calendar company" footer and a dead `#calendars` anchor were fixed
+  so it isn't self-contradictory if the flag is ever flipped back on —
+  same treatment `year-award.html` already got. This closes both the
+  live-payment risk and the stale-content/crawl risk in one change.
+- `/api/submissions` and `/api/custom-orders` had no rate limiting at all
+  (only voting did). Added the same per-IP-per-day pattern, backed by a
+  new `ip_hash` column on both tables (same salted-hash, never-the-raw-IP
+  approach `votes.ip_hash` already uses).
+- The vote rate-limit's count-then-insert had a real TOCTOU race under
+  concurrent requests. Fixed by moving the checks inside the existing
+  transaction and serializing per voter/IP with
+  `pg_advisory_xact_lock(hashtext(...))` — scoped to just this one
+  transaction, not a global lock, and nothing to clean up since it
+  auto-releases at commit/rollback.
+
+**Dormant-but-reachable routes, closed:**
+- The old two-vote "Cat of the Year" public routes
+  (`/api/year-award/current`, `/api/year-award/vote`) and the admin route
+  that's the only way to create an `'open'` award row
+  (`/api/admin/year-award/open`) are now gated behind
+  `YEAR_AWARD_MANUAL_VOTE_ENABLED` (default false, 501 while off). Same
+  reasoning as the calendar gate above: nothing links to this anymore,
+  but the code could still be triggered manually without it.
+
+**Admin auth hardened:**
+- Dropped the `?key=` query-string fallback — header-only now.
+  `admin.html` never used it; it just meant a real key could end up in
+  logs, browser history, and Referer headers for no reason.
+- Added a per-IP in-memory throttle (20 failed attempts / 5 min → 429).
+  Explicitly documented as best-effort, not durable (resets on a
+  serverless cold start) — real defense is still key entropy, this is
+  defense-in-depth on top of it.
+- Startup now warns loudly if `UNSUB_SECRET` isn't set independently of
+  `ADMIN_KEY` (it silently falls back to reusing the admin key to sign
+  every discount/status/review/unsubscribe token), or warns even louder
+  if neither is set (tokens signed with a hardcoded, publicly-known
+  fallback string). These warnings — and the existing Stripe/Blob/
+  ADMIN_EMAIL ones — were previously gated inside `if (require.main ===
+  module)`, meaning they never printed on Vercel at all (that block only
+  runs for `node server.js` locally). Moved to module scope so they
+  actually print once per cold start in production too.
+- `ADMIN_EMAIL` unset now warns at startup for the same reason: a failed
+  order, refund, or dispute alert silently has nowhere to go otherwise.
+
+**Trust & conversion:**
+- Mobile nav was `display: none` with no replacement below 860px —
+  hiding all navigation and the primary "Enter free" CTA for what's
+  likely most of this site's traffic. Added a real hamburger menu
+  (`#navToggle`/`#siteNav`, toggled in `script.js`, closes on link click).
+- Found and fixed a real bug while wiring the hamburger up:
+  `rules.html`, `vote.html`, `status.html`, and `review.html` never
+  loaded the shared `script.js` at all — only `index.html` did. Every
+  `script.js` function turns out to already be written defensively
+  (`if (!el) return` on every `getElementById`), so this was clearly
+  meant to be a shared, page-agnostic file from the start; the other
+  four pages just never got the `<script src="script.js">` tag. Added
+  it to all four — this is also what makes the business-address feature
+  below work site-wide, not just on the homepage.
+- `.ribbon-tag` (the label on every single page) computed to ~1.8:1
+  contrast, well under WCAG AA's 4.5:1. Rather than darken `--marigold`
+  itself (used everywhere as a bright background fill — buttons, active
+  dots — where it's paired with dark text and is fine), added a separate
+  `--marigold-text` token for every place marigold is used AS text color
+  (`.ribbon-tag`, review stars, pick-card headings) — ~4.75:1 against
+  `--paper`, ~5.8:1 against the lighter `--paper-card`.
+- `review.html`'s star rating is now a real `<fieldset>/<legend>` instead
+  of a bare `<span>`, so it's announced as a group to assistive tech.
+  `status.html` had no `<h1>` anywhere, only styled `<p>`/`<div>`s — its
+  `.ribbon-tag` (the only heading-shaped text on that page, unlike
+  everywhere else where it's a kicker above a real `<h1>`) is now an
+  `<h1>` in all five states it can render.
+- Added missing Open Graph/Twitter Card tags and a meta description to
+  `rules.html` (had none at all) and `vote.html` (had a description, no
+  social tags). Trimmed the homepage `<title>`/description to clear
+  typical SERP truncation length, and flipped its title order
+  (`Whiskr — X` → `X — Whiskr`) to match every other page instead of
+  being the one outlier.
+- Removed three CSS classes nothing references anywhere, dormant
+  `calendar.html` template included (checked before deleting):
+  `.shop-grid`, `.product-badge`, `.year-award-banner`. Left
+  `.product-card`/`.price-row`/`.price` alone — those are still used by
+  the dormant calendar template.
+- Checked the "hero slideshow dots are a 7×7px tap target" finding
+  against the actual code: the dots have no click handler at all
+  (auto-advance only, no manual dot navigation), so there's nothing to
+  tap — skipped rather than padding a decorative element for no reason.
+
+**Legal/compliance pages added:**
+- New `privacy.html`, `terms.html`, `shipping.html` — real, specific
+  content grounded in what this app actually does and actually collects
+  (entry email/photo, the `whiskr_voter` cookie, salted IP hashes for
+  anti-fraud, Stripe/Printful/Zoho/Vercel as the actual sub-processors,
+  the real review-verification and photo-licensing mechanics already in
+  `rules.html`), not generic template boilerplate. Two things were left
+  honestly unfilled rather than invented: the governing-law jurisdiction
+  in `terms.html`, and the actual production-time SLA in `shipping.html`
+  — both marked `[Owner: ...]` for a real answer instead of a fabricated
+  one. All three linked from every live page's footer and header nav,
+  and added to `sitemap.xml`.
+- Built the plumbing for the business mailing address to actually reach
+  the public site, not just outgoing email: new `GET /api/business-info`
+  (reuses the exact same `BUSINESS_MAILING_ADDRESS` env var mailer.js
+  already puts in every commercial email's CAN-SPAM footer — one value,
+  now two places), a small `script.js` function that fills it into the
+  shared footer and the policy pages' Contact sections, and — same
+  honest-empty-state rule as reviews/background photos/originals
+  elsewhere in this app — the address line stays `hidden` rather than
+  showing a broken placeholder until the owner actually sets it. Verified
+  both the hidden-by-default state and the real-address state end to end
+  with Playwright.
+
+**Also fixed in passing:** ran `npm audit fix` (the non-breaking half) —
+picked up a `body-parser` bump that closed its transitive `qs`
+vulnerability. `sharp`, `nodemailer`, and `uuid` all still need major-
+version bumps flagged `--force`; left alone since `sharp` underlies real
+image-processing code paths here and none of those three should be
+bumped without a dedicated, tested pass. Also found and removed a dead
+`madeCalendar`/`groupId` field on `/api/my-status`'s response — a
+leftover from before the calendar product existed that nothing on the
+client reads anymore.
+
+**Verified against a real local Postgres instance** for every change
+above: webhook idempotency (marked-paid guard, retried delivery no
+longer re-submits), refund/dispute handlers, all three gated-route flag
+states (calendar checkout, year-award, both default-off and
+force-enabled), the admin auth lockout and header-only key, submission/
+custom-order rate limits actually rejecting a 6th/11th request, the vote
+advisory-lock transaction (concurrent-safe voting still works, duplicate
+vote still correctly rejected), every page's HTTP status including the
+three new ones and the sitemap, and the mobile nav + business-address
+features with Playwright end to end. `node --check` passes on every
+changed JS file.
+
+**Still open — needs the owner, not more code:**
+- The real business mailing address itself (`BUSINESS_MAILING_ADDRESS`)
+  — the plumbing above is done, this is now a one-env-var change.
+- Terms of Service governing-law jurisdiction, and the real Printful
+  production-time SLA for `shipping.html` — both marked as placeholders
+  above rather than guessed at.
+- Stripe Tax registration (checkout collects tax but only actually
+  charges it once a registration exists for at least one jurisdiction —
+  unconfirmed whether that's been done), and a real product-pricing
+  re-check against current Printful cost + shipping.
+- SPF/DKIM/DMARC on the Zoho sending domain — unconfirmed, and DMARC
+  specifically is never mentioned as set up anywhere in this project's
+  history. The entire entry/vote/winner email loop depends on it.
+- A real end-to-end order run against a live Printful account, and
+  watching the very first real contest close and photo upload on the
+  actual Vercel deployment (Blob storage, the daily cron) — none of this
+  sandbox's testing can substitute for that.
+- A lawyer hasn't reviewed `terms.html`/`privacy.html`/`shipping.html`
+  or the existing `rules.html` — worth doing before scaling ad spend,
+  same caveat this log has carried since the first legal-adjacent entry.
+
+## Update — 2026-09-11: admin-managed shop product photos
+
+(Governing law, the real contact email on every legal page, and
+independently DNS-verified SPF/DKIM — with DMARC confirmed still
+missing and the exact record handed to the owner — were also closed
+out today, in the two commits/PR right before this one. Not re-detailed
+here; see that PR's own description.)
+
+**New: admin-managed shop product photos.** Every product card was
+text-only from day one — no image field existed anywhere in the
+catalog, admin, or rendering pipeline. The owner asked for each of the
+7 real products (mug/poster/canvas/phone-case/tote/pillow/magnet) to
+get its own upload spot in admin for a real photo plus alt text, SEO
+title/description, and a description override — sized correctly for
+what that specific product actually is, not a one-size-fits-all crop.
+
+- `products.js` gained a `mockupAspect` field per product, derived from
+  each product's real physical dimensions where it has them (12x16
+  poster → 3/4, 12x12 canvas → 1/1, 16x16 pillow → 1/1, 4x4 magnet →
+  1/1; mug and tote/phone-case given sensible defaults since they don't
+  carry a print-dimension name).
+- New `product_media` table (db.js), keyed by the fixed `product_id`
+  from `products.js` — not a free-add list, exactly one row per real
+  product, upserted rather than freshly created. A product with no row
+  yet, or `image_path` still NULL, renders exactly as it always has
+  (text-only) — same honest-empty-state rule as backgrounds/originals/
+  reviews, never a placeholder image.
+- New `GET/POST /api/admin/products` and `DELETE
+  /api/admin/products/:id/photo` — the POST validates `:id` against the
+  real catalog (`productCatalog.getProduct`) before accepting anything,
+  and a photo is optional on every save (COALESCE keeps the existing
+  `image_path` when a save only changes text, so editing alt/SEO copy
+  never silently wipes a photo).
+- New shared `getProductsWithMedia()` in server.js merges the catalog
+  with `product_media` and resolves every override down to one
+  effective value (`description`, `imageAlt`, `seoName`,
+  `seoDescription`) — used by both the public `/api/products` and
+  `renderIndexHtml`'s SSR pass, so a crawler and a real visitor's
+  client-side re-render never disagree. The admin endpoint keeps the
+  raw override fields separately (not resolved), so the admin form can
+  correctly show an empty field with the code default as a *placeholder*
+  hint, rather than pre-filling the default as if it were a real saved
+  value.
+- `seo.renderProductCards`/`productsJsonLd` and `script.js`'s client-side
+  `renderGrid()` both render the photo (when one exists) at the
+  product's own `mockupAspect`, and the JSON-LD now carries a real
+  `image` field once a photo is uploaded — real product structured data
+  for AI shopping agents and rich results, not just name/price/offer.
+- New admin.html section, "Shop product photos" — one fixed row per
+  product (current photo or an honest "No photo yet" box, the
+  recommended aspect ratio spelled out in plain language, and a form for
+  photo/alt/SEO title/SEO description/description). Mirrors the existing
+  background-slideshow/featured-originals admin sections' conventions
+  (`adminFetch`, `escapeHtml`, the same upload-then-reload pattern).
+
+**Verified against a real local Postgres instance**: uploaded a real
+photo + full field set for one product through the actual admin.html
+form (not just the API directly) with Playwright, confirmed it flows
+through unchanged to the public API, the JSON-LD, and the raw
+server-rendered homepage HTML; confirmed a text-only edit (no new file)
+leaves an existing photo untouched; confirmed deleting just the photo
+reverts that product to text-only; confirmed an unknown product id is
+rejected with 404 rather than silently creating a new row. Full page
+and API sweep across the whole site came back clean. `node --check`
+passes on every changed JS file.
+
+Also produced two mockup boards (published as a separate design-canvas
+artifact, not part of this codebase) showing painting-on-product
+presentations for the Featured Originals section and pet-photo-on-merch
+mockups for the real shop catalog — illustrated placeholders throughout
+since no real painting has been photographed yet and no image-generation
+tool is available in this session; used to inform the product-photo
+sizing work above, not merged into the site itself.
+
+## Update — 2026-09-11: rolodex card carousels + one site-wide background
+
+The owner asked for the vote page's cat cards and the homepage's shop
+product cards to become horizontal "Rolodex style left to right" card
+rows instead of wrapping grids, and for the existing hero-only
+background-photo slideshow to become one shared slideshow behind the
+whole site.
+
+- New shared `.rolodex`/`.rolodex-wrap`/`.rolodex-nav` component in
+  `style.css`: a flex row with CSS scroll-snap
+  (`overflow-x:auto; scroll-snap-type:x proximity; scroll-behavior:smooth`),
+  native scrollbar hidden, and round prev/next arrow buttons
+  (`rolodexNav()` in `script.js` wires them to `track.scrollBy`). Arrows
+  hide under 700px since touch/swipe already does the job there; the
+  track keeps a small edge peek instead so the next card is visibly
+  cut off, hinting there's more to scroll.
+- `vote.html`'s `#voteGrid` and `index.html`'s `#customGrid` both
+  switched from a CSS grid to this shared track (fixed card width, no
+  more wrapping), each wrapped in a `.rolodex-wrap` with its own
+  prev/next buttons.
+- New `#siteBackdrop` (fixed, full-viewport, `z-index:-1`) mounted on
+  every live page (`index`, `vote`, `rules`, `status`, `review`,
+  `privacy`, `terms`, `shipping` — intentionally not `admin.html`, the
+  internal tool, or the dormant `calendar.html`/`year-award.html`).
+  `siteBackdrop()` in `script.js` fetches the same admin-managed
+  `/api/background` photos the homepage hero already used, cross-fades
+  between them, and overlays a `.scrim` painted at the page's own
+  `--paper` tone at 87% opacity so it reads as a faint shared texture,
+  never a distraction from page content. `body`'s own background was
+  changed from opaque `var(--paper)` to `transparent` so the backdrop
+  is actually visible through it; any section with its own opaque
+  background (the hero, card-style boxes) still simply paints over it
+  as before. Zero photos uploaded in admin means this renders nothing,
+  same honest-empty-state rule as every other admin-managed media
+  feature on this site.
+
+**Verified against a real local Postgres instance with Playwright**:
+uploaded two test background photos through the real admin API and
+confirmed `#siteBackdrop` mounts both `<img>`s, cross-fades the
+`active` class correctly, and the scrim/transparent-body plumbing is
+wired exactly as styled (checked via direct DOM/computed-style
+inspection, not just a screenshot). Submitted five real test entries
+through `/api/submissions` and confirmed the vote page renders them as
+a true horizontal rolodex — no wrapping, working prev/next arrows that
+scroll the track, correct behavior at both desktop and 390px mobile
+width (arrows hidden, touch-scroll layout intact). Confirmed the same
+for the homepage shop section. Confirmed the homepage hero keeps its
+own independent dark slideshow treatment, unaffected by the new
+site-wide backdrop underneath it. Full page sweep (all 8 pages, 200s)
+and a Playwright console/network check came back clean — no new errors
+introduced (the only console noise, a missing local `/_vercel/insights`
+endpoint and a sandboxed Google Fonts request, is pre-existing local-dev
+behavior, not caused by this change). `node --check` passes on
+`script.js`, the only JS file touched this phase.
+
+## Update — 2026-09-12: two real mobile bugs behind "zoomed in / off center", plus refreshed entry copy
+
+The owner reported the site "coming zoomed in or off center on mobile."
+Rather than guess, reproduced and root-caused it against a real local
+instance with Playwright at real device widths (320–430px) instead of
+just the usual 390px check.
+
+- **iOS Safari auto-zoom-on-focus** (the real cause of "zoomed in"):
+  every text/email/number input and the review-page textarea across
+  `.entry-form`, `.custom-order-form`, `.checkout-form`, and
+  `review.html`'s inline form styles were set to `font-size: 0.95rem`
+  (~15.2px). iOS Safari force-zooms the whole page when a tapped input's
+  font-size is under 16px, and nothing on the page undoes that zoom
+  afterward — so once a visitor taps the email field to enter the
+  contest, the page stays zoomed in. Bumped every one of those to
+  `16px`. This can't be reproduced in a Chromium-based check (it's an
+  iOS-Safari-specific behavior), so it had to be found by reading the
+  CSS directly against the known threshold, not by screenshotting.
+- **CSS Grid overflow on the narrowest phones** (the real cause of
+  "off center"): confirmed via direct `scrollWidth` vs `innerWidth`
+  measurement that `index.html` overflowed by 34px at a 320px viewport
+  (old iPhone SE / small Android) — clean at 360px and up. Traced it to
+  `.enter-wrap`'s two-column grid (`1fr 1fr`, and its single-column
+  mobile override): a bare `1fr` track's implicit minimum is its
+  content's min-content size, and the native, un-stylable `<input
+  type="file">` control refuses to shrink below its browser-chrome
+  minimum (~258px measured), which is wider than the ~248px available
+  inside the form's own padding at 320px. That forced the grid track —
+  and the whole page — wider than the viewport, which is what a mobile
+  browser rendering that as "off center"/zoomed-out-to-fit looks like.
+  Fixed by switching every bare `1fr`/`repeat(3, 1fr)`/`1fr 1.1fr` grid
+  column in `style.css` (`.steps`, `.current-card`, `.enter-wrap`,
+  including their existing single-column mobile overrides) to
+  `minmax(0, 1fr)` — the standard fix for this exact class of grid/flex
+  overflow bug — so tracks shrink to the space actually available
+  instead of being forced wide by content that can't shrink.
+- Refreshed the homepage hero and entry-form copy per the owner's
+  direction: the hero headline/prize line now reads "Enter your kitty
+  for a chance to win a one-of-a-kind acrylic painting!" and names the
+  acrylic medium (already correct in `rules.html`, just missing from
+  the hero), the sub-copy folds in "live voting, real competition" and
+  a "we're glad you're here" welcome, and a new photo-quality reminder
+  (good light, clean framing, take your time) appears both in the hero
+  sub-copy and as a caption directly under the photo upload field. The
+  entry-form section's own copy was trimmed to avoid repeating the hero
+  nearly verbatim right above the form.
+
+**Verified against a real local Postgres instance with Playwright**:
+re-ran the `scrollWidth`-vs-`innerWidth` check across all 8 live pages
+at 320/360/375/390/414/430px after the fix — zero overflow anywhere.
+Confirmed every affected input's computed `font-size` is now `16px`.
+Visually confirmed the new hero and entry-section copy render correctly
+and legibly on a 390px viewport. No JS files touched this phase — only
+`style.css`, `index.html`, and `review.html`'s inline styles.
+
+## Update — 2026-09-12/13: production incident response, admin resilience, Gallery Series, live sessions, ad tracking
+
+A long working stretch spanning a live production incident and several
+feature builds. Summarized by theme; every item was shipped as its own
+PR, verified locally against a real Postgres instance before pushing,
+and merged.
+
+**Production incident, found and fixed live**: the owner reported a real
+order that paid but never fulfilled. Root cause, diagnosed jointly with
+the owner reading their own Stripe/Vercel dashboards: `whiskr.lol` and
+`www.whiskr.lol` were both attached in Vercel with `www` set as the real
+Production domain and the apex 308-redirecting to it — Stripe's webhook
+delivery system doesn't follow redirects, so **every webhook delivery
+had been silently failing since launch**, never reaching the app, never
+logging anything (the 308 happens at Vercel's edge). Fixed by the owner
+flipping which domain serves Production. Compounded by a second, unrelated
+bug found immediately after: this Stripe account's API version moved
+checkout shipping data from `session.shipping_details` to
+`session.collected_information.shipping_details` — the webhook was still
+reading the old field, so `shipping_address` was always saved `null`.
+Fixed (`extractShippingJson` in `server.js`, shared by the webhook and a
+new admin retry endpoint that re-fetches the session from Stripe directly,
+since the first order's row already had the bad `null` baked in before
+the fix shipped).
+
+**Built — site-wide admin alerts panel**: every `alertAdmin()` call (a
+failed Printful submission, a refund, a dispute) now also lands in a new
+`admin_alerts` table, surfaced in a dedicated panel at the top of
+`admin.html` — visible even if `ADMIN_EMAIL` is unset or email delivery
+fails, which was a real single-point-of-failure before this. The
+"Retry Printful" button is now bright red by default, green on success.
+
+**Built — four admin-editable homepage content slots**, all hidden until
+the owner adds real content (same never-fake-a-placeholder rule as
+everywhere else): a colored starburst badge over the hero
+(`site_blocks` table), two image+text "feature block" sections mid-page,
+and a static two-row footer photo wall (`footer_strip_images` table).
+
+**Found and fixed — photo uploads silently failing on Vercel**: the
+owner reported being unable to upload a background-slideshow photo.
+Root cause, confirmed directly against Vercel's runtime logs (repeated
+`413`s served from the edge, never reaching the app): Vercel's
+serverless functions hard-reject any request body over ~4.5MB, a
+platform limit this app's own (more generous) multer config never gets
+a chance to enforce. A modern phone photo routinely exceeds that alone —
+this silently affected **every** photo upload on the site, not just the
+one admin form: the contest entry photo and the paid custom-order photo
+too, where a failed upload is a lost entrant or a lost sale that never
+even reaches the server to be logged. Fixed with a shared
+`resizeImageForUpload()` (`public/imageResize.js`) that downscales/
+recompresses a large photo client-side before it's ever sent, capped at
+3000px (above `MIN_PRINT_DIMENSION_PX`, so print quality is unaffected),
+wired into all 7 upload forms on the site.
+
+**Built — Gallery Series, a premium print tier**: three new products
+(framed luster poster, framed matte poster, large gallery canvas) with a
+distinct badge in the shop grid. **Left open, needs the owner**:
+`printfulVariantId` is `null` on all three — `printful.com` isn't
+reachable from this sandbox's network policy to confirm the real
+`variant_id`s the way every other product here has been, and pricing is
+set from typical market rates, not a confirmed Printful cost. A real
+order for one of these pays successfully today but Printful submission
+fails safely afterward (shows in the new admin alerts panel) until the
+owner pastes in real variant IDs.
+
+**Built — "Live painting sessions," Phase 1 infrastructure only**: an
+admin on/off toggle (deliberately not the usual empty-state-hides-itself
+rule, since the owner may want it on before any past session exists to
+list), a video embed slot, and a past-sessions list
+(`live_stream_settings`/`live_sessions` tables). Explicitly does **not**
+yet include real-time chat, a richer offline state (next session time,
+contest promo, a link to codycarlson.art), or a dedicated `/live` page —
+all pending the owner's platform choice (YouTube Live recommended: free
+video + free embeddable live chat, no new backend) and one open question
+from the owner's own spec ("Postgres + a Reddit-related API") that
+doesn't map to anything in this codebase and needs clarifying before
+building against it.
+
+**Built — Meta Pixel + Conversions API, dual-tracked**: `Lead` on
+contest entry, `InitiateCheckout` on custom-order submission, `Purchase`
+fired server-side only from the Stripe webhook (the one point a payment
+is actually confirmed — a client-side "thank you page" event fires on
+redirect regardless of whether payment truly succeeded, which would have
+overcounted). Each client `fbq()` call shares its `event_id` with the
+matching Conversions API call so Meta dedupes rather than double-counts.
+Follows the same dry-run-if-unconfigured pattern as every other
+integration; verified locally that a real API failure (403, fake
+credentials) is caught and logged without affecting checkout or entry.
+Deliberately email-only for user matching, not also raw IP/UA/`fbp`/`fbc`
+— that would mean this app starts persisting more raw visitor data than
+it does today (currently only a one-way IP hash), a real privacy-posture
+call left to the owner rather than a silent default. `privacy.html`'s
+tracking disclosure was updated in the same change (it previously stated
+outright "no third-party ad-tracking pixels"), including a new stated
+commitment that ads are targeted at US visitors only, which is why there
+still isn't a cookie-consent banner — a real operational constraint the
+owner's ad account setup now needs to honor. Also added a dynamic
+`og:image`/`twitter:image` sourced from a real admin-uploaded photo
+(never a placeholder), closing a gap where every shared link previewed
+with no thumbnail.
+
+**Found and fixed — the ROAS ledger's silent-failure mode**: revenue
+attribution has always worked by case-insensitive string match between a
+real order's `utm_campaign` and an `ad_campaigns.name` someone typed by
+hand — a typo or naming mismatch doesn't error, it just silently excludes
+that campaign's real revenue from every report, forever, with no signal
+anything is wrong. Fixed with a new "unattributed revenue" panel
+(`GET /api/admin/marketing/unmatched-utm`) that lists every `utm_campaign`
+value with real paid revenue not currently claimed by any campaign, with
+a one-click "Create campaign" prefilled with the exact value — turns an
+invisible failure into a visible, one-click-fixable one. Also added
+on-demand historical backfill (`syncMetaAdSpend` previously only ever
+pulled yesterday, with no way to backfill a campaign added after spend
+had already accrued) and a live impressions/clicks/CTR/CPC diagnostic
+per campaign (`metaAds.getCampaignInsightsForRange`) so a bad-ROAS
+campaign can be diagnosed — not getting clicked vs. getting clicked but
+not converting — rather than just flagged.
+
+**Verified against a real local Postgres instance** for every item
+above: the webhook fix (Vercel logs showing the actual 308s, then real
+200s after the owner's domain fix); the Stripe API-version fix (real
+session JSON read directly); the alerts panel and retry flow end-to-end
+via Playwright; the four homepage slots' hidden/revealed states in both
+server-rendered HTML and the client hydration path (catching and fixing
+a real `fillEmpty` bug along the way — it silently corrupted DOM
+structure whenever a placeholder had a nested closing tag before its
+own, fixed by matching the existing `#originalsGrid`/`#originalsEmpty`
+pattern instead of patching the helper); the upload fix with a synthetic
+24MB/6000x4000 test photo that came out the other side at 3.7MB and
+3000x2000 and uploaded successfully; the Meta CAPI dry-run and real-
+failure paths; and the ROAS fix's full loop — seeding a paid order with
+a deliberately mismatched `utm_campaign`, confirming it showed as
+unattributed revenue, creating a campaign from it in one click, and
+confirming the revenue then appeared attributed.
+
+**Still open, tracked as an explicit todo/status list for the owner
+rather than left implicit**: real Printful variant IDs and cost
+confirmation for the Gallery Series; the live-sessions platform
+decision and chat/offline-state build-out; a dedicated landing page for
+paid traffic; an opt-in marketing/email list separate from
+transactional order records (today every email is tied to one specific
+order/entry row, with no way to re-engage a past entrant who never
+bought); and confirming Meta Pixel events land correctly via
+`META_TEST_EVENT_CODE` once the owner adds real credentials.
+
+## Update — 2026-09-13: referral attribution on share links
+
+Closed the "sharing carries no attribution" gap noted above. `vote.html`
+renders a full listing of every entry (confirmed by reading its
+card-rendering loop and its existing `?cat=` handling, which only
+highlights/scrolls to that card — never filters to it), and its Share
+button lets any visitor share any cat they're looking at — this isn't a
+one-entrant-per-referral system, so the design had to fit "who's
+sharing what," not "which entrant does this belong to."
+
+Landed on the simplest version that still supports a future incentive
+loop, deliberately choosing it over embedding the existing
+`whiskr_voter` persistent cookie into share URLs: a `?via=share` marker
+on the shared cat's own link. `shareCat()` (vote.html) and
+`shareEntryCard()` (script.js — the post-entry share button) both now
+append it; on landing, vote.html reads `via=share` + `cat=` and stores
+the shared cat's id in `sessionStorage` (`whiskr_referred_by`) — session
+scoped on purpose, so credit only covers this one visit, not a lasting
+tracking identity riding along in a publicly-pasted URL. Every vote cast
+during that session, for any cat (not just the one shared), sends that
+id back to `POST /api/vote` as `referredBy`; the server looks it up
+against `submissions` and only persists a real match (a stale or
+tampered id just resolves to no attribution — this is a soft engagement
+signal, not a security control, so it fails safe rather than erroring
+the vote).
+
+New nullable `votes.referred_by_submission_id` column, populated inside
+the same transaction as every other vote-insert invariant (rate limits,
+advisory locks). Surfaced in two places: the admin fraud-review panel
+gets a "Referred" column per entry (a correlated `COUNT` against
+`referred_by_submission_id`, alongside the existing votes/votes-per-hour
+columns, with a one-line explanation that it's a soft signal, not a
+fraud check); and an entrant's own `status.html` page, while their round
+is open, now shows "N votes so far came from people who clicked your
+share link" once that count is above zero — small, immediate positive
+feedback for sharing, ahead of any actual reward program being built.
+
+The one deliberate scope boundary carried over from the original share
+mechanic: `shareEntryCard()`'s plain "go vote for your own cat now" link
+and the vote link in the entry-confirmation email are left untagged —
+only the link that actually goes out through a Share action gets
+`via=share`. Tagging the entrant's own direct link too would have
+credited every single entrant with "referring" their own first vote,
+drowning out the real signal.
+
+**Verified against a real local Postgres instance**: confirmed the
+`referred_by_submission_id` migration lands live on a running server (no
+restart-time migration runner — it runs lazily on first request, so
+verified via a real request, not just by reading the DDL); cast votes
+through the real `/api/vote` endpoint with a valid `referredBy`, no
+`referredBy`, and a nonexistent one, and confirmed the resulting rows
+matched expectations exactly (real id recorded, absent stays null, bogus
+id silently resolves to null with the vote still succeeding); confirmed
+`GET /api/admin/contest/current` returns the right `referred_votes`
+count per entry; confirmed `GET /api/my-status` returns the right
+`referredVotes` count; and used Playwright to confirm, end to end, that
+landing on `vote.html?cat=X&via=share` sets the sessionStorage marker
+without breaking the existing highlight behavior, that admin.html's
+fraud-review table renders the new "Referred" column correctly, and
+that status.html renders the share-credit line with the right count and
+grammar (singular "vote" vs. plural "votes").
+
+**Still open**: the live-sessions platform decision and chat build-out;
+real Printful variant IDs for the Gallery Series; and confirming Meta
+Pixel events land correctly via `META_TEST_EVENT_CODE` once real
+credentials are added — see the running todo list for the complete,
+current state.
+
+## Update — 2026-09-13: dedicated landing page for paid ad traffic
+
+Closed the last of the funnel-infra follow-ups: paid clicks had nowhere
+to land but the full homepage — nav links, the shop grid, live
+sessions, footer newsletter, everything the homepage serves for every
+kind of visitor. A paid click has already been sold on one specific
+thing by the ad; every extra path off that page is a chance to lose
+them before they convert.
+
+New `public/landing.html` — genuinely a plain static file, not a new
+server-rendered route. Confirmed first that every dynamic piece it
+needed (background hero photos, the originals showcase, reviews) already
+has a client-side fetch as progressive enhancement on top of index.html's
+server-side prerender (`heroSlideshow()`, the `#originalsGrid` loader,
+`loadReviews()` in script.js — all guarded with an early return if their
+element is missing), so reusing the same element ids/markup and loading
+the same `script.js` gets a fully working, fully dynamic page for free,
+with zero new server code. Same for the entry form itself — `#entryForm`
+with the same field ids/names, including the marketing opt-in checkbox
+from the previous update, "just works" against script.js's existing
+submit handler and the existing `/api/submissions` endpoint.
+
+What's deliberately cut versus the homepage: no header nav (logo only —
+nowhere else on-site to click to, since vote/prints/reviews are still
+one scroll away in-page); no shop grid, live-sessions section, or footer
+newsletter signup (competing CTAs work against a single-path landing
+page); one hero CTA instead of two. What's kept, in persuasion order:
+hero hook → how-it-works (removes "is this legit" friction) → originals
+showcase (proof the prize is real) → the entry form itself → reviews +
+trust badges (proof for anyone still hesitant right before the ask).
+
+Marked `<meta name="robots" content="noindex, follow">` with
+`<link rel="canonical" href="https://whiskr.lol/">` — this page overlaps
+enough with `index.html` that letting both rank would risk duplicate-
+content dilution in organic search, and there's no reason to try to
+rank a paid-traffic-only page organically in the first place. Neither
+tag affects paid traffic at all — ads don't consult robots meta or
+canonical tags, only search crawlers do. Not added to `sitemap.xml`
+either, consistent with that.
+
+**Verified against a real local Postgres instance**: loaded the real
+page in a real browser and confirmed zero page/console errors beyond
+environment-only noise (missing `/_vercel/insights/script.js` in local
+dev, the sandbox's own network policy blocking Google Fonts — both
+identical on `index.html`, nothing landing.html-specific); confirmed
+`#siteNav` is genuinely absent (not just hidden) and the mobile nav
+toggle script no-ops cleanly against it; submitted a real multipart
+entry through the page end-to-end and confirmed the resulting
+`submissions` row; confirmed `?utm_campaign=` capture sets the same
+cookie it does on every other page; visually confirmed via screenshot at
+both desktop and mobile widths (no horizontal overflow at 375px) that
+the page reads as a coherent, focused single-path flow rather than a
+homepage with pieces missing.
+
+## Update — 2026-09-13: richer offline state for live painting sessions
+
+The offline state (shown whenever the live-sessions section is on but
+nobody's actually painting — the common case) was a single flat
+sentence: "Not live right now — check back, or watch a past session."
+A visitor who lands there between sessions is still a real visitor;
+this gives them somewhere to go instead of a dead end.
+
+New `renderLiveOffline()` in seo.js (used for the SSR path in
+`renderIndexHtml`) plus a matching client-side rebuild in script.js's
+`livePaintingSessions()` IIFE — the client re-fetches `/api/live-stream`
+and replaces the SSR markup on every real page load, so both paths had
+to build the identical richer state or a real visitor would only ever
+see the plainer one. It now shows, only when the data exists: when the
+next session is (a new optional `live_stream_settings.next_session_at`
+the owner sets by hand — not a schedule the app enforces, just a line
+that appears or doesn't), and what the last painting was (reusing
+whichever past session sorts first in the existing "Past sessions" list
+ordering, so the two stay visually consistent) — plus two CTAs that are
+true whether or not anyone's painting right now: enter this month's
+contest (`#enter`, since this is the same page), and commission an
+original outright at codycarlson.art.
+
+The one real bug caught before it shipped: `admin.html`'s new
+`<input type="datetime-local">` for `next_session_at` shows/edits LOCAL
+wall-clock time with no timezone marker. The naive fix —
+`new Date(iso).toISOString()` for display and `Date.parse(raw)` on the
+server for saving — silently shifts the displayed/stored time by
+whatever the browser's or server's UTC offset happens to be (worse, the
+two don't even have to agree, since Vercel's server almost certainly
+runs UTC while the owner's browser doesn't). Fixed by building the
+input's value from local date/time getters (matching what the input
+actually displays) and having the browser convert its own local input
+back to a real absolute UTC timestamp via `new Date(value).toISOString()`
+before ever sending it to the server — the server only ever handles an
+unambiguous absolute instant, never a naive local string it would have
+to guess a timezone for.
+
+**Verified against a real local Postgres instance**: confirmed the
+`next_session_at` migration lands live; set a real next-session time and
+added a past session with a recording link, then confirmed via direct
+HTTP that the server-rendered `index.html` shows the correct next-session
+line (in the visitor's intended wording, e.g. "Next session: Sunday,
+September 20 at 8:00 PM") and last-painting link; used Playwright to
+confirm the client-side rehydration produces byte-identical markup to
+the SSR version; visually confirmed via screenshot that the two CTA
+buttons and the extra lines read cleanly against the screen's dark
+background; and round-tripped the admin's datetime-local input through a
+real save-and-reload in a real browser to confirm no timezone drift, plus
+confirmed clearing the field removes the next-session line entirely
+rather than leaving a stale or malformed one.
+
+## Update — 2026-09-13: opt-in marketing list, separate from orders
+
+Closed the other gap noted above: every email this app ever captured was
+tied to one specific transactional reason (a contest entry, a print
+order), with no way to reach a past entrant/customer for anything else —
+a new contest opening, a promo, a live painting session announcement.
+
+New `marketing_subscribers` table (email primary key, `source`,
+`subscribed_at`, `unsubscribed_at`, an optional `ip_hash` for rate-
+limiting the standalone signup path the same way submissions/custom-
+orders already rate-limit theirs). Two ways in, both genuinely opt-in
+and unchecked/empty by default:
+
+1. A new checkbox on the entry form ("email me about new contests,
+   promos, and live painting sessions") — separate from, and below, the
+   required photo-rights consent checkbox, and explicitly not required.
+2. A small standalone signup form added to the homepage footer
+   (`?via=` style attribution wasn't relevant here since this isn't a
+   share mechanic — just an email + submit), for a visitor who wants
+   updates without entering the contest or ordering anything. Scoped to
+   `index.html` only for now rather than every page's footer (the
+   footer markup is duplicated per-file across 11 pages, not a shared
+   partial) — the homepage is the highest-traffic surface, and rolling
+   it out to the lower-traffic legal/utility pages (privacy, terms,
+   shipping, rules) can follow if it proves worth the diff.
+
+A fresh opt-in always clears any prior `unsubscribed_at` on that email —
+a new affirmative yes is a new consent event. Conversely, hitting the
+existing CAN-SPAM unsubscribe link (`/api/unsubscribe`) now updates
+`marketing_subscribers` too, not just `suppressions` — a hard
+unsubscribe is a strict superset of "no longer opted into marketing,"
+and the two tables would otherwise silently drift apart the first time
+someone unsubscribed.
+
+Deliberately did NOT build a bulk-send/campaign feature on top of this —
+actually mailing a list at volume is a real deliverability/compliance
+undertaking (sender reputation, list hygiene, an actual ESP) that's its
+own project, not a natural extension of `mailer.js`'s single-recipient
+transactional sends. Instead, `admin.html` gets a "Marketing list" panel
+(active/total counts, a breakdown by source, a table) and a CSV export
+button, so the list is genuinely usable today — paste it into whichever
+ESP gets picked later — without this app quietly growing into a mailer
+it was never built to be.
+
+**Verified against a real local Postgres instance**: confirmed the
+`marketing_subscribers` migration lands live; used Playwright to submit
+a real multipart entry with the opt-in checkbox checked (row created,
+correct `source: 'entry_form'`) and unchecked (no row at all — the
+absent-vs-present FormData behavior of an unchecked checkbox was
+confirmed, not assumed); exercised the standalone `/api/subscribe`
+endpoint directly (valid email accepted, invalid rejected, a duplicate
+signup upserts rather than erroring) and through the real footer form
+in a browser, including its per-IP daily rate limit actually triggering
+at the configured threshold and the UI showing both the success and
+the rate-limited error text; confirmed hitting a real unsubscribe link
+flips that same email to "Unsubscribed" in the admin panel and drops it
+from the active count; and confirmed the CSV export button in a real
+browser produces a correctly-named download containing only active
+subscribers.
+
+## Update — 2026-09-14: vote.html engagement polish (count, starburst, shop nudge)
+
+Owner walkthrough of the shared vote-link experience surfaced three real
+gaps against what they wanted: the entry count wasn't shown anywhere on
+the page, there was no celebratory confirmation beyond a small toast and
+a button turning green, and nothing ever pointed an engaged voter toward
+the print shop. One claim in the request ("one vote per day") turned out
+to be a misunderstanding of the actual anti-fraud model rather than a
+real gap — the system has always been one vote per cat, ever (a real
+`UNIQUE(submission_id, voter_token)` constraint, not a daily reset), with
+a separate 30/day ceiling as an anti-bot throttle on top. Confirmed with
+the owner directly rather than silently either implementing false "vote
+daily" copy or silently changing real anti-fraud logic on an assumption
+— they confirmed the current one-vote-per-cat model is correct and
+should stay.
+
+Also confirmed directly, since it was a real product tradeoff and not
+just a bug: whether voting should immediately redirect to the shop
+(matches monetization) or keep the voter on the carousel (matches total
+vote volume, since the entire point of sharing a link is getting many
+real votes). Landed on a middle path per the owner: a starburst
+"Voted!" moment on every single vote (so it never feels like nothing
+happened), but the shop redirect only fires after the 3rd vote in a
+session, or immediately once someone's voted for every currently-open
+entry (so a small round under 3 entries doesn't strand an engaged voter
+who's genuinely voted for everyone). Tracked via a `sessionStorage`
+counter (`whiskr_session_votes`), same per-visit-not-forever pattern as
+the referral marker added earlier — this is an engagement signal, not
+an identity, so it resets every new tab/visit.
+
+The starburst itself is a plain CSS `clip-path` polygon (no image asset),
+fixed-position and viewport-centered rather than clipped inside a
+`.vote-card` (which needs `overflow:hidden` for its image's rounded
+corners, so an in-card overlay would've been clipped) — `void
+starburstEl.offsetWidth` forces the animation to restart cleanly on
+back-to-back votes rather than silently no-opping because the class was
+already present.
+
+Also added the missing entry count to the header ("September 2026 — 7
+cats to vote for — closes October 11").
+
+**Verified against a real local Postgres instance**: confirmed the
+header shows the real live entry count; cast three real votes through a
+real browser and confirmed the starburst fires on every one, the inline
+"thanks for voting" banner shows on votes 1–2, and vote 3 redirects
+cleanly to `index.html#shop-custom` roughly 1.1s after the starburst
+(long enough to actually see it before leaving); screenshotted the
+starburst mid-animation to confirm it reads clearly against the vote
+card underneath it.
