@@ -383,7 +383,6 @@ h1, h2, h3, h4 {
 .pick-card:hover { border-color: var(--marigold); background: rgba(232,163,61,0.08); }
 .pick-card h4 { font-size: 1rem; color: var(--marigold); margin-bottom: 6px; }
 .pick-card p { font-size: 0.88rem; color: rgba(239,230,216,0.75); margin: 0; }
-.affiliate-disclosure { margin-top: 26px; font-size: 0.78rem; color: rgba(239,230,216,0.5); }
 
 /* ---------- entry form ---------- */
 .enter { background: var(--forest); color: #fff; }

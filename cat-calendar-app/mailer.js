@@ -102,7 +102,7 @@ async function sendEntryConfirmation({ email, catName, groupId }) {
   });
 }
 
-async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, priceMulti }) {
+async function sendWinnerEmail({ email, catName, buyUrl, priceOne, priceMulti }) {
   const safeName = escapeHtml(catName);
   const html = wrapLayout(
     `
@@ -127,7 +127,7 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
   });
 }
 
-async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, priceMulti }) {
+async function sendFeaturedEmail({ email, catName, buyUrl, priceOne, priceMulti }) {
   const safeName = escapeHtml(catName);
   const html = wrapLayout(
     `
@@ -186,6 +186,4 @@ module.exports = {
   sendFeaturedEmail,
   sendReviewRequest,
   sendMail,
-  isSuppressed,
-  unsubscribeUrl,
 };
