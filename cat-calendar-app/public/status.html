@@ -47,6 +47,13 @@
   const params = new URLSearchParams(window.location.search);
   const card = document.getElementById('statusCard');
 
+  // cat_name (and disqualified_reason) come straight from the database and
+  // are only sanitized for newlines/length at submission, never HTML-escaped
+  // — this page renders them via innerHTML, so escape here before injecting.
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+  }
+
   async function load() {
     const cat = params.get('cat');
     const email = params.get('email');
@@ -61,7 +68,7 @@
       if (!res.ok) throw new Error(data.error || 'Could not load status.');
 
       if (data.disqualified) {
-        card.innerHTML = `<h1 class="ribbon-tag">${data.catName}</h1><p class="status-sub">This entry was disqualified${data.reason ? ': ' + data.reason : '.'}</p>`;
+        card.innerHTML = `<h1 class="ribbon-tag">${escapeHtml(data.catName)}</h1><p class="status-sub">This entry was disqualified${data.reason ? ': ' + escapeHtml(data.reason) : '.'}</p>`;
         return;
       }
 
@@ -71,7 +78,7 @@
           ? `<p class="status-sub">${data.referredVotes} vote${data.referredVotes === 1 ? '' : 's'} so far came from people who clicked your share link — nice work!</p>`
           : '';
         card.innerHTML = `
-          <h1 class="ribbon-tag">${data.catName} is currently</h1>
+          <h1 class="ribbon-tag">${escapeHtml(data.catName)} is currently</h1>
           <div class="status-rank">#${data.liveRank}</div>
           <p class="status-sub">out of ${data.totalEntries} entries this round · voting closes ${closes}</p>
           ${referredLine}
@@ -80,7 +87,7 @@
       } else {
         const won = data.finalRank === 1;
         card.innerHTML = `
-          <h1 class="ribbon-tag">${data.catName}'s final result</h1>
+          <h1 class="ribbon-tag">${escapeHtml(data.catName)}'s final result</h1>
           <div class="status-rank">#${data.finalRank}</div>
           <p class="status-sub">${won ? 'Cat of the Month! An original hand-painted portrait is on its way — check your email.' : 'Thanks for entering this round!'}</p>
           <p style="margin-top:24px;"><a href="index.html#shop-custom" class="btn btn-primary">Get a solo print</a></p>
