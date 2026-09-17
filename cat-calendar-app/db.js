@@ -502,4 +502,4 @@ async function transaction(fn) {
   }
 }
 
-module.exports = { get, all, run, initDb, transaction, pool };
+module.exports = { get, all, run, initDb, transaction };

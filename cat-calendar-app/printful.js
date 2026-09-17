@@ -92,4 +92,4 @@ async function submitOrder({ externalId, variantId, quantity, photoUrl, recipien
   return response.result;
 }
 
-module.exports = { configured, submitOrder, recipientFromStripeShipping };
+module.exports = { submitOrder, recipientFromStripeShipping };
