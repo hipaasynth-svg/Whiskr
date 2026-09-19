@@ -8,10 +8,10 @@ A real, runnable Node/Express site with two things going on:
   doesn't depend on the contest running.
 - **Free, real-public-vote photo contest**: entry is free and always open —
   no batch to wait for. Anyone can vote for any entered cat, once per cat,
-  at `vote.html`. When a round closes, the top `CONTEST_WINNERS_COUNT`
-  (default 12) vote-getters make that round's calendar; everyone else gets
-  their final placement by email and a nudge toward a solo print. Full
-  mechanics in `public/rules.html`.
+  at `vote.html`. When a round closes, the #1 vote-getter ("Cat of the
+  Month") wins a one-of-a-kind original hand-painted portrait; everyone
+  else gets their final placement by email and a nudge toward a solo
+  print. Full mechanics in `public/rules.html`.
 
 Reviews are **real or absent, never fabricated**. There is no seed/fake
 review anywhere in this codebase — a review can only be created by
@@ -34,8 +34,8 @@ section surfaces vote velocity per entry and lets you disqualify one
 
 - `server.js` — Express app: the custom-product + contest submission APIs,
   the vote endpoint and anti-fraud checks, the contest tally/close job
-  (promotes the top vote-getters into a `groups` row, reusing the calendar/
-  checkout/PDF/email pipeline unchanged), reviews endpoints, Stripe
+  (ranks every entrant and awards the #1 vote-getter an original painting
+  directly — see `awardPainting`), reviews endpoints, Stripe
   Checkout + webhook, the daily cron job (contest close + due
   review-request emails), admin endpoints.
 - `seo.js` — server-side prerendering helpers so the homepage/calendar pages
@@ -244,9 +244,9 @@ now" in the Current contest section), or directly:
 curl -X POST http://localhost:3000/api/admin/contest/force-close -H "x-admin-key: <ADMIN_KEY from .env>"
 ```
 
-That tallies every entrant's votes, promotes the top `CONTEST_WINNERS_COUNT`
-into a new calendar, sends the winner/featured/final-placement emails for
-real (if Zoho is configured), and opens the next round automatically.
+That tallies every entrant's votes, awards the #1 vote-getter an original
+painting directly, sends the winner/final-placement emails for real (if
+Zoho is configured), and opens the next round automatically.
 
 ## 6. Stripe webhook (required for any order to ever show as paid)
 
@@ -353,15 +353,17 @@ fabricated reviews are illegal under the FTC's 2024 rule (16 CFR Part 465),
 not just a trust problem.
 
 **Business-model notes, not legal ones:**
-- *Every one of the 11 non-winners still gets a purchase offer.* That's the
-  contest's monetization engine — 12 warm leads per batch instead of 1 —
-  keep that flow intact even as you redesign anything else.
+- *Every non-winner still gets a purchase nudge.* Every entrant who isn't
+  Cat of the Month gets a final-placement email with a time-limited
+  discount toward the print shop — that's the contest's monetization
+  engine now that entry is open-ended rather than fixed at 12.
 - *Printful's cut plus your price needs to actually be profitable.* Check
   their current per-product base cost + shipping before finalizing
   `priceUsd` in `products.js` — it varies by product and destination.
-- *No rate-limiting on `/api/submissions` or `/api/custom-orders`.* A
-  script could flood either with fake entries — fine at low volume, worth
-  addressing before you drive real traffic.
+- *Submissions, custom orders, and votes are all rate-limited per IP per
+  day* (see `SUBMISSION_LIMIT_PER_IP_PER_DAY`, `CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY`,
+  `VOTE_LIMIT_PER_IP_PER_DAY` in `.env.example`) — tune these if real
+  traffic needs different thresholds.
 
 ## 10. Replacing the placeholder content
 

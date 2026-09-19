@@ -6,10 +6,10 @@ A pet business, live at **whiskr.lol**, with two things going on:
   pick a product (mug, poster, canvas, phone case, tote, pillow), and it's
   printed and shipped through Printful. Always open, no batches to wait for.
 - **A free, real-public-vote photo contest** — entry is free and always
-  open; anyone can vote, once per cat, at `vote.html`; the top 12 vote-getters
-  when a round closes make that round's calendar, and every entrant is told
-  their final placement. No purchase necessary to enter or win. See
-  `rules.html` for full mechanics.
+  open; anyone can vote, once per cat, at `vote.html`; when a round closes,
+  the #1 vote-getter ("Cat of the Month") wins a one-of-a-kind original
+  hand-painted portrait, and every entrant is told their final placement.
+  No purchase necessary to enter or win. See `rules.html` for full mechanics.
 
 Two pieces live here:
 
