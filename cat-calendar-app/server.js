@@ -310,18 +310,25 @@ async function submitCustomOrderToPrintful(orderId) {
   const order = await db.get(`SELECT * FROM custom_orders WHERE id = ?`, [orderId]);
   if (!order || order.status !== 'paid') return;
 
-  const product = productCatalog.getProduct(order.product_id);
-  const recipient = printful.recipientFromStripeShipping(
-    order.shipping_address ? JSON.parse(order.shipping_address) : null,
-    order.email
-  );
-
-  const photoPath = await maybeEnhancePhoto(order.photo_path);
-  if (photoPath !== order.photo_path) {
-    await db.run(`UPDATE custom_orders SET photo_path = ? WHERE id = ?`, [photoPath, order.id]);
-  }
-
+  // Everything below (including JSON.parse'ing a stored field and a DB
+  // write) is inside this try on purpose — this function is the only place
+  // that ever alerts admin or marks an order 'failed' for retry. Anything
+  // between here and a real Printful submission that throws uncaught would
+  // leave the order silently stuck at 'paid' forever: no Printful order, no
+  // alert, and invisible in admin.html (whose "Retry Printful" button only
+  // shows for status='failed').
   try {
+    const product = productCatalog.getProduct(order.product_id);
+    const recipient = printful.recipientFromStripeShipping(
+      order.shipping_address ? JSON.parse(order.shipping_address) : null,
+      order.email
+    );
+
+    const photoPath = await maybeEnhancePhoto(order.photo_path);
+    if (photoPath !== order.photo_path) {
+      await db.run(`UPDATE custom_orders SET photo_path = ? WHERE id = ?`, [photoPath, order.id]);
+    }
+
     const result = await printful.submitOrder({
       externalId: `custom-${order.id}`,
       variantId: order.variant_id || (product ? product.printfulVariantId : null),
@@ -2458,7 +2465,16 @@ app.post('/api/admin/custom-orders/:id/retry-printful', requireAdmin, async (req
       console.error(`[printful retry] could not re-fetch Stripe session for order #${orderId}:`, err.message);
     }
   }
-  await db.run(`UPDATE custom_orders SET status = 'paid' WHERE id = ?`, [orderId]);
+  // Guarded on status='failed' the same way the webhook guards its own
+  // paid-marking on status='pending' — without this condition, two
+  // concurrent retries (two admin tabs, a flaky double-click) could both
+  // pass the status check above and both flip this row to 'paid', and both
+  // then call submitCustomOrderToPrintful, producing two real Printful
+  // orders for one paid order.
+  const flipped = await db.run(`UPDATE custom_orders SET status = 'paid' WHERE id = ? AND status = 'failed'`, [orderId]);
+  if (flipped.changes === 0) {
+    return res.status(409).json({ error: 'This order is already being retried elsewhere — refresh and check its status.' });
+  }
   await submitCustomOrderToPrintful(orderId);
   const updated = await db.get(`SELECT status, printful_order_id FROM custom_orders WHERE id = ?`, [orderId]);
   res.json({ ok: true, status: updated.status, printfulOrderId: updated.printful_order_id });
