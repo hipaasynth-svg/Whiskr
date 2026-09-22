@@ -41,6 +41,9 @@
   .refresh-btn { font-size: 0.8rem; padding: 6px 12px; }
   .product-row { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
   .product-row:last-child { border-bottom: none; }
+  .product-row.is-hidden { opacity: 0.55; }
+  .product-row .hidden-badge { font-size: 0.68rem; padding: 2px 7px; border-radius: 3px; background: #b3261e; color: #fff; }
+  .product-row .hidden-toggle { flex-direction: row !important; align-items: center; gap: 6px !important; font-size: 0.8rem !important; color: var(--ink) !important; }
   .product-row .preview { width: 90px; flex-shrink: 0; }
   .product-row .preview img { width: 100%; aspect-ratio: 1/1; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
   .product-row .preview .none { width: 100%; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.68rem; color: #6b6552; border: 1px dashed var(--line); border-radius: 4px; padding: 4px; }
@@ -1389,12 +1392,12 @@
       keyStatus.className = 'key-status ok';
 
       productsList.innerHTML = data.products.map((p) => `
-        <div class="product-row">
+        <div class="product-row${p.hidden ? ' is-hidden' : ''}">
           <div class="preview">
             ${p.imagePath ? `<img src="${p.imagePath}" alt="" />` : `<div class="none">No photo yet</div>`}
           </div>
           <div class="body">
-            <div class="title-line"><strong>${escapeHtml(p.name)}</strong><span class="price">$${p.priceUsd.toFixed(2)}</span></div>
+            <div class="title-line"><strong>${escapeHtml(p.name)}</strong><span class="price">$${p.priceUsd.toFixed(2)}</span>${p.hidden ? '<span class="hidden-badge">Hidden from shop</span>' : ''}</div>
             <div class="aspect-hint">${aspectHint(p.mockupAspect)}</div>
             <form class="product-form" data-id="${p.id}">
               <input type="file" name="photo" accept="image/png,image/jpeg,image/webp,image/gif" class="full" />
@@ -1402,6 +1405,7 @@
               <label>SEO title<input type="text" name="seoTitle" value="${escapeHtml(p.seoTitle || '')}" placeholder="${escapeHtml(p.name)}" maxlength="200" /></label>
               <label class="full">SEO description<textarea name="seoDescription" placeholder="${escapeHtml(p.description)}" maxlength="500">${escapeHtml(p.seoDescription || '')}</textarea></label>
               <label class="full">Description override<textarea name="description" placeholder="${escapeHtml(p.description)}" maxlength="500">${escapeHtml(p.descriptionOverride || '')}</textarea></label>
+              <label class="full hidden-toggle"><input type="checkbox" name="hidden" ${p.hidden ? 'checked' : ''} /> Hidden — pull from the shop (keeps photo/copy, blocks new orders, doesn't touch past ones)</label>
               <div class="row-actions">
                 <button type="submit" class="btn btn-primary">Save</button>
                 ${p.imagePath ? `<button type="button" class="remove-photo" data-id="${p.id}">Remove photo</button>` : ''}

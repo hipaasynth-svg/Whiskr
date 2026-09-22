@@ -1453,23 +1453,25 @@ async function verifyTurnstile(token, remoteIp) {
 async function getProductsWithMedia(species) {
   const media = await db.all(`SELECT * FROM product_media`);
   const byId = Object.fromEntries(media.map((m) => [m.product_id, m]));
-  return productCatalog.listProducts(species).map((p) => {
-    const m = byId[p.id];
-    const description = (m && m.description_override) || p.description;
-    return {
-      id: p.id,
-      name: p.name,
-      species: p.species,
-      description,
-      priceUsd: p.priceUsd,
-      mockupAspect: p.mockupAspect,
-      tier: p.tier || null,
-      imagePath: m ? m.image_path : null,
-      imageAlt: (m && m.image_alt) || p.name,
-      seoName: (m && m.seo_title) || p.name,
-      seoDescription: (m && m.seo_description) || description,
-    };
-  });
+  return productCatalog.listProducts(species)
+    .filter((p) => !(byId[p.id] && Number(byId[p.id].hidden)))
+    .map((p) => {
+      const m = byId[p.id];
+      const description = (m && m.description_override) || p.description;
+      return {
+        id: p.id,
+        name: p.name,
+        species: p.species,
+        description,
+        priceUsd: p.priceUsd,
+        mockupAspect: p.mockupAspect,
+        tier: p.tier || null,
+        imagePath: m ? m.image_path : null,
+        imageAlt: (m && m.image_alt) || p.name,
+        seoName: (m && m.seo_title) || p.name,
+        seoDescription: (m && m.seo_description) || description,
+      };
+    });
 }
 
 app.get('/api/products', async (req, res) => {
@@ -1597,6 +1599,13 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     const product = productCatalog.getProduct(productId);
     if (!product) {
       return res.status(400).json({ error: 'Unknown product.' });
+    }
+    // A hidden product stays fully valid for its own order history — this
+    // only blocks placing a *new* order against it (e.g. straight against
+    // the API, bypassing a shop grid that already hid the card).
+    const media = await db.get(`SELECT hidden FROM product_media WHERE product_id = ?`, [product.id]);
+    if (media && Number(media.hidden)) {
+      return res.status(404).json({ error: 'This product is not currently available.' });
     }
 
     const ipHash = hashIp(req.ip);
@@ -2686,6 +2695,7 @@ app.get('/api/admin/products', requireAdmin, async (req, res) => {
       seoTitle: m ? m.seo_title : null,
       seoDescription: m ? m.seo_description : null,
       descriptionOverride: m ? m.description_override : null,
+      hidden: m ? Boolean(Number(m.hidden)) : false,
     };
   });
   res.json({ products });
@@ -2703,18 +2713,22 @@ app.post('/api/admin/products/:id', requireAdmin, upload.single('photo'), async 
   const seoTitle = String(req.body.seoTitle || '').trim().slice(0, 200) || null;
   const seoDescription = String(req.body.seoDescription || '').trim().slice(0, 500) || null;
   const descriptionOverride = String(req.body.description || '').trim().slice(0, 500) || null;
+  // Unchecked checkboxes are simply absent from the submitted form data,
+  // never sent as false — so anything other than the checked value means hide it.
+  const hidden = (req.body.hidden === 'on' || req.body.hidden === 'true') ? 1 : 0;
 
   await db.run(
-    `INSERT INTO product_media (product_id, image_path, image_alt, seo_title, seo_description, description_override, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO product_media (product_id, image_path, image_alt, seo_title, seo_description, description_override, hidden, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (product_id) DO UPDATE SET
        image_path = COALESCE(EXCLUDED.image_path, product_media.image_path),
        image_alt = EXCLUDED.image_alt,
        seo_title = EXCLUDED.seo_title,
        seo_description = EXCLUDED.seo_description,
        description_override = EXCLUDED.description_override,
+       hidden = EXCLUDED.hidden,
        updated_at = EXCLUDED.updated_at`,
-    [product.id, imagePath, imageAlt, seoTitle, seoDescription, descriptionOverride, new Date().toISOString()]
+    [product.id, imagePath, imageAlt, seoTitle, seoDescription, descriptionOverride, hidden, new Date().toISOString()]
   );
   res.json({ ok: true });
 });

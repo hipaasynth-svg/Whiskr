@@ -369,6 +369,11 @@ CREATE TABLE IF NOT EXISTS product_media (
   description_override TEXT,
   updated_at TEXT NOT NULL
 );
+-- Lets the owner pull a product off the storefront (bad Printful variant,
+-- pricing needs a second look, seasonal item) without deleting its photo/
+-- copy or losing order history — orders already placed for a hidden
+-- product are untouched, it just stops appearing/being orderable anew.
+ALTER TABLE product_media ADD COLUMN IF NOT EXISTS hidden INTEGER NOT NULL DEFAULT 0;
 
 -- Reviews are only ever created against a real, paid order (calendar or
 -- custom-product) via a signed link emailed after fulfillment — see
