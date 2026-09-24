@@ -327,13 +327,29 @@ counsel before you go live, especially if you'll also be emailing EU
 entrants (GDPR marketing-consent rules are stricter and separate from
 CAN-SPAM, and this unsubscribe mechanism alone doesn't satisfy them).
 
-**[UPDATED] — photo rights: now enforced for both flows.** The contest
-entry form and the custom-print order form both require an "I own this
-photo and grant Whiskr a license to print and sell it" checkbox, and the
-server rejects submissions without it, storing a `photo_rights_consent_at`
-timestamp either way. Still worth having counsel confirm the checkbox
-language covers what you actually need (e.g. minors in photos, background
-people/property) before scaling up.
+**[UPDATED] — photo rights: enforced for both flows, and scoped to what
+each one actually does.** Both forms require a photo-rights checkbox, the
+server rejects submissions without it, and a `photo_rights_consent_at`
+timestamp is stored either way. The two grants are deliberately different
+and deliberately narrow:
+
+- **Contest entry** — the entrant keeps ownership and permits public
+  display (vote page, results, share card), promotion of *this contest* on
+  Whiskr's own social accounts and ads, and, if they win, painting the
+  portrait from the photo and showing it afterwards. It does **not** permit
+  selling products made from their photo.
+- **Custom print order** — the customer keeps ownership and permits
+  printing the item they ordered and sending the photo to Printful to make
+  and ship it. Nothing else.
+
+The authoritative text is the Photo rights section of `public/rules.html`;
+the checkboxes in `index.html`/`landing.html` summarize it and link to it.
+Keep all four in sync — if you ever revive the calendar flow
+(`CALENDAR_CHECKOUT_ENABLED`) or anything else that sells a product made
+from an *entry* photo, the current contest grant does not cover it and you
+need fresh consent from entrants before shipping one. Still worth having
+counsel confirm the language covers what you need (e.g. minors in photos,
+background people/property) before scaling up.
 
 **[RESOLVED, later superseded] — winners are judged, not simulated-voted.**
 `Math.random()` used to silently pick every winner while the copy claimed
