@@ -40,6 +40,10 @@ section surfaces vote velocity per entry and lets you disqualify one
   review-request emails), admin endpoints.
 - `seo.js` — server-side prerendering helpers so the homepage/calendar pages
   are indexable without running client JS — see its header comment.
+- `blog.js` — the `/blog` section: renders the Markdown files in
+  `content/blog/` into server-rendered post pages, an index, and an RSS
+  feed, and tags/discloses Amazon affiliate links automatically. Needs no
+  database — see section 12 for the publishing workflow.
 - `db.js` — Postgres (via the `pg` package), through a thin get/all/run
   shim so the rest of the app didn't need a query-by-query rewrite. Needs
   `POSTGRES_URL` — see Deployment below.
@@ -425,3 +429,114 @@ budget, or spend a dollar on your behalf, even with these keys set. If a
 campaign's all-time ROAS drops under `ROAS_ALERT_THRESHOLD` (default
 2.0x), you get a plain alert email at `ADMIN_EMAIL` — you decide what to
 do about it in Meta's own dashboard.
+
+## 12. Publishing a blog post
+
+The blog at `/blog` exists to bring in organic search traffic that has
+nothing to do with anyone already knowing this site exists, and to give
+Amazon Associates links somewhere honest to live. It is deliberately the
+simplest thing that could work: **a post is a Markdown file, and publishing
+is a commit.** No database table, no admin screen, no CMS to keep patched.
+
+### Add a post
+
+1. Create `content/blog/your-post-slug.md`. **The filename is the URL** —
+   `cat-enrichment.md` is served at `/blog/cat-enrichment`. Use lowercase
+   letters, numbers and hyphens only; anything else won't be found (see
+   `SLUG_RE` in `blog.js`).
+2. Open it with a front-matter block, then write the body in Markdown:
+
+   ```markdown
+   ---
+   title: "The Bored Cat Problem: Why Enrichment, Catios, and Play Matter"
+   description: "One or two sentences. This is the <meta name=description>, the Open Graph description, the card blurb on /blog, and the RSS summary — write it for a human scanning search results."
+   date: 2026-09-24
+   image: /uploads/some-cat.jpg
+   imageAlt: A tabby mid-pounce on a feather wand toy
+   draft: false
+   ---
+
+   Body copy starts here.
+   ```
+
+   | Field | Required | Notes |
+   | --- | --- | --- |
+   | `title` | yes | Quote it — almost every good title contains a colon, and the front-matter parser splits on the first one. |
+   | `description` | yes | Used in four places (above). Don't skip it. |
+   | `date` | yes | `YYYY-MM-DD`. Drives sort order, the displayed date, `datePublished`, the RSS `pubDate`, and sitemap `lastmod`. Parsed and displayed as UTC so a post never shows yesterday's date. |
+   | `image` | no | Absolute URL, or a site-relative path like `/uploads/x.jpg`. Becomes the card photo, the lead image, and the Open Graph / Twitter card image. |
+   | `imageAlt` | no | Alt text for the above. Falls back to the title, but write a real one. |
+   | `draft` | no | `true` keeps it out of `/blog`, the RSS feed and `sitemap.xml`, and marks the page `noindex, nofollow`. The URL still works, so that's how you preview — see below. |
+
+   The parser handles a deliberately small subset of YAML: one `key: value`
+   per line, optionally quoted. No lists, no nesting, no multi-line values.
+   Use `'single quotes'` if the value itself contains a double quote.
+
+3. Restart isn't needed locally — posts are cached per file mtime, so saving
+   the `.md` and refreshing is enough.
+4. Commit the file. That's the publish.
+
+### Amazon links are handled for you
+
+Write a plain Markdown link to Amazon and `blog.js` does the rest:
+
+```markdown
+[Da Bird](https://www.amazon.com/s?k=da+bird+cat+toy)
+```
+
+- `rel="sponsored nofollow noopener"` and `target="_blank"` are added —
+  what the Associates operating agreement and Google's link-spam guidance
+  both want on a monetized link.
+- `?tag=` is appended from `AMAZON_ASSOCIATE_TAG` in `.env`, unless the URL
+  already carries a `tag` param. Unset means untagged links (no commission)
+  rather than broken ones — which is the correct state until your
+  Associates application is actually approved.
+- **Any post containing at least one Amazon link automatically renders the
+  Associates/FTC disclosure** above the body, before the first link. That
+  flag is derived from the rendered links themselves, not from a front-matter
+  field, so it can't drift out of sync with reality — which is the entire
+  point. The FTC's endorsement guides want disclosure "clear and
+  conspicuous"; don't restyle `.blog-disclosure` into fine print, and don't
+  add a way to turn it off.
+
+Prefer Amazon **search** URLs (`/s?k=...`) over specific ASINs for anything
+you haven't personally bought. A search link can't rot into a dead listing
+or silently become a different product under the same ASIN, and it can't
+make you look like you're recommending a listing you never saw.
+
+### The call to action is fixed, on purpose
+
+Every post ends with the same CTA — "Enter your cat free" → `/#enter`, and
+"or put them on a mug" → `/#shop-custom` (`POST_CTA` in `blog.js`). One CTA,
+same place every time, because both halves are true of every post regardless
+of subject, and because a reader who has to choose between five calls to
+action takes none of them. Change it in that one constant if you must; don't
+start hand-rolling a different one per post.
+
+### Previewing a draft
+
+Set `draft: true` and open `/blog/your-post-slug` directly. It renders with a
+draft banner and `noindex, nofollow`, and stays out of the index, the feed
+and the sitemap. Flip to `draft: false` (or delete the line) to publish.
+
+### What updates itself
+
+- `/blog` — index, newest first.
+- `/blog/feed.xml` — RSS 2.0, with full post HTML in `content:encoded`.
+- `/sitemap.xml` — the blog index plus every published post, with `lastmod`
+  (see `blog.sitemapEntries` in `server.js`).
+- `BlogPosting` JSON-LD, canonical URL, and Open Graph / Twitter tags on
+  every post page.
+
+### Two things that will bite you
+
+- **`vercel.json` must keep its `includeFiles` entry.** Vercel's bundler
+  finds files by tracing `require` calls, and reading a directory at runtime
+  isn't a `require` — without
+  `"config": { "includeFiles": ["content/**"] }` on the `server.js` build,
+  `content/blog/` silently doesn't ship and the deployed blog is empty while
+  it works perfectly on your machine.
+- **Don't move the blog router below the DB middleware in `server.js`.** It's
+  mounted above it deliberately so the blog (and the sitemap) keep serving
+  when Postgres is down. Moving it costs you your whole indexable surface
+  during an outage.

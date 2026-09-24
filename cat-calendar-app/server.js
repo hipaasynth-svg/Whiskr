@@ -23,6 +23,7 @@ const sweatshirtSizes = require('./sweatshirtSizes');
 const metaAds = require('./metaAds');
 const metaConversions = require('./metaConversions');
 const seo = require('./seo');
+const blog = require('./blog');
 
 const app = express();
 // Vercel (and most PaaS hosts) sit in front of this app as a reverse proxy —
@@ -109,6 +110,47 @@ let stripe = null;
 if (process.env.STRIPE_SECRET_KEY) {
   stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 }
+
+// ---------- blog + sitemap (no database) ----------
+// Both are mounted ahead of the DB-init middleware below on purpose. The
+// blog renders straight from the Markdown files in content/blog, and the
+// sitemap is a fixed URL list plus those same files, so neither needs
+// Postgres for anything — and in front of that middleware, both still
+// answer with their content and metadata intact through a database outage
+// that 500s the contest and shop pages outright. (The shared stylesheet
+// comes from express.static further down and so is still DB-gated; these
+// pages degrade to unstyled rather than disappearing. express.static can't
+// simply move up here — it would shadow the server-rendered / and
+// /index.html routes with the raw file.) Being ahead of express.static is
+// also what makes these routes win over any file of the same name in
+// public/, same as the server-rendered pages below.
+app.use(blog.createRouter({ baseUrl: BASE_URL }));
+
+// Dynamic sitemap. year-award.html and per-round calendar.html pages are
+// deliberately left out — both are dormant (see the 2026-09-11
+// simplification note in docs/audit-assembly.md), nothing to index.
+app.get('/sitemap.xml', (req, res) => {
+  const urls = [
+    { loc: `${BASE_URL}/`, changefreq: 'daily', priority: '1.0' },
+    { loc: `${BASE_URL}/vote.html`, changefreq: 'hourly', priority: '0.9' },
+    ...blog.sitemapEntries(BASE_URL),
+    { loc: `${BASE_URL}/rules.html`, changefreq: 'monthly', priority: '0.3' },
+    { loc: `${BASE_URL}/privacy.html`, changefreq: 'monthly', priority: '0.2' },
+    { loc: `${BASE_URL}/terms.html`, changefreq: 'monthly', priority: '0.2' },
+    { loc: `${BASE_URL}/shipping.html`, changefreq: 'monthly', priority: '0.2' },
+  ];
+  const body = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((u) => `  <url>
+    <loc>${seo.escapeHtml(u.loc)}</loc>${u.lastmod ? `
+    <lastmod>${seo.escapeHtml(u.lastmod)}</lastmod>` : ''}
+    <changefreq>${u.changefreq}</changefreq>
+    <priority>${u.priority}</priority>
+  </url>`).join('\n')}
+</urlset>`;
+  res.set('Content-Type', 'application/xml; charset=utf-8');
+  res.send(body);
+});
 
 // Runs on every request (see ensureDbReady below) but only does real work
 // once per warm instance — required on Vercel since there's no long-lived
@@ -490,8 +532,8 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
 app.use(express.json());
 
 // ---------- server-rendered pages (must come before express.static below,
-// so these routes intercept /, /index.html, /calendar.html, /sitemap.xml
-// instead of the static files of the same name) ----------
+// so these routes intercept /, /index.html and /calendar.html instead of
+// the static files of the same name) ----------
 
 // Same query the /api/status JSON endpoint answers, shared so the
 // server-rendered homepage and the client's live re-check never disagree.
@@ -748,30 +790,6 @@ app.get('/calendar.html', async (req, res, next) => {
     console.error('[render] calendar prerender failed, falling back to static file:', err.message);
     next();
   }
-});
-
-// Dynamic sitemap. year-award.html and per-round calendar.html pages are
-// deliberately left out — both are dormant (see the 2026-09-11
-// simplification note in docs/audit-assembly.md), nothing to index.
-app.get('/sitemap.xml', async (req, res) => {
-  const urls = [
-    { loc: `${BASE_URL}/`, changefreq: 'daily', priority: '1.0' },
-    { loc: `${BASE_URL}/vote.html`, changefreq: 'hourly', priority: '0.9' },
-    { loc: `${BASE_URL}/rules.html`, changefreq: 'monthly', priority: '0.3' },
-    { loc: `${BASE_URL}/privacy.html`, changefreq: 'monthly', priority: '0.2' },
-    { loc: `${BASE_URL}/terms.html`, changefreq: 'monthly', priority: '0.2' },
-    { loc: `${BASE_URL}/shipping.html`, changefreq: 'monthly', priority: '0.2' },
-  ];
-  const body = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls.map((u) => `  <url>
-    <loc>${seo.escapeHtml(u.loc)}</loc>
-    <changefreq>${u.changefreq}</changefreq>
-    <priority>${u.priority}</priority>
-  </url>`).join('\n')}
-</urlset>`;
-  res.set('Content-Type', 'application/xml; charset=utf-8');
-  res.send(body);
 });
 
 app.use(express.static(path.join(__dirname, 'public')));

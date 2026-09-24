@@ -33,6 +33,10 @@ entries found to be using purchased or bot-generated votes (see rules.html).
   free, once per cat.
 - [Official rules](https://whiskr.lol/rules.html): eligibility, how votes
   and winners are determined, disqualification policy.
+- [Blog](https://whiskr.lol/blog): practical, source-cited writing about
+  living with cats — enrichment, play, catios, vertical space. Posts that
+  recommend products disclose their Amazon Associates affiliate links at the
+  top of the page. RSS at https://whiskr.lol/blog/feed.xml.
 - [Privacy policy](https://whiskr.lol/privacy.html), [Terms of service](https://whiskr.lol/terms.html),
   and [Shipping & returns](https://whiskr.lol/shipping.html): what data is
   collected and shared, usage terms, and production/shipping/refund terms

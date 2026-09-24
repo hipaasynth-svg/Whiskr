@@ -853,3 +853,202 @@ h1, h2, h3, h4 {
   .hero-slides img { transition: none; }
   html { scroll-behavior: auto; }
 }
+
+/* ---------- blog ---------- */
+/* Server-rendered by blog.js, which reuses this file's existing chrome
+   (.site-header, .site-nav, .site-footer, .btn*, .ribbon-tag) and adds only
+   the reading-column styles below. Same variables as everywhere else — no
+   new colors, and --marigold-text rather than --marigold anywhere marigold
+   is the text color (see the contrast note on :root). */
+
+.blog-wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 50px 36px 90px;
+}
+.blog-wrap > h1 {
+  font-size: clamp(1.9rem, 4.4vw, 2.7rem);
+}
+.blog-wrap .ribbon-tag a {
+  color: var(--marigold-text);
+  text-decoration: none;
+}
+.blog-wrap .ribbon-tag a:hover { text-decoration: underline; }
+
+/* ---------- blog index ---------- */
+.blog-list {
+  display: grid;
+  gap: 22px;
+  margin-top: 36px;
+}
+.blog-card {
+  display: block;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.blog-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(27, 36, 48, 0.1);
+}
+.blog-card-photo {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+.blog-card-body { padding: 22px 24px 24px; }
+.blog-card-date {
+  display: block;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6b6553;
+  margin-bottom: 8px;
+}
+.blog-card-body h2 { font-size: 1.35rem; margin-bottom: 0.35em; }
+.blog-card-body p { margin: 0; color: #55503f; font-size: 0.95rem; }
+.blog-card-more {
+  display: inline-block;
+  margin-top: 14px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--marigold-text);
+}
+.blog-empty {
+  background: var(--paper-card);
+  border: 1px dashed var(--line);
+  border-radius: 4px;
+  padding: 34px 24px;
+  text-align: center;
+  color: #55503f;
+}
+
+/* ---------- blog post ---------- */
+.blog-post-meta {
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6b6553;
+  margin: -0.2em 0 1.6em;
+}
+.blog-post-photo {
+  width: 100%;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  margin-bottom: 30px;
+}
+/* Only ever rendered on a draft preview (see renderPostPage) — loud on
+   purpose, so a draft can't be mistaken for a live post. */
+.blog-draft-flag {
+  background: var(--blush);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  border-radius: 3px;
+  padding: 9px 14px;
+  margin-bottom: 24px;
+}
+
+.blog-body { font-size: 1.04rem; }
+.blog-body p, .blog-body li { color: #33301f; }
+.blog-body h2 {
+  font-size: 1.42rem;
+  margin-top: 2.1em;
+  padding-top: 0.9em;
+  border-top: 1px solid var(--line);
+}
+.blog-body h3 { font-size: 1.12rem; margin-top: 1.8em; }
+.blog-body ul, .blog-body ol { padding-left: 1.3em; }
+.blog-body li { margin-bottom: 0.5em; }
+.blog-body a {
+  color: var(--marigold-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.blog-body a:hover { color: var(--ink); }
+.blog-body strong { font-weight: 600; }
+.blog-body blockquote {
+  margin: 1.6em 0;
+  padding: 2px 0 2px 20px;
+  border-left: 3px solid var(--marigold);
+  color: #55503f;
+  font-style: italic;
+}
+.blog-body img {
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  margin: 1.6em 0;
+}
+.blog-body code {
+  font-size: 0.9em;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.blog-body hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 2.4em 0;
+}
+
+/* Amazon Associates / FTC disclosure. Rendered above the post body, before
+   the first affiliate link, on any post that contains one — so keep it
+   visible rather than styling it down into fine print. */
+.blog-disclosure {
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--marigold);
+  border-radius: 3px;
+  padding: 15px 18px;
+  font-size: 0.89rem;
+  color: #55503f;
+  margin: 0 0 32px;
+}
+
+/* ---------- per-post call to action ---------- */
+.blog-cta {
+  margin-top: 56px;
+  background: var(--forest);
+  color: var(--paper);
+  border-radius: 5px;
+  padding: 38px 34px 34px;
+  text-align: center;
+}
+.blog-cta h2 { color: #fff; font-size: 1.7rem; }
+.blog-cta p { color: rgba(239, 230, 216, 0.85); }
+/* The body paragraph only — a measure this narrow would also force the
+   two-button row below to wrap, and the fine print reads better full
+   width. */
+.blog-cta > p:not(.ribbon-tag):not(.blog-cta-fine):not(.blog-cta-actions) {
+  max-width: 46ch;
+  margin-left: auto;
+  margin-right: auto;
+}
+/* .ribbon-tag's --marigold-text is tuned for the light --paper background;
+   on this dark panel bright --marigold is both legible and correct. */
+.blog-cta .ribbon-tag { color: var(--marigold); }
+.blog-cta-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin: 26px 0 0;
+}
+.blog-cta-fine {
+  font-size: 0.83rem;
+  margin: 22px 0 0;
+  color: rgba(239, 230, 216, 0.7) !important;
+}
+.blog-cta-fine a { color: var(--paper); }
+
+@media (max-width: 640px) {
+  .blog-wrap { padding: 34px 20px 70px; }
+  .blog-card-body { padding: 18px 18px 20px; }
+  .blog-cta { padding: 30px 20px 26px; }
+  .blog-cta-actions .btn { width: 100%; }
+}
