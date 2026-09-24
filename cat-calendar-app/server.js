@@ -1135,8 +1135,13 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'A photo is required.' });
     }
-    // Photo rights: before printing and selling a stranger's photo, we need
-    // affirmative confirmation the submitter owns/has rights to it.
+    // Photo rights: before showing a stranger's photo publicly — on the
+    // vote page, in a share card, on Whiskr's social accounts — we need
+    // affirmative confirmation the submitter owns/has rights to it. The
+    // entrant keeps ownership and this grant is contest-only: it does NOT
+    // cover selling products made from the photo (see the Photo rights
+    // section of public/rules.html, which is the authoritative text this
+    // checkbox summarizes). Don't widen either one without widening both.
     if (photoRights !== 'on' && photoRights !== 'true') {
       return res.status(400).json({ error: 'You must confirm you own the rights to this photo.' });
     }
@@ -1614,10 +1619,13 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     if (species !== 'cat' && species !== 'dog') {
       return res.status(400).json({ error: 'Please choose cat or dog.' });
     }
-    // Photo rights: same requirement as contest entries — before printing
-    // and selling a customer's own photo, we need their affirmative
-    // confirmation they own/have rights to it (it's usually their own pet,
-    // but the checkbox is the actual legal record either way).
+    // Photo rights: same requirement as contest entries, narrower grant —
+    // before printing a customer's photo and handing it to Printful, we
+    // need their affirmative confirmation they own/have rights to it (it's
+    // usually their own pet, but the checkbox is the actual legal record
+    // either way). This covers printing the item ordered and nothing else;
+    // it is deliberately separate from the contest grant, which covers
+    // public display instead.
     if (photoRights !== 'on' && photoRights !== 'true') {
       return res.status(400).json({ error: 'You must confirm you own the rights to this photo.' });
     }
