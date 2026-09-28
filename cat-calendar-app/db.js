@@ -504,6 +504,55 @@ CREATE INDEX IF NOT EXISTS commissions_status_idx ON commissions(status, created
 -- until a source photo is uploaded for them.
 ALTER TABLE featured_originals ADD COLUMN IF NOT EXISTS source_photo_path TEXT;
 
+-- ==================== shipment tracking ====================
+-- One row per Printful shipment. A separate table rather than columns on
+-- custom_orders because Printful can split one order across several
+-- packages: a handler that writes tracking straight onto the order row
+-- overwrites the first package's tracking with the second's, and the
+-- customer loses the link to a parcel that is genuinely in transit. Rows
+-- are appended and keyed by Printful's own shipment id, so a duplicate or
+-- out-of-order webhook delivery updates in place instead of duplicating.
+CREATE TABLE IF NOT EXISTS custom_order_shipments (
+  id SERIAL PRIMARY KEY,
+  custom_order_id INTEGER NOT NULL REFERENCES custom_orders(id),
+  printful_shipment_id TEXT NOT NULL UNIQUE,
+  tracking_number TEXT,
+  tracking_url TEXT,
+  carrier TEXT,
+  service TEXT,
+  shipped_at TEXT,
+  ship_date TEXT,
+  -- pre_transit | in_transit | out_for_delivery | delivered |
+  -- available_for_pickup | return_to_sender | failure | canceled | unknown
+  delivery_status TEXT,
+  delivered_at TEXT,
+  estimated_delivery TEXT,
+  is_reshipment INTEGER NOT NULL DEFAULT 0,
+  delivery_checked_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS custom_order_shipments_order_idx ON custom_order_shipments(custom_order_id);
+CREATE INDEX IF NOT EXISTS custom_order_shipments_undelivered_idx
+  ON custom_order_shipments(delivery_status, estimated_delivery);
+
+-- Denormalized summary of the shipments above, recomputed whenever one
+-- changes. Kept on the order so the review-request query, the admin table
+-- and the customer-facing status can read one row without a join, and so
+-- the "has this order actually arrived" question has a single answer even
+-- when an order shipped in two boxes.
+-- first_shipped_at: earliest dispatch. delivered_at: set only when EVERY
+-- shipment on the order is delivered, because a half-delivered order has
+-- not arrived.
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS first_shipped_at TEXT;
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS delivered_at TEXT;
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS latest_estimated_delivery TEXT;
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS tracking_emailed_at TEXT;
+-- Set when the daily job flags a shipment as overdue with no delivery scan,
+-- so the Printful lost-in-transit claim gets filed inside their window
+-- (30 days from estimated delivery) rather than after a customer complains.
+-- Stamped once so the alert does not re-fire every single day.
+ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS stalled_flagged_at TEXT;
+
 `;
 
 // Runs once per warm serverless instance (or once at local startup) — see

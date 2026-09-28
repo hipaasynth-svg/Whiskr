@@ -10,7 +10,9 @@
 // app: if PRINTFUL_API_KEY isn't set, calls log what they would have done
 // and return a dry-run result instead of throwing.
 const PRINTFUL_API_KEY = process.env.PRINTFUL_API_KEY;
-const PRINTFUL_BASE = 'https://api.printful.com';
+// Overridable only so the shipment-sync path can be exercised end to end
+// against a stub in tests; production never sets it.
+const PRINTFUL_BASE = process.env.PRINTFUL_API_BASE || 'https://api.printful.com';
 
 function configured() {
   return Boolean(PRINTFUL_API_KEY);
@@ -92,4 +94,70 @@ async function submitOrder({ externalId, variantId, quantity, photoUrl, recipien
   return response.result;
 }
 
-module.exports = { submitOrder, recipientFromStripeShipping };
+// Fetches the shipments Printful holds for one order.
+//
+// This exists because the shipment webhook does NOT carry everything the
+// business needs. Its payload is only:
+//   id, status, store_id, tracking_number, tracking_url,
+//   created_at, ship_date, shipped_at, reshipment
+// There is no carrier and no estimated delivery in it, and Printful's
+// lost-in-transit claim window runs from estimated delivery -- so the
+// webhook alone cannot tell us when a claim expires. The Shipment resource
+// does carry carrier, service, estimated_delivery, delivery_status and
+// delivered_at, so every webhook is followed by this call.
+//
+// It is also what authenticates the webhook. Printful is not known to sign
+// webhook deliveries, so an inbound payload is treated as an untrusted hint
+// that something changed; the state we store is whatever this endpoint
+// returns. A forged webhook can therefore cost us one API call and nothing
+// else.
+//
+// Uses the v2 API. The order-submission call above is v1 (different path
+// prefix, same host and same bearer token) -- v2 is where shipment
+// delivery state actually lives, so the two coexist deliberately.
+async function getOrderShipments(printfulOrderId) {
+  if (!configured()) {
+    console.log(`[printful] DRY RUN -- would fetch shipments for order ${printfulOrderId}`);
+    return { dryRun: true, shipments: [] };
+  }
+  if (!printfulOrderId) throw new Error('No Printful order id on this order.');
+
+  const data = await printfulRequest(`/v2/orders/${encodeURIComponent(printfulOrderId)}/shipments`);
+  // v1 responses wrap payloads in `result`; v2 uses `data`. Accept either so
+  // this keeps working if the endpoint is served by the older shape.
+  const list = (data && (data.data || data.result)) || [];
+  return { shipments: Array.isArray(list) ? list : [] };
+}
+
+// Normalizes one v2 Shipment into the columns custom_order_shipments holds.
+// Kept here, beside the field notes above, so the mapping and the evidence
+// for it live together.
+function normalizeShipment(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = raw.id != null ? String(raw.id) : null;
+  if (!id) return null;
+
+  // estimated_delivery is a nullable object in v2, not a bare date.
+  let estimated = null;
+  if (raw.estimated_delivery && typeof raw.estimated_delivery === 'object') {
+    estimated = raw.estimated_delivery.to || raw.estimated_delivery.from || null;
+  } else if (typeof raw.estimated_delivery === 'string') {
+    estimated = raw.estimated_delivery;
+  }
+
+  return {
+    printfulShipmentId: id,
+    trackingNumber: raw.tracking_number || null,
+    trackingUrl: raw.tracking_url || null,
+    carrier: raw.carrier || null,
+    service: raw.service || null,
+    shippedAt: raw.shipped_at || null,
+    shipDate: raw.ship_date || null,
+    deliveryStatus: raw.delivery_status || null,
+    deliveredAt: raw.delivered_at || null,
+    estimatedDelivery: estimated,
+    isReshipment: raw.is_reshipment || raw.reshipment ? 1 : 0,
+  };
+}
+
+module.exports = { configured, submitOrder, recipientFromStripeShipping, getOrderShipments, normalizeShipment };
