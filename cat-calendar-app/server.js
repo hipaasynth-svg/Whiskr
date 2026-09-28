@@ -158,17 +158,52 @@ ${urls.map((u) => `  <url>
   res.send(body);
 });
 
-// Runs on every request (see ensureDbReady below) but only does real work
-// once per warm instance — required on Vercel since there's no long-lived
-// startup phase to create tables in ahead of time the way a normal server
-// would.
-app.use(async (req, res, next) => {
+// Static assets, served BEFORE the DB-init middleware below.
+//
+// Everything used to sit behind that middleware, which meant a Postgres
+// outage returned a plain-text 500 for vote.html, style.css and script.js
+// alike — the vote page couldn't render far enough to tell anyone what was
+// wrong, it just hung or died. None of these files need a database to be
+// sent, so they no longer wait on one.
+//
+// index:false plus the explicit skip below is what the earlier comment
+// worried about: the server-rendered /, /index.html and /calendar.html
+// routes further down must keep winning over the raw files of the same
+// name, so those three paths alone fall through to their own handlers (and
+// to the late express.static as the prerender's fallback).
+const SERVER_RENDERED_PATHS = new Set(['/', '/index.html', '/calendar.html']);
+const staticAssets = express.static(path.join(__dirname, 'public'), { index: false });
+app.use((req, res, next) => {
+  if (SERVER_RENDERED_PATHS.has(req.path)) return next();
+  return staticAssets(req, res, next);
+});
+
+// The commission page is a clean URL over a plain file — no database, so it
+// belongs on this side of the middleware too.
+app.get('/commission', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'commission.html'));
+});
+
+// Creates tables once per warm instance — required on Vercel, which has no
+// long-lived startup phase to create them in ahead of time.
+//
+// Scoped to /api on purpose. It used to run for every request and answer a
+// failure with a 500 for the whole site; now a database outage costs the
+// API its responses while every page, stylesheet and script still loads, so
+// the front end can show a real error and a retry instead of a dead page.
+// The server-rendered pages below reach the database directly and each
+// already falls back to its static file if that throws, so they don't need
+// gating here either.
+app.use('/api', async (req, res, next) => {
   try {
     await db.initDb();
     next();
   } catch (err) {
     console.error('[db] failed to initialize:', err.message);
-    res.status(500).send('Database is not reachable. Check POSTGRES_URL.');
+    // JSON, not the old plain text: every caller of these routes parses the
+    // body as JSON, and handing them HTML/text is what turned an outage
+    // into a confusing client-side parse error.
+    res.status(503).json({ error: 'The database is temporarily unreachable. Please try again in a moment.' });
   }
 });
 
@@ -877,12 +912,8 @@ app.get('/calendar.html', async (req, res, next) => {
   }
 });
 
-// Clean URL for the commission page. The brief's site map is /commission,
-// not /commission.html, and a rate card is a page people are sent links to.
-app.get('/commission', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'commission.html'));
-});
-
+// Late static: only reached for the three server-rendered paths skipped
+// above, as the fallback when a prerender throws.
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- helpers ----------
