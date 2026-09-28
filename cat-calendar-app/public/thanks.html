@@ -90,13 +90,17 @@
   </nav>
 </header>
 
+<!-- Everything between the site header and the footer is the page's main
+     content. Without this landmark none of it belongs to any region, so a
+     screen reader user has no way to skip the nav and jump straight to it. -->
+<main id="main-content">
 <div class="thanks-wrap">
   <div id="thanksLoading">
     <div class="skeleton" style="height:42px;max-width:420px;margin:0 auto 14px;"></div>
     <div class="skeleton" style="height:20px;max-width:300px;margin:0 auto;"></div>
   </div>
 
-  <div id="thanksError" class="thanks-error" hidden>
+  <div id="thanksError" class="thanks-error" role="status" aria-live="polite" hidden>
     <h2 style="font-size:1.2rem;">We couldn't open your entry.</h2>
     <p id="thanksErrorMsg">This link may have expired or been copied incompletely.</p>
     <p style="margin-bottom:0;"><a href="index.html#enter">Go to the entry form</a>, or reply to your confirmation email and we'll sort it out.</p>
@@ -155,6 +159,7 @@
     </p>
   </div>
 </div>
+</main>
 
 <footer class="site-footer">
   <div>Whiskr — a free, real-public-vote cat photo contest.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>

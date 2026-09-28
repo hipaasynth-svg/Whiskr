@@ -82,6 +82,10 @@ const STALLED_DAYS_AFTER_ETA = Number(process.env.STALLED_DAYS_AFTER_ETA || 7);
 // Orders refreshed per daily run. Bounded because this is a serverless
 // function with a wall-clock limit and each order is one Printful API call.
 const SHIPMENT_POLL_BATCH = Number(process.env.SHIPMENT_POLL_BATCH || 100);
+// How far back the delivery poll looks for orders still awaiting delivery.
+// Past this an unresolved parcel is beyond Printful's 30-day claim window, and
+// keeping it in the rotation only crowds out orders that can still be saved.
+const SHIPMENT_POLL_MAX_AGE_DAYS = Number(process.env.SHIPMENT_POLL_MAX_AGE_DAYS || 90);
 // Days after DELIVERY before asking for a review. Previously the review
 // clock ran from order creation, which is how a lost parcel still got a
 // "how did we do?" email.
@@ -669,25 +673,41 @@ async function syncOrderShipments(customOrderId, { notify = true } = {}) {
 // Delivery is polled, not pushed: shipment_sent is the only shipment event
 // Printful publishes. There is no "delivered" webhook, so without this the
 // delivered state would never arrive at all.
-// A shipment in one of these has finished moving; nothing the daily poll
-// does will change it again, so those rows stop being re-fetched. Held in
-// one place and interpolated into the query below rather than written out
-// twice, so the list and the SQL cannot drift apart.
-const TERMINAL_DELIVERY_STATUSES = ['delivered', 'return_to_sender', 'failure', 'canceled'];
-// Placeholders, not the values, so the list stays bound as parameters and
-// this file contains no SQL assembled by string concatenation.
-const TERMINAL_DELIVERY_PLACEHOLDERS = TERMINAL_DELIVERY_STATUSES.map(() => '?').join(',');
-
 async function pollShipmentDeliveries() {
   if (!printful.configured()) return;
 
+  // Driven from custom_orders, not custom_order_shipments. Selecting from the
+  // shipments table could only ever *refresh* orders that already had a
+  // shipment row, and the only things that create one are the Printful webhook
+  // and the manual admin refresh. With PRINTFUL_WEBHOOK_TOKEN unset the webhook
+  // 404s by design, so the shipments table stayed empty forever, this poll
+  // iterated nothing, delivered_at was never set on any order -- and because
+  // sendDueReviewRequests switches to a delivered_at-based query the moment a
+  // Printful API key exists, every custom-order review request silently stopped.
+  // Reading candidates from the orders themselves lets the poll *discover* a
+  // first shipment rather than only refresh known ones, which is what makes the
+  // webhook genuinely optional the way .env.example claims.
+  //
+  // Bounded by age as well as batch size: a parcel that never reaches a
+  // terminal status (a lost one, or a carrier that stops scanning) would
+  // otherwise hold a poll slot forever and eventually starve newer orders out
+  // of the batch entirely. Printful's lost-in-transit claim window is 30 days
+  // past estimated delivery, so anything older than this window is past
+  // recovering anyway.
+  const pollCutoff = new Date(
+    Date.now() - SHIPMENT_POLL_MAX_AGE_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+
   const stale = await db.all(
-    `SELECT DISTINCT s.custom_order_id
-       FROM custom_order_shipments s
-      WHERE (s.delivery_status IS NULL OR s.delivery_status NOT IN (${TERMINAL_DELIVERY_PLACEHOLDERS}))
-      ORDER BY s.custom_order_id ASC
+    `SELECT o.id AS custom_order_id
+       FROM custom_orders o
+      WHERE o.printful_order_id IS NOT NULL
+        AND o.delivered_at IS NULL
+        AND o.status NOT IN ('refunded','disputed')
+        AND o.created_at >= ?
+      ORDER BY o.id DESC
       LIMIT ?`,
-    [...TERMINAL_DELIVERY_STATUSES, SHIPMENT_POLL_BATCH]
+    [pollCutoff, SHIPMENT_POLL_BATCH]
   );
 
   for (const row of stale) {
