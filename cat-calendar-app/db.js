@@ -337,13 +337,13 @@ CREATE TABLE IF NOT EXISTS background_slides (
   created_at TEXT NOT NULL
 );
 
--- Admin-managed showcase of a couple of Cody Carlson's completed grand-
--- prize originals — "a couple to choose from," not a shop: there's no
--- checkout here, just photos plus a CTA linking out to codycarlson.art
--- for real commissions/pricing (that stays entirely on his own site — see
--- the "Skip the wait" section in index.html). Empty table = an honest
--- "first one's still drying" state, same never-fake-a-placeholder rule
--- background_slides and reviews already follow.
+-- Admin-managed showcase of Cody Carlson's completed originals, used in
+-- two places: the homepage teaser, and the paired gallery on /commission
+-- (which needs source_photo_path as well, so the photo can be shown beside
+-- the painting it became). Commission pricing and booking now live on
+-- /commission rather than off-site; codycarlson.art still carries his
+-- non-pet work. Empty table = an honest "first one's still drying" state,
+-- same never-fake-a-placeholder rule background_slides and reviews follow.
 CREATE TABLE IF NOT EXISTS featured_originals (
   id SERIAL PRIMARY KEY,
   image_path TEXT NOT NULL,
@@ -464,6 +464,46 @@ CREATE TABLE IF NOT EXISTS live_sessions (
   position INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
+-- Original acrylic commissions: studio time sold directly, not a print.
+-- Its own table because a commission has a two-payment lifecycle neither
+-- orders nor custom_orders models: 40% books the slot now, the balance is
+-- charged before the finished painting ships. Pricing lives in
+-- commissions.js; the amounts are copied onto the row at booking time so a
+-- later rate-card change never silently alters what an existing customer
+-- already agreed to pay.
+CREATE TABLE IF NOT EXISTS commissions (
+  id SERIAL PRIMARY KEY,
+  email TEXT NOT NULL,
+  customer_name TEXT,
+  pet_name TEXT,
+  size_id TEXT NOT NULL,
+  rush INTEGER NOT NULL DEFAULT 0,
+  extra_pets INTEGER NOT NULL DEFAULT 0,
+  total_usd REAL NOT NULL,
+  deposit_usd REAL NOT NULL,
+  balance_usd REAL NOT NULL,
+  notes TEXT,
+  photo_path TEXT NOT NULL,
+  -- deposit_pending | deposit_paid | balance_pending | balance_paid | cancelled
+  status TEXT NOT NULL DEFAULT 'deposit_pending',
+  deposit_session_id TEXT,
+  balance_session_id TEXT,
+  shipping_address TEXT,
+  photo_rights_consent_at TEXT NOT NULL,
+  ip_hash TEXT,
+  created_at TEXT NOT NULL,
+  deposit_paid_at TEXT,
+  balance_paid_at TEXT
+);
+CREATE INDEX IF NOT EXISTS commissions_status_idx ON commissions(status, created_at);
+
+-- The /commission gallery shows each finished painting beside the photo it
+-- was painted from -- that pairing is the whole proof, so a row needs both
+-- images to appear. Added separately from image_path (the painting) so
+-- existing rows stay valid and simply do not show in the paired gallery
+-- until a source photo is uploaded for them.
+ALTER TABLE featured_originals ADD COLUMN IF NOT EXISTS source_photo_path TEXT;
+
 `;
 
 // Runs once per warm serverless instance (or once at local startup) — see

@@ -409,11 +409,9 @@ window.fbq = window.fbq || function () { (window.fbq.queue = window.fbq.queue ||
         enterLink.className = 'btn btn-primary';
         enterLink.textContent = "Enter this month's contest";
         const commissionLink = document.createElement('a');
-        commissionLink.href = 'https://codycarlson.art';
-        commissionLink.target = '_blank';
-        commissionLink.rel = 'noopener';
+        commissionLink.href = '/commission';
         commissionLink.className = 'btn btn-ghost';
-        commissionLink.textContent = 'Commission with Cody Carlson';
+        commissionLink.textContent = 'Commission an original';
         ctas.appendChild(enterLink);
         ctas.appendChild(document.createTextNode(' '));
         ctas.appendChild(commissionLink);

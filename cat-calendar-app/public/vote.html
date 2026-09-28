@@ -224,9 +224,45 @@
   }
   initTurnstile();
 
+  // Distinguishes "there is genuinely no contest open" from "we could not
+  // reach the server." The old loader treated both as the former, so a
+  // database outage told visitors the contest was over — a lie, and the
+  // worst possible one on the page whose whole job is collecting votes.
+  function showLoadFailure(message) {
+    label.textContent = message;
+    empty.style.display = 'none';
+    grid.innerHTML = '';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn btn-primary';
+    retry.textContent = 'Try again';
+    retry.addEventListener('click', () => {
+      label.textContent = 'Loading contest…';
+      grid.innerHTML = '';
+      loadContest();
+    });
+    grid.appendChild(retry);
+  }
+
   async function loadContest() {
     try {
-      const res = await fetch('/api/contest/current');
+      // Bounded. Without this the page waits on the fetch forever and sits
+      // on "Loading contest…" — a slow cold start or an unreachable
+      // database looked identical to a page that had simply hung.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      let res;
+      try {
+        res = await fetch('/api/contest/current', { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+      // A non-2xx body is an error payload, not a contest. Parsing it as one
+      // is how a 503 used to render as "no contest is open right now."
+      if (!res.ok) {
+        showLoadFailure("Couldn't load the contest just now. It's us, not you.");
+        return;
+      }
       const data = await res.json();
       if (!data.contest) {
         label.textContent = 'No contest is open right now — check back soon.';
@@ -289,7 +325,11 @@
         grid.appendChild(card);
       });
     } catch (err) {
-      label.textContent = 'Could not load the contest right now.';
+      showLoadFailure(
+        err && err.name === 'AbortError'
+          ? 'The contest is taking too long to load.'
+          : "Couldn't load the contest just now. It's us, not you."
+      );
       console.error(err);
     }
   }

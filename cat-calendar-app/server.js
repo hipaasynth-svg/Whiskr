@@ -16,6 +16,7 @@ const reviewLink = require('./reviewLink');
 const discountToken = require('./discountToken');
 const statusToken = require('./statusToken');
 const productCatalog = require('./products');
+const commissionPricing = require('./commissions');
 const printful = require('./printful');
 const photoEnhance = require('./photoEnhance');
 const phoneCases = require('./phoneCases');
@@ -51,6 +52,10 @@ const VOTE_LIMIT_PER_IP_PER_DAY = Number(process.env.VOTE_LIMIT_PER_IP_PER_DAY |
 const SUBMISSION_LIMIT_PER_IP_PER_DAY = Number(process.env.SUBMISSION_LIMIT_PER_IP_PER_DAY || 5);
 const CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY = Number(process.env.CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY || 10);
 const SUBSCRIBE_LIMIT_PER_IP_PER_DAY = Number(process.env.SUBSCRIBE_LIMIT_PER_IP_PER_DAY || 10);
+// Deliberately low: a commission is a four-figure booking that a human
+// fulfils by hand, not a print. Someone opening five deposit sessions from
+// one connection in a day is a mistake or an attack either way.
+const COMMISSION_LIMIT_PER_IP_PER_DAY = Number(process.env.COMMISSION_LIMIT_PER_IP_PER_DAY || 4);
 // Salts the IP hash stored in the votes table so raw IPs are never persisted.
 // Set a real random value in production — the default is fine for local dev
 // only, since anyone who knows it could pre-compute hashes for known IPs.
@@ -134,6 +139,7 @@ app.get('/sitemap.xml', (req, res) => {
     { loc: `${BASE_URL}/`, changefreq: 'daily', priority: '1.0' },
     { loc: `${BASE_URL}/vote.html`, changefreq: 'hourly', priority: '0.9' },
     ...blog.sitemapEntries(BASE_URL),
+    { loc: `${BASE_URL}/commission`, changefreq: 'monthly', priority: '0.8' },
     { loc: `${BASE_URL}/rules.html`, changefreq: 'monthly', priority: '0.3' },
     { loc: `${BASE_URL}/privacy.html`, changefreq: 'monthly', priority: '0.2' },
     { loc: `${BASE_URL}/terms.html`, changefreq: 'monthly', priority: '0.2' },
@@ -152,17 +158,52 @@ ${urls.map((u) => `  <url>
   res.send(body);
 });
 
-// Runs on every request (see ensureDbReady below) but only does real work
-// once per warm instance — required on Vercel since there's no long-lived
-// startup phase to create tables in ahead of time the way a normal server
-// would.
-app.use(async (req, res, next) => {
+// Static assets, served BEFORE the DB-init middleware below.
+//
+// Everything used to sit behind that middleware, which meant a Postgres
+// outage returned a plain-text 500 for vote.html, style.css and script.js
+// alike — the vote page couldn't render far enough to tell anyone what was
+// wrong, it just hung or died. None of these files need a database to be
+// sent, so they no longer wait on one.
+//
+// index:false plus the explicit skip below is what the earlier comment
+// worried about: the server-rendered /, /index.html and /calendar.html
+// routes further down must keep winning over the raw files of the same
+// name, so those three paths alone fall through to their own handlers (and
+// to the late express.static as the prerender's fallback).
+const SERVER_RENDERED_PATHS = new Set(['/', '/index.html', '/calendar.html']);
+const staticAssets = express.static(path.join(__dirname, 'public'), { index: false });
+app.use((req, res, next) => {
+  if (SERVER_RENDERED_PATHS.has(req.path)) return next();
+  return staticAssets(req, res, next);
+});
+
+// The commission page is a clean URL over a plain file — no database, so it
+// belongs on this side of the middleware too.
+app.get('/commission', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'commission.html'));
+});
+
+// Creates tables once per warm instance — required on Vercel, which has no
+// long-lived startup phase to create them in ahead of time.
+//
+// Scoped to /api on purpose. It used to run for every request and answer a
+// failure with a 500 for the whole site; now a database outage costs the
+// API its responses while every page, stylesheet and script still loads, so
+// the front end can show a real error and a retry instead of a dead page.
+// The server-rendered pages below reach the database directly and each
+// already falls back to its static file if that throws, so they don't need
+// gating here either.
+app.use('/api', async (req, res, next) => {
   try {
     await db.initDb();
     next();
   } catch (err) {
     console.error('[db] failed to initialize:', err.message);
-    res.status(500).send('Database is not reachable. Check POSTGRES_URL.');
+    // JSON, not the old plain text: every caller of these routes parses the
+    // body as JSON, and handing them HTML/text is what turned an outage
+    // into a confusing client-side parse error.
+    res.status(503).json({ error: 'The database is temporarily unreachable. Please try again in a moment.' });
   }
 });
 
@@ -487,6 +528,76 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
       } else {
         console.log(`[stripe webhook] custom order #${orderId} already processed (duplicate delivery) — skipping.`);
       }
+    } else if (orderType === 'commission_deposit' && orderId) {
+      // Same status-scoped idempotency guard as the order types above: a
+      // retried delivery must not re-stamp deposit_paid_at or re-notify.
+      const info = await db.run(
+        `UPDATE commissions SET status = 'deposit_paid', deposit_paid_at = ?, shipping_address = ? WHERE id = ? AND status = 'deposit_pending'`,
+        [new Date().toISOString(), shippingJson, orderId]
+      );
+      if (info.changes > 0) {
+        console.log(`[stripe webhook] commission #${orderId} deposit paid.`);
+        const booking = await db.get(`SELECT * FROM commissions WHERE id = ?`, [orderId]);
+        if (booking) {
+          metaConversions
+            .sendEvent({
+              eventName: 'Purchase',
+              eventId: `purchase-commission-deposit-${orderId}`,
+              email: booking.email,
+              value: Number(booking.deposit_usd),
+              currency: 'USD',
+              eventSourceUrl: BASE_URL,
+            })
+            .catch((err) => console.error('[meta capi] Purchase event failed:', err.message));
+          // A booked commission is a promise of hand-made work with a
+          // clock on it, so it has to reach a human rather than only
+          // appear in an admin list nobody is watching.
+          await mailer
+            .sendCommissionBooked({
+              email: booking.email,
+              petName: booking.pet_name,
+              sizeLabel: (commissionPricing.getSize(booking.size_id) || {}).label || booking.size_id,
+              depositUsd: Number(booking.deposit_usd).toFixed(2),
+              balanceUsd: Number(booking.balance_usd).toFixed(2),
+              totalUsd: Number(booking.total_usd).toFixed(2),
+              rush: Boolean(Number(booking.rush)),
+            })
+            .catch((err) => console.error('[mailer] commission confirmation failed:', err.message));
+          await alertAdmin(
+            `Commission #${orderId} booked — deposit paid`,
+            `${booking.email} booked a ${booking.size_id} original${Number(booking.rush) ? ' (RUSH, under 10 days)' : ''}. Deposit $${Number(booking.deposit_usd).toFixed(2)} paid, balance $${Number(booking.balance_usd).toFixed(2)} due before shipping. Reference photo and notes are in admin.html.`
+          );
+        }
+      } else {
+        console.log(`[stripe webhook] commission #${orderId} deposit already processed (duplicate delivery) — skipping.`);
+      }
+    } else if (orderType === 'commission_balance' && orderId) {
+      const info = await db.run(
+        `UPDATE commissions SET status = 'balance_paid', balance_paid_at = ?, shipping_address = COALESCE(?, shipping_address) WHERE id = ? AND status = 'balance_pending'`,
+        [new Date().toISOString(), shippingJson, orderId]
+      );
+      if (info.changes > 0) {
+        console.log(`[stripe webhook] commission #${orderId} balance paid — clear to ship.`);
+        const booking = await db.get(`SELECT email, balance_usd FROM commissions WHERE id = ?`, [orderId]);
+        if (booking) {
+          metaConversions
+            .sendEvent({
+              eventName: 'Purchase',
+              eventId: `purchase-commission-balance-${orderId}`,
+              email: booking.email,
+              value: Number(booking.balance_usd),
+              currency: 'USD',
+              eventSourceUrl: BASE_URL,
+            })
+            .catch((err) => console.error('[meta capi] Purchase event failed:', err.message));
+        }
+        await alertAdmin(
+          `Commission #${orderId} balance paid — clear to ship`,
+          `The balance on commission #${orderId} is paid. Nothing is blocking shipment.`
+        );
+      } else {
+        console.log(`[stripe webhook] commission #${orderId} balance already processed (duplicate delivery) — skipping.`);
+      }
     } else {
       console.warn(`[stripe webhook] checkout.session.completed with unrecognized metadata for session ${session.id}`);
     }
@@ -516,6 +627,15 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
           await alertAdmin(
             `Order #${orderId} was ${newStatus}`,
             `Order #${orderId} was marked ${newStatus} in Stripe. It needs manual attention.`
+          );
+        } else if ((orderType === 'commission_deposit' || orderType === 'commission_balance') && orderId) {
+          // Not scoped to a prior status: a refund or dispute is terminal
+          // regardless of where the booking had got to, and a painting in
+          // progress for an unpaid commission is exactly what needs a human.
+          await db.run(`UPDATE commissions SET status = ? WHERE id = ?`, [newStatus, orderId]);
+          await alertAdmin(
+            `Commission #${orderId} was ${newStatus}`,
+            `Commission #${orderId} (${orderType.replace('commission_', '')} payment) was marked ${newStatus} in Stripe. If the painting is already underway or finished, it needs manual attention now.`
           );
         } else {
           console.warn(`[stripe webhook] ${event.type} for payment_intent ${paymentIntent} with no matching order`);
@@ -792,6 +912,8 @@ app.get('/calendar.html', async (req, res, next) => {
   }
 });
 
+// Late static: only reached for the three server-rendered paths skipped
+// above, as the fallback when a prerender throws.
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- helpers ----------
@@ -1543,7 +1665,7 @@ app.get('/api/background', async (req, res) => {
 // placeholder image. See featured_originals in db.js.
 app.get('/api/originals', async (req, res) => {
   const originals = await db.all(
-    `SELECT id, image_path, cat_name FROM featured_originals ORDER BY position ASC, id ASC`
+    `SELECT id, image_path, cat_name, source_photo_path FROM featured_originals ORDER BY position ASC, id ASC`
   );
   res.json({ originals });
 });
@@ -1735,6 +1857,129 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
       .catch((err) => console.error('[meta capi] InitiateCheckout event failed:', err.message));
 
     res.json({ ok: true, url: session.url, lowResolution, width, height, discountPercent, amount, metaEventId: checkoutEventId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Something went wrong.' });
+  }
+});
+
+// ---------- original acrylic commissions ----------
+// The art tier: studio time sold directly, two payments. Deliberately does
+// not touch Printful — nothing here is printed, and a commission must never
+// be fulfilled as if it were a poster.
+
+// The published rate card. Served rather than hard-coded into
+// commission.html so the table a visitor reads is generated from the same
+// constants that price the deposit they're about to pay.
+app.get('/api/commissions/pricing', (req, res) => {
+  res.json(commissionPricing.publicPricing());
+});
+
+// Authoritative price for one configuration. The page calls this instead of
+// doing its own arithmetic, so there is exactly one implementation of what a
+// commission costs and the quote on screen cannot drift from the charge.
+app.get('/api/commissions/quote', (req, res) => {
+  const quote = commissionPricing.quote({
+    sizeId: req.query.size,
+    rush: req.query.rush === '1' || req.query.rush === 'true',
+    extraPets: req.query.extraPets,
+  });
+  if (!quote) return res.status(400).json({ error: 'Pick a size.' });
+  res.json(quote);
+});
+
+// Book a commission: upload the reference photo, then pay the 40% deposit
+// through Stripe Checkout. The balance is charged separately later, once
+// the painting is finished (see the admin request-balance route below) —
+// never up front, because the customer is paying for work not yet done.
+app.post('/api/commissions', upload.single('photo'), async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(400).json({ error: 'Stripe is not configured on this server yet.' });
+    }
+    const { email, customerName, petName, sizeId, notes, photoRights } = req.body;
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'A valid email is required.' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'A reference photo is required.' });
+    }
+    // Same affirmative record as every other photo this site accepts. The
+    // grant here is narrow on purpose: painting from the photo and showing
+    // the finished painting. It does not license printing it on products.
+    if (photoRights !== 'on' && photoRights !== 'true') {
+      return res.status(400).json({ error: 'You must confirm you own the rights to this photo.' });
+    }
+
+    // Priced server-side from the client's *choices*, never from any amount
+    // the client sends — a posted price is a suggestion from a stranger.
+    const quote = commissionPricing.quote({
+      sizeId,
+      rush: req.body.rush === 'on' || req.body.rush === 'true',
+      extraPets: req.body.extraPets,
+    });
+    if (!quote) {
+      return res.status(400).json({ error: 'Pick a size for your painting.' });
+    }
+
+    const ipHash = hashIp(req.ip);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const ipCount = await db.get(
+      `SELECT COUNT(*) AS c FROM commissions WHERE ip_hash = ? AND created_at >= ?`,
+      [ipHash, dayAgo]
+    );
+    if (Number(ipCount.c) >= COMMISSION_LIMIT_PER_IP_PER_DAY) {
+      return res.status(429).json({ error: 'Too many booking attempts from this connection today — email us instead.' });
+    }
+
+    const nameClean = String(customerName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 80);
+    const petNameClean = String(petName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
+    const notesClean = String(notes || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 1000);
+    // Advisory only, exactly as it is for prints: a soft reference photo
+    // still paints fine, it just means Cody may ask for a better one.
+    const { width, height, lowResolution } = await checkImageQuality(req.file.buffer);
+    const photoPath = await storePhoto(req.file);
+    const now = new Date().toISOString();
+
+    const info = await db.run(
+      `INSERT INTO commissions (email, customer_name, pet_name, size_id, rush, extra_pets, total_usd, deposit_usd, balance_usd, notes, photo_path, status, photo_rights_consent_at, ip_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'deposit_pending', ?, ?, ?) RETURNING id`,
+      [email, nameClean || null, petNameClean || null, quote.sizeId, quote.rush ? 1 : 0, quote.extraPets,
+       quote.totalUsd, quote.depositUsd, quote.balanceUsd, notesClean || null, photoPath, now, ipHash, now]
+    );
+    const commissionId = info.rows[0].id;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer_email: email,
+      // A painting is a physical object that has to reach someone, and the
+      // address is also what Stripe Tax needs to work out what to charge.
+      shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
+      automatic_tax: { enabled: true },
+      payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `Deposit — original acrylic ${quote.sizeLabel}`,
+              description: `${commissionPricing.publicPricing().depositPercent}% deposit of $${quote.totalUsd.toFixed(2)}. Balance of $${quote.balanceUsd.toFixed(2)} is due before the painting ships.`,
+            },
+            unit_amount: Math.round(quote.depositUsd * 100),
+            tax_behavior: 'exclusive',
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: { orderType: 'commission_deposit', orderId: String(commissionId) },
+      success_url: `${BASE_URL}/commission?booked=1`,
+      cancel_url: `${BASE_URL}/commission`,
+    });
+
+    await db.run(`UPDATE commissions SET deposit_session_id = ? WHERE id = ?`, [session.id, commissionId]);
+
+    res.json({ ok: true, url: session.url, quote, lowResolution, width, height });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Something went wrong.' });
@@ -2511,6 +2756,85 @@ app.post('/api/admin/custom-orders/:id/retry-printful', requireAdmin, async (req
 // in one place instead of relying on ADMIN_EMAIL being configured and
 // delivered. Unresolved first, newest first, so the panel opens on what
 // still needs attention.
+// Commission queue: what is booked, what is being painted, what is waiting
+// on a balance payment before it can ship.
+app.get('/api/admin/commissions', requireAdmin, async (req, res) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : null;
+  const rows = status
+    ? await db.all(`SELECT * FROM commissions WHERE status = ? ORDER BY created_at DESC`, [status])
+    : await db.all(`SELECT * FROM commissions ORDER BY created_at DESC`);
+  res.json({ commissions: rows });
+});
+
+// Painting's finished: create a Stripe session for the remaining balance
+// and email it to the customer with a photo of the work. This is a manual
+// step on purpose — the balance is never auto-charged, so the customer
+// always sees the finished painting before paying the rest of it.
+app.post('/api/admin/commissions/:id/request-balance', requireAdmin, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(400).json({ error: 'Stripe is not configured on this server yet.' });
+    }
+    const id = Number(req.params.id);
+    const booking = await db.get(`SELECT * FROM commissions WHERE id = ?`, [id]);
+    if (!booking) return res.status(404).json({ error: 'Commission not found.' });
+    // Only a paid deposit can progress to a balance request. Asking for the
+    // balance on an unpaid, refunded or already-settled booking is always a
+    // mistake, and a wrong payment request to a four-figure customer is a
+    // worse one than a rejected button click.
+    if (booking.status !== 'deposit_paid') {
+      return res.status(400).json({
+        error: `Commission #${id} is '${booking.status}' — a balance can only be requested once the deposit is paid and before the balance is settled.`,
+      });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer_email: booking.email,
+      automatic_tax: { enabled: true },
+      payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `Balance — original acrylic${booking.pet_name ? ` of ${booking.pet_name}` : ''}`,
+              description: `Remaining balance on commission #${id}. Deposit of $${Number(booking.deposit_usd).toFixed(2)} already paid.`,
+            },
+            unit_amount: Math.round(Number(booking.balance_usd) * 100),
+            tax_behavior: 'exclusive',
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: { orderType: 'commission_balance', orderId: String(id) },
+      success_url: `${BASE_URL}/commission?paid=1`,
+      cancel_url: `${BASE_URL}/commission`,
+    });
+
+    // Move to balance_pending before emailing: the webhook only settles a
+    // row that is already in this state, so a send that happens first could
+    // race a fast payment and be ignored.
+    await db.run(`UPDATE commissions SET status = 'balance_pending', balance_session_id = ? WHERE id = ?`, [
+      session.id,
+      id,
+    ]);
+
+    await mailer.sendCommissionBalanceDue({
+      email: booking.email,
+      petName: booking.pet_name,
+      balanceUsd: Number(booking.balance_usd).toFixed(2),
+      payUrl: session.url,
+      paintingImageUrl: typeof req.body.paintingImageUrl === 'string' ? req.body.paintingImageUrl : null,
+    });
+
+    res.json({ ok: true, url: session.url });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Could not request the balance.' });
+  }
+});
+
 app.get('/api/admin/alerts', requireAdmin, async (req, res) => {
   const rows = await db.all(
     `SELECT * FROM admin_alerts ORDER BY resolved ASC, created_at DESC LIMIT 100`
