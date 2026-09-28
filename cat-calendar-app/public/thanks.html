@@ -85,6 +85,7 @@
   <nav class="site-nav" id="siteNav">
     <a href="index.html">Home</a>
     <a href="vote.html">Vote</a>
+    <a href="/winners">Winners</a>
     <a href="/commission">Commission</a>
   </nav>
 </header>
@@ -132,7 +133,11 @@
     <section class="block" aria-labelledby="blockBHeading">
       <span class="discount-badge" id="discountBadge" hidden></span>
       <h2 id="blockBHeading">Keep <span id="catNameB">your cat</span> on the wall either way</h2>
-      <p class="lede">Win or not, this is the photo you already love. Your discount is applied automatically at checkout.</p>
+      <!-- No discount is promised here. This sentence has to be true when
+           CONTEST_DISCOUNT_PERCENT is 0, which is its default; thanks.js
+           appends the "already applied" line only when a discount actually
+           exists. Copy has to match the mechanism that runs. -->
+      <p class="lede" id="blockBLede">Win or not, this is the photo you already love.</p>
       <div class="offer-grid" id="offerGrid"></div>
       <p class="lede" id="lowResNote" style="margin-top:14px;" hidden></p>
     </section>
@@ -140,7 +145,7 @@
     <!-- Block C — the original -->
     <section class="block original-block" aria-labelledby="blockCHeading">
       <h2 id="blockCHeading">Skip the contest. Commission the painting.</h2>
-      <p class="lede">One winner a month gets one painted. You don't have to wait for the draw.</p>
+      <p class="lede">One winner a month gets one painted &mdash; <a href="/winners" style="color:var(--marigold);">see the ones already finished</a>. You don't have to wait for the draw.</p>
       <p style="margin:18px 0 0;"><a href="/commission" class="btn btn-primary">See commission prices</a></p>
       <p class="sub" id="commissionSub"></p>
     </section>

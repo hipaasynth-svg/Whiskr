@@ -1,7 +1,7 @@
 // Original acrylic commissions — studio time, not print-on-demand.
 //
 // This is the art tier and it must never be priced near the souvenir tier
-// in products.js: a $22 poster and a $425 original are not the same kind of
+// in products.js: a $23.99 poster and a $425 original are not the same kind of
 // thing, and pricing them like they are devalues the painting rather than
 // making it look affordable.
 //

@@ -553,6 +553,20 @@ ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS tracking_emailed_at TEXT;
 -- Stamped once so the alert does not re-fire every single day.
 ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS stalled_flagged_at TEXT;
 
+-- The winner gallery (/winners). A closed contest already knows which cat
+-- won, through groups.winner_submission_id -- what it had nowhere to put
+-- was the painting itself and the line of story that makes an archive
+-- entry worth reading.
+--
+-- painting_photo_path is nullable on purpose and stays null for weeks:
+-- a round closes the moment voting ends, but the painting takes two to
+-- four weeks to paint after that. The gallery shows the winning cat with
+-- "being painted now" in the meantime rather than hiding the round or
+-- implying a painting exists that does not.
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS painting_photo_path TEXT;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS winner_story TEXT;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS painting_shown_at TEXT;
+
 `;
 
 // Runs once per warm serverless instance (or once at local startup) — see
