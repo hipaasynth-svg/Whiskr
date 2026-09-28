@@ -70,6 +70,38 @@ The contest prize is an original 11x16 acrylic. Its public value is
 **$425** — the real published commission price for that size. Never state
 $160; that number is wrong and appeared in the official rules for weeks.
 
+### The margin floor
+
+The owner's rule is a **minimum 35% gross margin after shipping, with no
+discounting to reach it**. `orderEconomics.js` is the one place that knows
+what an order costs us; run `node orderEconomics.js` after changing any
+price or supplier cost. It exits non-zero when a product is below the floor
+and prints the price that would clear it.
+
+It reports. It does not reprice — see the paragraph above. A product with no
+known supplier cost reports `unknown`, never a passing margin.
+
+Two things that are easy to get wrong here:
+
+- A product must clear the floor in **both** cases the report prints, and
+  the second one is the trap. `SMALL` is an order under the free-shipping
+  threshold: the customer pays shipping, so it nets out and the margin is
+  just the item's. `FREE` is an order at or over the threshold, where we pay
+  the whole parcel out of that same margin — checked at the fewest units
+  that reach $79, the worst version of it. Heavy items pass `SMALL`
+  comfortably and fail `FREE`: three canvases is $117 of revenue against
+  nearly $18 of shipping. Checking only one number is how you end up
+  confidently wrong.
+- The shipping figures in that file are **estimates**, not quotes.
+  Printful's domains are blocked from this environment, so no shipping
+  number in the repo has ever been confirmed against a live rate. Correct
+  them from the Printful dashboard before trusting any margin.
+
+Shipping is free at **$79+** and charged below that. The threshold is a
+constant, deliberately not an environment variable, because it is also
+written into `public/shipping.html` as a promise to the customer — change
+one and change the other in the same commit.
+
 ## Before you push
 
 - `node --check` every `.js` file you touched.

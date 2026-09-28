@@ -17,6 +17,7 @@ const discountToken = require('./discountToken');
 const statusToken = require('./statusToken');
 const productCatalog = require('./products');
 const commissionPricing = require('./commissions');
+const orderEconomics = require('./orderEconomics');
 const printful = require('./printful');
 const photoEnhance = require('./photoEnhance');
 const phoneCases = require('./phoneCases');
@@ -2340,6 +2341,16 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
       mode: 'payment',
       customer_email: email,
       shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
+      // Printful bills us for shipping separately from the item, so a
+      // session that collects an address but no shipping charge hands the
+      // whole carrier cost to us on every order. Charged below the
+      // threshold, free above it — see orderEconomics.js, which is also
+      // what the margin check reads.
+      shipping_options: orderEconomics.shippingOptionsFor({
+        productId: product.id,
+        quantity: qty,
+        subtotalUsd: amount,
+      }),
       automatic_tax: { enabled: true },
       payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
       line_items: [
@@ -2468,6 +2479,12 @@ app.post('/api/commissions', upload.single('photo'), async (req, res) => {
       // A painting is a physical object that has to reach someone, and the
       // address is also what Stripe Tax needs to work out what to charge.
       shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
+      // No shipping_options here, unlike the print and calendar sessions.
+      // Commission prices are locked by the owner's brief, and crating and
+      // insuring an original acrylic is a real cost that nothing currently
+      // collects — but adding a charge on top of a locked four-figure price
+      // is a revenue decision, not a bug fix. Left for the owner to price
+      // in deliberately rather than bolted on here.
       automatic_tax: { enabled: true },
       payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
       line_items: [
@@ -2559,6 +2576,14 @@ app.post('/api/checkout', async (req, res) => {
       mode: 'payment',
       customer_email: isValidEmail(email) ? email : undefined,
       shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
+      // Calendars are mailed by us rather than by Printful, so this is
+      // postage and packaging rather than a supplier quote — but it was
+      // being absorbed the same way, and on a $19.99 second calendar that
+      // is most of the margin.
+      shipping_options: orderEconomics.calendarShippingOptions({
+        quantity: qty,
+        subtotalUsd: unitPrice * qty,
+      }),
       automatic_tax: { enabled: true },
       payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
       line_items: [
