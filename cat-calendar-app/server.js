@@ -27,6 +27,21 @@ const seo = require('./seo');
 const blog = require('./blog');
 
 const app = express();
+
+// Last line of defence for the whole process. Express 4 does not catch a
+// rejection thrown out of an async route handler, so before this existed a
+// single transient Postgres error inside a handler terminated the server —
+// Node has aborted on unhandled rejections by default since v15. On a payment
+// path that is the worst possible failure: every other request being served by
+// that instance dies with it, and Stripe gets no reply to the webhook it was
+// delivering. Log loudly and stay up; the route-level handlers decide the
+// status code, and Stripe retries anything that did not get a 2xx.
+process.on('unhandledRejection', (err) => {
+  console.error('[fatal] unhandled promise rejection — a handler is missing a catch:', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] uncaught exception:', err);
+});
 // Vercel (and most PaaS hosts) sit in front of this app as a reverse proxy —
 // without trust proxy, req.ip is the proxy's own address for every request,
 // which would make the vote rate-limiter below useless (every visitor looks
@@ -409,7 +424,17 @@ async function alertAdmin(subject, message) {
 // at checkout time, and never more than once (custom_orders.status guards
 // against a duplicate webhook delivery re-submitting the same order).
 async function submitCustomOrderToPrintful(orderId) {
-  const order = await db.get(`SELECT * FROM custom_orders WHERE id = ?`, [orderId]);
+  // Inside the try with everything else: this lookup is a network call to
+  // Postgres like any other, and when it threw it escaped the function
+  // completely — past the catch below that exists precisely so a failure here
+  // can never leave an order silently stuck at 'paid'.
+  let order = null;
+  try {
+    order = await db.get(`SELECT * FROM custom_orders WHERE id = ?`, [orderId]);
+  } catch (err) {
+    console.error(`[printful] could not load custom order #${orderId}:`, err.message);
+    throw err;
+  }
   if (!order || order.status !== 'paid') return;
 
   // Everything below (including JSON.parse'ing a stored field and a DB
@@ -449,12 +474,19 @@ async function submitCustomOrderToPrintful(orderId) {
       console.log(`[printful] custom order #${order.id} submitted (Printful order ${result && result.id}).`);
     }
   } catch (err) {
-    await db.run(`UPDATE custom_orders SET status = 'failed' WHERE id = ?`, [order.id]);
-    await alertAdmin(
-      `Custom order #${order.id} failed to submit to Printful`,
-      `Custom order #${order.id} (${order.email}) was paid but failed to submit to Printful: ${err.message}. It needs manual attention.`
-    );
     console.error(`[printful] failed to submit custom order #${order.id}:`, err.message);
+    // Guarded because the DB is a plausible cause of the failure being
+    // handled: an unguarded write here would throw *out of the catch block*
+    // and defeat the whole point of it.
+    try {
+      await db.run(`UPDATE custom_orders SET status = 'failed' WHERE id = ?`, [order.id]);
+      await alertAdmin(
+        `Custom order #${order.id} failed to submit to Printful`,
+        `Custom order #${order.id} (${order.email}) was paid but failed to submit to Printful: ${err.message}. It needs manual attention.`
+      );
+    } catch (inner) {
+      console.error(`[printful] could not even flag custom order #${order.id} as failed:`, inner.message);
+    }
   }
 }
 
@@ -678,6 +710,142 @@ async function flagStalledShipments() {
 // Stripe webhook needs the raw request body for signature verification, so
 // it's mounted before the global express.json() parser below — otherwise
 // json() would consume/parse the body first and constructEvent would fail.
+// Without this, /api/checkout creates an order row as 'pending' and nothing
+// ever marks it paid — there'd be no reliable record of who actually paid or
+// what to fulfill.
+//
+// Fulfilment for a Checkout Session Stripe has confirmed is actually paid.
+// Split out of the webhook route because two different events can deliver a
+// paid session: checkout.session.completed for an immediate card payment, and
+// checkout.session.async_payment_succeeded for a delayed-notification method,
+// where the session completes days before the money arrives.
+async function fulfillCheckoutSession(session) {
+  const orderType = session.metadata && session.metadata.orderType;
+  const orderId = session.metadata && Number(session.metadata.orderId);
+  const shippingJson = extractShippingJson(session);
+
+  if (orderType === 'calendar' && orderId) {
+    // Scoped to status='pending' so a retried webhook delivery (Stripe
+    // resends on any non-2xx or slow response) can't re-mark an
+    // already-paid order and re-trigger anything downstream of it.
+    const info = await db.run(
+      `UPDATE orders SET status = 'paid', shipping_address = ? WHERE id = ? AND status = 'pending'`,
+      [shippingJson, orderId]
+    );
+    console.log(
+      info.changes > 0
+        ? `[stripe webhook] calendar order #${orderId} marked paid.`
+        : `[stripe webhook] checkout.session.completed for unknown or already-processed calendar order #${orderId}`
+    );
+  } else if (orderType === 'custom' && orderId) {
+    // Same idempotency guard — without it, a retried delivery resets an
+    // already-'submitted_to_printful' order back to 'paid', which defeats
+    // submitCustomOrderToPrintful's own status check and re-submits the
+    // same order to Printful a second time.
+    const info = await db.run(
+      `UPDATE custom_orders SET status = 'paid', shipping_address = ? WHERE id = ? AND status = 'pending'`,
+      [shippingJson, orderId]
+    );
+    if (info.changes > 0) {
+      console.log(`[stripe webhook] custom order #${orderId} marked paid.`);
+      // Purchase is fired here and only here — this webhook is the one
+      // point a payment is actually confirmed, unlike a client-side
+      // "thank you page" event that fires on redirect regardless of
+      // whether payment truly succeeded. Scoped inside the same
+      // status='pending' guard above, so a retried webhook delivery
+      // can't double-fire it either.
+      const paidOrder = await db.get(`SELECT email, amount_usd FROM custom_orders WHERE id = ?`, [orderId]);
+      if (paidOrder) {
+        metaConversions
+          .sendEvent({
+            eventName: 'Purchase',
+            eventId: `purchase-custom-${orderId}`,
+            email: paidOrder.email,
+            value: Number(paidOrder.amount_usd),
+            currency: 'USD',
+            eventSourceUrl: BASE_URL,
+          })
+          .catch((err) => console.error('[meta capi] Purchase event failed:', err.message));
+      }
+      await submitCustomOrderToPrintful(orderId);
+    } else {
+      console.log(`[stripe webhook] custom order #${orderId} already processed (duplicate delivery) — skipping.`);
+    }
+  } else if (orderType === 'commission_deposit' && orderId) {
+    // Same status-scoped idempotency guard as the order types above: a
+    // retried delivery must not re-stamp deposit_paid_at or re-notify.
+    const info = await db.run(
+      `UPDATE commissions SET status = 'deposit_paid', deposit_paid_at = ?, shipping_address = ? WHERE id = ? AND status = 'deposit_pending'`,
+      [new Date().toISOString(), shippingJson, orderId]
+    );
+    if (info.changes > 0) {
+      console.log(`[stripe webhook] commission #${orderId} deposit paid.`);
+      const booking = await db.get(`SELECT * FROM commissions WHERE id = ?`, [orderId]);
+      if (booking) {
+        metaConversions
+          .sendEvent({
+            eventName: 'Purchase',
+            eventId: `purchase-commission-deposit-${orderId}`,
+            email: booking.email,
+            value: Number(booking.deposit_usd),
+            currency: 'USD',
+            eventSourceUrl: BASE_URL,
+          })
+          .catch((err) => console.error('[meta capi] Purchase event failed:', err.message));
+        // A booked commission is a promise of hand-made work with a
+        // clock on it, so it has to reach a human rather than only
+        // appear in an admin list nobody is watching.
+        await mailer
+          .sendCommissionBooked({
+            email: booking.email,
+            petName: booking.pet_name,
+            sizeLabel: (commissionPricing.getSize(booking.size_id) || {}).label || booking.size_id,
+            depositUsd: Number(booking.deposit_usd).toFixed(2),
+            balanceUsd: Number(booking.balance_usd).toFixed(2),
+            totalUsd: Number(booking.total_usd).toFixed(2),
+            rush: Boolean(Number(booking.rush)),
+          })
+          .catch((err) => console.error('[mailer] commission confirmation failed:', err.message));
+        await alertAdmin(
+          `Commission #${orderId} booked — deposit paid`,
+          `${booking.email} booked a ${booking.size_id} original${Number(booking.rush) ? ' (RUSH, under 10 days)' : ''}. Deposit $${Number(booking.deposit_usd).toFixed(2)} paid, balance $${Number(booking.balance_usd).toFixed(2)} due before shipping. Reference photo and notes are in admin.html.`
+        );
+      }
+    } else {
+      console.log(`[stripe webhook] commission #${orderId} deposit already processed (duplicate delivery) — skipping.`);
+    }
+  } else if (orderType === 'commission_balance' && orderId) {
+    const info = await db.run(
+      `UPDATE commissions SET status = 'balance_paid', balance_paid_at = ?, shipping_address = COALESCE(?, shipping_address) WHERE id = ? AND status = 'balance_pending'`,
+      [new Date().toISOString(), shippingJson, orderId]
+    );
+    if (info.changes > 0) {
+      console.log(`[stripe webhook] commission #${orderId} balance paid — clear to ship.`);
+      const booking = await db.get(`SELECT email, balance_usd FROM commissions WHERE id = ?`, [orderId]);
+      if (booking) {
+        metaConversions
+          .sendEvent({
+            eventName: 'Purchase',
+            eventId: `purchase-commission-balance-${orderId}`,
+            email: booking.email,
+            value: Number(booking.balance_usd),
+            currency: 'USD',
+            eventSourceUrl: BASE_URL,
+          })
+          .catch((err) => console.error('[meta capi] Purchase event failed:', err.message));
+      }
+      await alertAdmin(
+        `Commission #${orderId} balance paid — clear to ship`,
+        `The balance on commission #${orderId} is paid. Nothing is blocking shipment.`
+      );
+    } else {
+      console.log(`[stripe webhook] commission #${orderId} balance already processed (duplicate delivery) — skipping.`);
+    }
+  } else {
+    console.warn(`[stripe webhook] checkout.session.completed with unrecognized metadata for session ${session.id}`);
+  }
+}
+
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
     return res.status(400).send('Stripe webhooks are not configured.');
@@ -694,134 +862,53 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Without this, /api/checkout creates an order row as 'pending' and
-  // nothing ever marks it paid — there'd be no reliable record of who
-  // actually paid or what to fulfill.
-  if (event.type === 'checkout.session.completed') {
+  // A completed session is not necessarily a paid one. Stripe fires
+  // checkout.session.completed the moment the customer finishes checkout, but
+  // for a delayed-notification payment method (ACH, bank transfer, Klarna —
+  // each one dashboard toggle away, and Stripe actively promotes them) the
+  // money has not moved yet and payment_status is 'unpaid'. Fulfilling on
+  // that signal alone means painting and shipping goods for a payment that
+  // may never land. Fulfil only once the money is confirmed: either
+  // payment_status says so here, or async_payment_succeeded says so later.
+  if (
+    event.type === 'checkout.session.completed' ||
+    event.type === 'checkout.session.async_payment_succeeded'
+  ) {
     const session = event.data.object;
-    const orderType = session.metadata && session.metadata.orderType;
-    const orderId = session.metadata && Number(session.metadata.orderId);
-    const shippingJson = extractShippingJson(session);
-
-    if (orderType === 'calendar' && orderId) {
-      // Scoped to status='pending' so a retried webhook delivery (Stripe
-      // resends on any non-2xx or slow response) can't re-mark an
-      // already-paid order and re-trigger anything downstream of it.
-      const info = await db.run(
-        `UPDATE orders SET status = 'paid', shipping_address = ? WHERE id = ? AND status = 'pending'`,
-        [shippingJson, orderId]
-      );
-      console.log(
-        info.changes > 0
-          ? `[stripe webhook] calendar order #${orderId} marked paid.`
-          : `[stripe webhook] checkout.session.completed for unknown or already-processed calendar order #${orderId}`
-      );
-    } else if (orderType === 'custom' && orderId) {
-      // Same idempotency guard — without it, a retried delivery resets an
-      // already-'submitted_to_printful' order back to 'paid', which defeats
-      // submitCustomOrderToPrintful's own status check and re-submits the
-      // same order to Printful a second time.
-      const info = await db.run(
-        `UPDATE custom_orders SET status = 'paid', shipping_address = ? WHERE id = ? AND status = 'pending'`,
-        [shippingJson, orderId]
-      );
-      if (info.changes > 0) {
-        console.log(`[stripe webhook] custom order #${orderId} marked paid.`);
-        // Purchase is fired here and only here — this webhook is the one
-        // point a payment is actually confirmed, unlike a client-side
-        // "thank you page" event that fires on redirect regardless of
-        // whether payment truly succeeded. Scoped inside the same
-        // status='pending' guard above, so a retried webhook delivery
-        // can't double-fire it either.
-        const paidOrder = await db.get(`SELECT email, amount_usd FROM custom_orders WHERE id = ?`, [orderId]);
-        if (paidOrder) {
-          metaConversions
-            .sendEvent({
-              eventName: 'Purchase',
-              eventId: `purchase-custom-${orderId}`,
-              email: paidOrder.email,
-              value: Number(paidOrder.amount_usd),
-              currency: 'USD',
-              eventSourceUrl: BASE_URL,
-            })
-            .catch((err) => console.error('[meta capi] Purchase event failed:', err.message));
-        }
-        await submitCustomOrderToPrintful(orderId);
+    const paid =
+      session.payment_status === 'paid' || session.payment_status === 'no_payment_required';
+    try {
+      if (paid) {
+        await fulfillCheckoutSession(session);
       } else {
-        console.log(`[stripe webhook] custom order #${orderId} already processed (duplicate delivery) — skipping.`);
-      }
-    } else if (orderType === 'commission_deposit' && orderId) {
-      // Same status-scoped idempotency guard as the order types above: a
-      // retried delivery must not re-stamp deposit_paid_at or re-notify.
-      const info = await db.run(
-        `UPDATE commissions SET status = 'deposit_paid', deposit_paid_at = ?, shipping_address = ? WHERE id = ? AND status = 'deposit_pending'`,
-        [new Date().toISOString(), shippingJson, orderId]
-      );
-      if (info.changes > 0) {
-        console.log(`[stripe webhook] commission #${orderId} deposit paid.`);
-        const booking = await db.get(`SELECT * FROM commissions WHERE id = ?`, [orderId]);
-        if (booking) {
-          metaConversions
-            .sendEvent({
-              eventName: 'Purchase',
-              eventId: `purchase-commission-deposit-${orderId}`,
-              email: booking.email,
-              value: Number(booking.deposit_usd),
-              currency: 'USD',
-              eventSourceUrl: BASE_URL,
-            })
-            .catch((err) => console.error('[meta capi] Purchase event failed:', err.message));
-          // A booked commission is a promise of hand-made work with a
-          // clock on it, so it has to reach a human rather than only
-          // appear in an admin list nobody is watching.
-          await mailer
-            .sendCommissionBooked({
-              email: booking.email,
-              petName: booking.pet_name,
-              sizeLabel: (commissionPricing.getSize(booking.size_id) || {}).label || booking.size_id,
-              depositUsd: Number(booking.deposit_usd).toFixed(2),
-              balanceUsd: Number(booking.balance_usd).toFixed(2),
-              totalUsd: Number(booking.total_usd).toFixed(2),
-              rush: Boolean(Number(booking.rush)),
-            })
-            .catch((err) => console.error('[mailer] commission confirmation failed:', err.message));
-          await alertAdmin(
-            `Commission #${orderId} booked — deposit paid`,
-            `${booking.email} booked a ${booking.size_id} original${Number(booking.rush) ? ' (RUSH, under 10 days)' : ''}. Deposit $${Number(booking.deposit_usd).toFixed(2)} paid, balance $${Number(booking.balance_usd).toFixed(2)} due before shipping. Reference photo and notes are in admin.html.`
-          );
-        }
-      } else {
-        console.log(`[stripe webhook] commission #${orderId} deposit already processed (duplicate delivery) — skipping.`);
-      }
-    } else if (orderType === 'commission_balance' && orderId) {
-      const info = await db.run(
-        `UPDATE commissions SET status = 'balance_paid', balance_paid_at = ?, shipping_address = COALESCE(?, shipping_address) WHERE id = ? AND status = 'balance_pending'`,
-        [new Date().toISOString(), shippingJson, orderId]
-      );
-      if (info.changes > 0) {
-        console.log(`[stripe webhook] commission #${orderId} balance paid — clear to ship.`);
-        const booking = await db.get(`SELECT email, balance_usd FROM commissions WHERE id = ?`, [orderId]);
-        if (booking) {
-          metaConversions
-            .sendEvent({
-              eventName: 'Purchase',
-              eventId: `purchase-commission-balance-${orderId}`,
-              email: booking.email,
-              value: Number(booking.balance_usd),
-              currency: 'USD',
-              eventSourceUrl: BASE_URL,
-            })
-            .catch((err) => console.error('[meta capi] Purchase event failed:', err.message));
-        }
-        await alertAdmin(
-          `Commission #${orderId} balance paid — clear to ship`,
-          `The balance on commission #${orderId} is paid. Nothing is blocking shipment.`
+        console.log(
+          `[stripe webhook] session ${session.id} is '${session.payment_status}' — not fulfilling yet; waiting for checkout.session.async_payment_succeeded.`
         );
-      } else {
-        console.log(`[stripe webhook] commission #${orderId} balance already processed (duplicate delivery) — skipping.`);
       }
-    } else {
-      console.warn(`[stripe webhook] checkout.session.completed with unrecognized metadata for session ${session.id}`);
+    } catch (err) {
+      // Reaching here used to take the whole process down: Express 4 does not
+      // catch a rejected async handler and nothing installs an
+      // unhandledRejection hook, so one transient Postgres error during a
+      // webhook killed the server and Stripe got no reply at all. Answering
+      // 500 makes Stripe retry instead, which the status-scoped guards inside
+      // fulfillCheckoutSession are already safe against.
+      console.error(`[stripe webhook] failed handling ${event.type} (${event.id}):`, err);
+      return res.status(500).json({ error: 'Webhook handler failed — please retry.' });
+    }
+  } else if (event.type === 'checkout.session.async_payment_failed') {
+    // The customer got as far as checkout but the bank debit bounced. The
+    // order was never marked paid (see above), so nothing has to be undone —
+    // but a human should know a sale silently evaporated.
+    const session = event.data.object;
+    const orderId = session.metadata && session.metadata.orderId;
+    console.warn(`[stripe webhook] async payment failed for session ${session.id} (order ${orderId}).`);
+    try {
+      await alertAdmin(
+        `Payment failed for ${(session.metadata && session.metadata.orderType) || 'an order'} #${orderId}`,
+        `Stripe reported async_payment_failed for checkout session ${session.id}. The order was never marked paid and nothing shipped, but the customer tried to buy and their payment bounced — worth following up.`
+      );
+    } catch (err) {
+      console.error('[stripe webhook] async_payment_failed alert failed:', err.message);
     }
   } else if (event.type === 'charge.refunded' || event.type === 'charge.dispute.created') {
     // Neither a Charge nor a Dispute carries our own order metadata directly
@@ -3084,7 +3171,11 @@ app.post('/api/admin/commissions/:id/request-balance', requireAdmin, async (req,
     if (!stripe) {
       return res.status(400).json({ error: 'Stripe is not configured on this server yet.' });
     }
-    const id = Number(req.params.id);
+    // parseRowId, not Number(): Number('abc') is NaN and Number('1e99') is a
+    // finite number no int4 column can hold, and both reach Postgres as
+    // errors rather than misses. A bad id is a 400 here, not a 500.
+    const id = parseRowId(req.params.id);
+    if (id === null) return res.status(400).json({ error: 'Invalid commission id.' });
     const booking = await db.get(`SELECT * FROM commissions WHERE id = ?`, [id]);
     if (!booking) return res.status(404).json({ error: 'Commission not found.' });
     // Only a paid deposit can progress to a balance request. Asking for the
