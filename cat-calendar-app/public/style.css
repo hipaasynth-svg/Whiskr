@@ -92,6 +92,11 @@ h1, h2, h3, h4 {
 .btn-primary:hover { background: #d9922e; }
 .btn-ghost { border-color: rgba(255,255,255,0.6); color: #fff; }
 .btn-ghost:hover { background: rgba(255,255,255,0.12); }
+/* .btn-ghost is drawn white for the dark hero. The footer sign-up reuses it
+   against the light page background, where white on cream is invisible and
+   fails contrast outright — restate it in the footer's own colours. */
+.site-footer .btn-ghost { border-color: #6b6552; color: #3d3928; }
+.site-footer .btn-ghost:hover { background: rgba(0,0,0,0.06); }
 
 .ribbon-tag {
   font-family: var(--font-display);
@@ -609,7 +614,7 @@ h1, h2, h3, h4 {
   object-fit: cover;
   border-radius: 6px 6px 0 0;
 }
-.custom-card h4 { font-size: 1.15rem; margin-bottom: 0; }
+.custom-card h3 { font-size: 1.15rem; margin-bottom: 0; }
 .custom-card p { font-size: 0.92rem; color: #55503f; flex: 1; margin: 0; }
 .custom-card .price { font-family: var(--font-display); font-size: 1.4rem; }
 .custom-order-form {

@@ -60,6 +60,10 @@
     <a href="#enter" class="nav-cta">Enter free</a>
   </nav>
 </header>
+<!-- Everything between the site header and the footer is the page's main
+     content. Without this landmark none of it belongs to any region, so a
+     screen reader user has no way to skip the nav and jump straight to it. -->
+<main id="main-content">
 
 <section id="top" class="hero">
   <div class="hero-slides" id="heroSlides" aria-hidden="true"></div>
@@ -177,9 +181,9 @@
       </label>
       <label class="file-label">
         Photo
-        <input type="file" name="photo" id="entryPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
-        <span class="field-hint">Best quality wins — take your time, get good light, and frame your cat well.</span>
+        <input type="file" name="photo" id="entryPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required aria-describedby="entryPhotoHint" />
       </label>
+      <span class="field-hint" id="entryPhotoHint">Best quality wins — take your time, get good light, and frame your cat well.</span>
       <label class="consent-label">
         <input type="checkbox" name="photoRights" id="photoRights" required />
         <span>I own this photo (or have the owner's permission), and I'm giving Whiskr permission to show it on whiskr.lol and on Whiskr's own social accounts to run and promote the contest — and, if my cat wins, to paint the portrait from it. I keep ownership. Whiskr won't sell products made from my photo. (<a href="rules.html#photo-rights" target="_blank">full photo rights</a>)</span>
@@ -190,7 +194,7 @@
       </label>
       <button type="submit" class="btn btn-primary">Submit entry</button>
       <p class="form-note">No purchase necessary to enter or win — <a href="rules.html">official rules</a>.</p>
-      <p class="form-note" id="entryNote"></p>
+      <p class="form-note" id="entryNote" role="status" aria-live="polite"></p>
       <div id="entryMockup" hidden></div>
     </form>
   </div>
@@ -231,7 +235,7 @@
     <input type="hidden" name="species" id="customSpecies" value="cat" />
     <input type="hidden" name="productId" id="customProductId" />
     <p class="form-note" id="customDiscountBanner" hidden></p>
-    <p class="form-note" id="customSelectedNote">Pick a product above to get started.</p>
+    <p class="form-note" id="customSelectedNote" role="status" aria-live="polite">Pick a product above to get started.</p>
     <div class="form-row">
       <label>
         Pet's name (optional)
@@ -257,8 +261,8 @@
     <label class="file-label">
       Photo
       <input type="file" name="photo" id="customPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
-      <div class="upload-preview" id="customPreview"></div>
     </label>
+    <div class="upload-preview" id="customPreview"></div>
     <label>
       Quantity
       <input type="number" name="quantity" id="customQty" min="1" max="10" value="1" />
@@ -268,7 +272,7 @@
       I own this photo (or have the owner's permission), and I'm giving Whiskr permission to print it on the item I'm ordering and share it with our printing partner to make and ship it. I keep ownership.
     </label>
     <button type="submit" class="btn btn-primary" id="customSubmitBtn" disabled>Choose a product first</button>
-    <p class="form-note" id="customOrderNote"></p>
+    <p class="form-note" id="customOrderNote" role="status" aria-live="polite"></p>
   </form>
 </section>
 
@@ -328,13 +332,14 @@
 
 <div class="footer-strip" id="footerStrip" hidden></div>
 
+</main>
 <footer class="site-footer">
   <div>Whiskr — a free, real-public-vote cat photo contest, plus custom cat &amp; dog prints.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
   <form class="footer-signup" id="footerSignupForm">
     <label for="footerSignupEmail" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">Email for occasional Whiskr updates</label>
     <input type="email" id="footerSignupEmail" placeholder="Get occasional updates" required />
     <button type="submit" class="btn btn-ghost">Sign up</button>
-    <span class="footer-signup-note" id="footerSignupNote"></span>
+    <span class="footer-signup-note" id="footerSignupNote" role="status" aria-live="polite"></span>
   </form>
   <div class="footer-links"><a href="/blog">Blog</a> · <a href="rules.html">Official rules</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a> · <a href="#top">Back to top</a></div>
 </footer>

@@ -1152,11 +1152,11 @@ const CALENDAR_GONE_HTML = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>No longer available — Whiskr</title><meta name="robots" content="noindex, nofollow" />
 <link rel="stylesheet" href="/style.css" /></head>
-<body><div style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;">
+<body><main style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;">
 <h1>This page is no longer available.</h1>
 <p>Whiskr's contest now gives an original hand-painted portrait straight to each round's winner — there's no separate calendar to order.</p>
 <p><a href="/">Back to Whiskr</a></p>
-</div></body></html>`;
+</main></body></html>`;
 
 async function renderCalendarHtml(groupIdRaw) {
   let html = fs.readFileSync(CALENDAR_PATH, 'utf8');
