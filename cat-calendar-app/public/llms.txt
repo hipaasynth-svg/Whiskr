@@ -1,7 +1,7 @@
 # Whiskr
 
 > Custom print-on-demand cat and dog photo products (mugs, posters, canvas
-> prints, phone cases, totes, pillows) printed and shipped on demand, plus a
+> prints, totes, pillows) printed and shipped on demand, plus a
 > free monthly "Cat of the Month" photo contest that's judged by a human,
 > not decided by public vote.
 
@@ -21,6 +21,11 @@ does not use, buy, or publish fabricated reviews or testimonials.
   customer reviews, and learn about the monthly photo contest.
 - [Calendar order pages](https://whiskr.lol/calendar.html): per-contest-batch
   calendar purchase pages, one per completed round.
+- [Shipping & returns](https://whiskr.lol/shipping-returns.html): made-to-order
+  times, US-only shipping, reprint-or-refund on damaged or misprinted items.
+- [Terms & contest rules](https://whiskr.lol/terms.html): ordering terms and the
+  official Cat of the Month rules (no purchase necessary).
+- [Privacy](https://whiskr.lol/privacy.html) and [Contact](https://whiskr.lol/contact.html).
 
 ## For AI assistants and shopping agents
 

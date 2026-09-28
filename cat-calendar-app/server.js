@@ -425,6 +425,7 @@ app.get('/api/products', (req, res) => {
     species: p.species,
     description: p.description,
     priceUsd: p.priceUsd,
+    available: productCatalog.isFulfillable(p, printful.configured()),
   }));
   res.json({ products: list });
 });
@@ -458,6 +459,12 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     const product = productCatalog.getProduct(productId);
     if (!product) {
       return res.status(400).json({ error: 'Unknown product.' });
+    }
+    // Never take money for something that can't actually be printed: until
+    // Printful is configured and this product has a real variant ID, the
+    // webhook would mark it paid and then fail (or dry-run) the submission.
+    if (!productCatalog.isFulfillable(product, printful.configured())) {
+      return res.status(400).json({ error: `${product.name} isn't available to order yet — check back soon.` });
     }
 
     const qty = Math.max(1, Math.min(10, Number(quantity) || 1));
@@ -521,6 +528,16 @@ app.get('/api/status', async (req, res) => {
     groupSize: GROUP_SIZE,
     spotsLeft: Math.max(0, GROUP_SIZE - openCount),
     lastWinner: winnerCat,
+    lastCompletedGroupId: lastCompleted ? lastCompleted.id : null,
+  });
+});
+
+// Public contact details for the footer / policy pages. SUPPORT_EMAIL is the
+// address customers should write to; falls back to the Zoho sending address.
+app.get('/api/site-info', (req, res) => {
+  res.json({
+    supportEmail: process.env.SUPPORT_EMAIL || process.env.ZOHO_EMAIL || null,
+    mailingAddress: process.env.BUSINESS_MAILING_ADDRESS || null,
   });
 });
 
@@ -800,6 +817,20 @@ app.post('/api/admin/force-close/:groupId', requireAdmin, async (req, res) => {
 });
 
 app.get('/healthz', (req, res) => res.send('ok'));
+
+// Upload rejections (wrong type, too large) otherwise fall through to
+// Express's default handler, which returns an HTML stack trace — the
+// frontend can't parse it and shows the customer gibberish.
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ error: 'That photo is over 8MB — please pick a smaller one.' });
+  }
+  if (err instanceof multer.MulterError || /photos are accepted/.test(err.message)) {
+    return res.status(400).json({ error: err.message });
+  }
+  console.error(err);
+  res.status(500).json({ error: 'Something went wrong.' });
+});
 
 // ---------- background schedule ----------
 // Hit once a day by Vercel Cron (see the "crons" entry in vercel.json) —

@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Your batch's calendar — Whiskr</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
@@ -34,7 +35,7 @@
 <header class="site-header">
   <a href="index.html" class="brand">Whiskr</a>
   <nav class="site-nav">
-    <a href="index.html#shop">All calendars</a>
+    <a href="index.html#shop-custom">Shop prints</a>
     <a href="index.html#enter" class="nav-cta">Enter your cat</a>
   </nav>
 </header>
@@ -76,8 +77,13 @@
 </div>
 
 <footer class="site-footer">
-  <div>Whiskr — a small, honest cat calendar company.</div>
-  <div class="footer-links"><a href="index.html">Home</a></div>
+  <div>&copy; Whiskr: custom cat &amp; dog prints and the Cat of the Month contest.</div>
+  <div class="footer-links">
+    <a href="shipping-returns.html">Shipping &amp; returns</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="terms.html">Terms &amp; contest rules</a>
+    <a href="contact.html">Contact</a>
+  </div>
 </footer>
 
 <script>
@@ -106,7 +112,7 @@
         statusEl.textContent = 'This batch is still being judged — check back once a cover cat is picked.';
       } else {
         title.textContent = 'The calendar from this round';
-        statusEl.textContent = '12 cats, one cover star, thirteen months of good mornings.';
+        statusEl.textContent = '12 cats, one cover star, a year of good mornings.';
       }
 
       data.cats.forEach((cat) => {

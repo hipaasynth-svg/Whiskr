@@ -3,7 +3,12 @@ const db = require('./db');
 const { tokenFor } = require('./unsubscribe');
 
 const BASE_URL = process.env.PUBLIC_BASE_URL || 'http://localhost:3000';
-const MAILING_ADDRESS = process.env.BUSINESS_MAILING_ADDRESS || '[Add your business mailing address to .env — required by CAN-SPAM]';
+const MAILING_ADDRESS = process.env.BUSINESS_MAILING_ADDRESS || '';
+if (!MAILING_ADDRESS) {
+  // Don't show customers a setup note in the footer — but this still has to
+  // be set: CAN-SPAM requires a physical address on commercial email.
+  console.warn('[mailer] BUSINESS_MAILING_ADDRESS is not set — commercial emails are missing the address CAN-SPAM requires.');
+}
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -65,7 +70,7 @@ async function sendMail({ to, subject, html, text }) {
 // content) and can stay false for purely transactional notices.
 function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = 'Cat of the Month Contest' } = {}) {
   const footerCompliance = showUnsubscribe
-    ? `<p>${escapeHtml(MAILING_ADDRESS)}<br>
+    ? `<p>${MAILING_ADDRESS ? `${escapeHtml(MAILING_ADDRESS)}<br>` : ''}
         Don't want these emails? <a href="${unsubscribeUrl(email)}">Unsubscribe</a>.</p>`
     : '';
   return `
@@ -79,7 +84,7 @@ function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = '
         ${bodyHtml}
       </div>
       <div style="padding:16px 28px;background:#f3ede0;color:#7a7160;font-size:12px;">
-        You're getting this because a cat photo was submitted to Whiskr with this address.
+        You're getting this because this address was used to order from Whiskr or enter the Cat of the Month contest.
         ${footerCompliance}
       </div>
     </div>
@@ -90,15 +95,15 @@ async function sendEntryConfirmation({ email, catName, groupId }) {
   const safeName = escapeHtml(catName);
   const html = wrapLayout(`
     <p>Hi there,</p>
-    <p><strong>${safeName}</strong> is officially entered in this month's group of 12. Our judging table reviews the full batch over the next few weeks before picking a cover cat.</p>
-    <p>We'll email you the moment results are in — win or place, your cat's photo may still make the calendar.</p>
-    <p>— The Whiskr judging table</p>
+    <p><strong>${safeName}</strong> is officially entered in this month's group of 12. Our judges review the full batch over the next few weeks before picking a cover cat.</p>
+    <p>We'll email you as soon as results are in. Whether or not your cat takes the cover, all 12 cats in the batch appear in the calendar.</p>
+    <p>— The Whiskr judges</p>
   `);
   return sendMail({
     to: email,
     subject: `${catName} is entered! 🐾 (Group #${groupId})`,
     html,
-    text: `${catName} is entered in group #${groupId}. Our judging table reviews the batch over the next few weeks — we'll email you when the cover cat is picked.`,
+    text: `${catName} is entered in group #${groupId}. Our judges review the batch over the next few weeks — we'll email you when the cover cat is picked.`,
   });
 }
 
@@ -107,7 +112,7 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p><strong>${safeName} is so cute — and has been selected as this month's Cat of the Month! 🏆</strong></p>
+    <p><strong>Congratulations! ${safeName} has been picked as Cat of the Month! 🏆</strong></p>
     <p>${safeName} is the cover star of this batch's 12-month calendar, sharing the pages with 11 other very good cats.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${buyUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
@@ -115,7 +120,7 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
       </a>
     </p>
     <p style="font-size:13px;color:#555;">Order 2 or more and each one drops to $${priceMulti} — great for gifts.</p>
-    <p>— The Whiskr judging table</p>
+    <p>— The Whiskr judges</p>
   `,
     { showUnsubscribe: true, email }
   );
@@ -123,7 +128,7 @@ async function sendWinnerEmail({ email, catName, groupId, buyUrl, priceOne, pric
     to: email,
     subject: `${catName} is Cat of the Month! 🏆`,
     html,
-    text: `${catName} is so cute — and has been selected as Cat of the Month! Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `Congratulations! ${catName} has been picked as Cat of the Month! Get the calendar: ${buyUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -140,7 +145,7 @@ async function sendFeaturedEmail({ email, catName, groupId, buyUrl, priceOne, pr
     </p>
     <p style="font-size:13px;color:#555;">Order 2 or more and each one drops to $${priceMulti}.</p>
     <p>Thanks for entering ${safeName} — we'd love to see them in a future round too.</p>
-    <p>— The Whiskr judging table</p>
+    <p>— The Whiskr judges</p>
   `,
     { showUnsubscribe: true, email }
   );

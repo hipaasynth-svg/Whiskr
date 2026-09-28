@@ -431,11 +431,36 @@ h1, h2, h3, h4 {
   font-size: 0.85rem;
   color: #6b6552;
   border-top: 1px solid var(--line);
+  gap: 16px;
+  flex-wrap: wrap;
 }
+.footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
 .footer-links a { text-decoration: none; }
+.footer-links a:hover { color: var(--blush); }
+
+/* ---------- post-checkout banner ---------- */
+.order-banner {
+  background: var(--forest);
+  color: #fff;
+  padding: 14px 36px;
+  font-size: 0.95rem;
+}
+
+.custom-card .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.consent-label a { color: inherit; }
+
+/* ---------- policy pages ---------- */
+.policy { max-width: 720px; margin: 0 auto; padding: 60px 36px 100px; }
+.policy h1 { font-size: clamp(1.8rem, 4vw, 2.4rem); margin-bottom: 6px; }
+.policy .updated { color: #6b6552; font-size: 0.85rem; margin-bottom: 30px; }
+.policy h2 { font-size: 1.25rem; margin: 34px 0 10px; }
+.policy p, .policy li { color: #33301f; font-size: 0.97rem; }
+.policy ul { padding-left: 20px; margin-bottom: 14px; }
+.policy li { margin-bottom: 6px; }
 
 @media (max-width: 860px) {
-  .site-nav { display: none; }
+  .site-nav { gap: 0; }
+  .site-nav a:not(.nav-cta) { display: none; }
   .steps { grid-template-columns: 1fr; }
   .current-card { grid-template-columns: 1fr; }
   .enter-wrap { grid-template-columns: 1fr; }

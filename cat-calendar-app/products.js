@@ -5,13 +5,17 @@
 // Create these products in your Printful dashboard (Store > Products), and
 // replace the placeholders with the real variant IDs Printful gives you —
 // find them in the product's "Variants" tab or via GET /store/products on
-// their API. Until you do, orders will still take payment (once Stripe is
-// configured) but printful.js will log a warning and skip submission rather
-// than send Printful a variant ID that doesn't exist.
+// their API. Until you do (and until PRINTFUL_API_KEY is set), server.js
+// refuses to open a checkout for that product and the shop shows it as
+// "Coming soon" — so no one can pay for something that won't be printed.
 //
 // priceUsd is what you charge the customer — set it above Printful's base
 // cost + shipping (check current pricing in your Printful dashboard; it
 // varies by product and destination) or every sale loses money.
+// A phone case was here, but Printful sells phone cases as one variant per
+// phone model and checkout has no model picker — every order would have
+// been unfulfillable. Add it back together with a model <select> that maps
+// to the right variant ID.
 const PRODUCTS = [
   {
     id: 'mug-11oz',
@@ -38,14 +42,6 @@ const PRODUCTS = [
     printfulVariantId: null,
   },
   {
-    id: 'phone-case',
-    name: 'Custom Pet Phone Case',
-    species: 'both',
-    description: "Your pet on a durable phone case. Tell us your phone model at checkout.",
-    priceUsd: 24.99,
-    printfulVariantId: null,
-  },
-  {
     id: 'tote-bag',
     name: 'Custom Pet Tote Bag',
     species: 'both',
@@ -68,8 +64,14 @@ function listProducts(species) {
   return PRODUCTS.filter((p) => p.species === 'both' || p.species === species);
 }
 
+// A product can only be sold once Printful is configured and it has a real
+// variant ID — otherwise the order would be paid and never printed.
+function isFulfillable(product, printfulConfigured) {
+  return Boolean(printfulConfigured && product && product.printfulVariantId);
+}
+
 function getProduct(id) {
   return PRODUCTS.find((p) => p.id === id) || null;
 }
 
-module.exports = { PRODUCTS, listProducts, getProduct };
+module.exports = { PRODUCTS, listProducts, getProduct, isFulfillable };

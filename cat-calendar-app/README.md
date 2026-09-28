@@ -3,7 +3,7 @@
 A real, runnable Node/Express site with two things going on:
 
 - **Evergreen storefront**: upload a photo of your cat or dog, pick a
-  product (mug, poster, canvas, phone case, tote, pillow), pay, and it's
+  product (mug, poster, canvas, tote, pillow), pay, and it's
   printed and shipped through **Printful** — no inventory, always open,
   doesn't depend on the contest running.
 - **Monthly photo contest**: entries seal into batches of 12; a human (you)
@@ -110,21 +110,20 @@ error instead of a broken payment flow.
 
 ## 4. Printful setup (required for custom orders to actually get printed)
 
-Without this, the custom-print shop still takes payment (once Stripe is
-configured), but `printful.js` only logs what it would have submitted —
-nothing gets printed or shipped.
+Without this, every custom product shows as "Coming soon" and checkout
+refuses to open for it — the shop won't take money for something it can't
+print.
 
 1. Create a [Printful](https://www.printful.com/) account (it's free — you
    only pay per order, no upfront cost or inventory).
 2. In your Printful store, add each product from `products.js` (11oz mug,
-   12x16 poster, 12x12 canvas, phone case, tote bag, 16x16 pillow) — or
+   12x16 poster, 12x12 canvas, tote bag, 16x16 pillow) — or
    substitute your own picks, just keep `products.js` in sync.
 3. For each one, find its **variant ID** (Printful dashboard → your product
    → Variants tab, or `GET /store/products` on their API) and paste it into
    the matching `printfulVariantId` in `products.js`. Every one ships as
-   `null` in this repo — orders for a product with no variant ID configured
-   will fail at the Printful-submission step (visible in `/admin.html`
-   under Custom print orders, status `failed`), not silently.
+   `null` in this repo — a product with no variant ID stays "Coming soon"
+   and can't be bought until you fill it in.
 4. Get a **Private Token** from Printful → Settings → Stores → API, and put
    it in `.env` as `PRINTFUL_API_KEY`.
 5. Set your real prices in `products.js` (`priceUsd`) — above Printful's

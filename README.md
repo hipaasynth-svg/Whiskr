@@ -3,7 +3,7 @@
 A pet business, live at **whiskr.lol**, with two things going on:
 
 - **An evergreen custom print shop** — upload a photo of your cat or dog,
-  pick a product (mug, poster, canvas, phone case, tote, pillow), and it's
+  pick a product (mug, poster, canvas, tote, pillow), and it's
   printed and shipped through Printful. Always open, no batches to wait for.
 - **A monthly photo contest** — entries seal into batches of 12; a human
   picks the cover cat, everyone in the batch gets a calendar offer.

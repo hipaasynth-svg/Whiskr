@@ -33,6 +33,7 @@
 }
 </script>
 
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
@@ -50,16 +51,20 @@
   </nav>
 </header>
 
+<div class="order-banner" id="orderBanner" role="status" hidden>
+  <strong>Thanks, your order is in!</strong> A receipt is on its way to your inbox. We'll start printing right away, and you can reply to that email with any questions.
+</div>
+
 <section id="top" class="hero">
   <div class="hero-slides" id="heroSlides" aria-hidden="true"></div>
   <div class="hero-scrim"></div>
   <div class="hero-content">
-    <p class="ribbon-tag">Custom prints, always open — plus a free monthly contest</p>
+    <p class="ribbon-tag">Custom pet prints, made to order</p>
     <h1>Your cat or dog, printed beautifully.</h1>
-    <p class="hero-sub">Upload one photo, pick a mug, poster, canvas or more, and we print &amp; ship it straight to you. No waiting for a batch — order any day.</p>
+    <p class="hero-sub">Upload one photo, pick a mug, poster, canvas or more, and we print it and ship it to your door.</p>
     <div class="hero-actions">
       <a href="#shop-custom" class="btn btn-primary">Shop custom prints</a>
-      <a href="#current" class="btn btn-ghost">See the monthly contest</a>
+      <a href="#how" class="btn btn-ghost">Enter the free cat contest</a>
     </div>
   </div>
   <div class="hero-controls">
@@ -68,25 +73,11 @@
   </div>
 </section>
 
-<section id="reviews" class="section reviews">
-  <h2>What customers say</h2>
-  <p class="section-sub">Every review here comes from a real, verified Whiskr order — we don't post reviews we didn't earn.</p>
-  <div class="reviews-grid" id="reviewsGrid" style="display:none;"></div>
-  <div class="reviews-empty" id="reviewsEmpty" style="display:none;">
-    <h3>We're brand new — no reviews yet</h3>
-    <p>Here's our promise in the meantime: if your print arrives damaged or misprinted, we'll reprint it or refund you, no questions asked. Order today and yours could be the first review here.</p>
-  </div>
-  <div class="trust-row">
-    <span class="trust-badge">🔒 Secure checkout via Stripe</span>
-    <span class="trust-badge">🖨️ Reprint guarantee on defects</span>
-    <span class="trust-badge">📬 Printed on demand, shipped direct — no inventory markup</span>
-  </div>
-</section>
 
 <section id="shop-custom" class="section shop-custom">
-  <p class="ribbon-tag">Always open — no waiting for a batch</p>
+  <p class="ribbon-tag">Order any day</p>
   <h2>Custom prints of your cat or dog</h2>
-  <p class="section-sub">Upload one great photo, pick a product below, and we handle printing and shipping.</p>
+  <p class="section-sub">Pick a product, upload one great photo, and we handle printing and shipping. Sharp, well-lit photos print best.</p>
 
   <div class="species-toggle" id="speciesToggle">
     <button type="button" data-species="cat" class="active">Cats</button>
@@ -118,26 +109,41 @@
     </label>
     <label class="consent-label">
       <input type="checkbox" name="photoRights" id="customPhotoRights" required />
-      I own this photo and grant Whiskr a license to print and sell it.
+      I took this photo or have permission to use it, and I'm OK with Whiskr printing it for this order.
     </label>
     <button type="submit" class="btn btn-primary" id="customSubmitBtn" disabled>Choose a product first</button>
     <p class="form-note" id="customOrderNote"></p>
   </form>
 </section>
 
+<section id="reviews" class="section reviews">
+  <h2 id="reviewsHeading">What customers say</h2>
+  <p class="section-sub" id="reviewsSub">Every review here comes from a verified Whiskr order.</p>
+  <div class="reviews-grid" id="reviewsGrid" style="display:none;"></div>
+  <div class="reviews-empty" id="reviewsEmpty" style="display:none;">
+    <h3>If it arrives damaged or misprinted, we fix it</h3>
+    <p>Send us a photo of the problem within 30 days of delivery and we'll reprint it or refund you. <a href="shipping-returns.html">Shipping &amp; returns</a></p>
+  </div>
+  <div class="trust-row">
+    <span class="trust-badge">🔒 Secure checkout via Stripe</span>
+    <span class="trust-badge">🖨️ Reprint guarantee on defects</span>
+    <span class="trust-badge">📬 Printed to order and shipped to your door</span>
+  </div>
+</section>
+
 <section id="how" class="section how">
-  <p class="ribbon-tag">The other thing we do</p>
-  <h2>Free monthly photo contest</h2>
+  <p class="ribbon-tag">Free to enter</p>
+  <h2>The Cat of the Month contest</h2>
   <ol class="steps">
     <li>
       <span class="step-num">1</span>
       <h3>Submit a photo</h3>
-      <p>Give us your best shot of your cat and an email address. That's the whole entry form.</p>
+      <p>Send us your best shot of your cat and an email address. That's the whole entry form.</p>
     </li>
     <li>
       <span class="step-num">2</span>
       <h3>Wait with eleven others</h3>
-      <p>Once a batch of 12 fills up, our judging table reviews it over a few weeks so every cat gets a fair look.</p>
+      <p>Once a batch of 12 fills up, our judges review it over the next few weeks so every cat gets a fair look.</p>
     </li>
     <li>
       <span class="step-num">3</span>
@@ -150,25 +156,25 @@
 <section id="current" class="section current">
   <div class="current-card">
     <div class="current-photo">
-      <img id="winnerPhoto" src="" alt="" />
+      <img id="winnerPhoto" alt="" hidden />
     </div>
     <div class="current-copy">
       <p class="ribbon-tag">Most recent Cat of the Month</p>
       <h2 id="winnerName">Judging in progress</h2>
-      <p id="winnerBlurb">The current batch is still filling up or still being judged. Check back soon — or be the twelfth cat that seals it.</p>
+      <p id="winnerBlurb">The current batch is still filling up or being judged. Check back soon, or enter your cat and help fill it.</p>
       <p class="spots-left" id="spotsLeft"></p>
     </div>
   </div>
 </section>
 
-<section id="calendars" class="section shop">
-  <h2>Calendars from past contest batches</h2>
-  <p class="section-sub">Every calendar holds 12 cats from the same judged round — one cover star, eleven co-stars.</p>
+<section id="calendars" class="section shop" hidden>
+  <h2>The latest contest calendar</h2>
+  <p class="section-sub">Every calendar holds the 12 cats from one judged batch: one cover star and eleven co-stars.</p>
   <div class="shop-grid">
     <div class="product-card">
       <div class="product-badge">Contest exclusive</div>
       <h3>The 12-Cat Wall Calendar</h3>
-      <p>13 months, thick matte stock, spiral bound. Ships flat, hangs anywhere.</p>
+      <p>Twelve cats from one batch, a month each. Ships flat, hangs anywhere.</p>
       <div class="price-row">
         <div>
           <span class="price" id="priceOne">$24.99</span>
@@ -179,22 +185,7 @@
           <span class="price-note">each, for 2+</span>
         </div>
       </div>
-      <form id="checkoutForm" class="checkout-form">
-        <label>
-          Group number
-          <input type="number" id="checkoutGroup" min="1" placeholder="e.g. 3" required />
-        </label>
-        <label>
-          Quantity
-          <input type="number" id="checkoutQty" min="1" max="20" value="1" required />
-        </label>
-        <label>
-          Email for the receipt
-          <input type="email" id="checkoutEmail" placeholder="you@example.com" required />
-        </label>
-        <button type="submit" class="btn btn-primary">Go to checkout</button>
-        <p class="form-note" id="checkoutNote"></p>
-      </form>
+      <a class="btn btn-primary" id="latestCalendarLink" href="calendar.html">See the cats &amp; order</a>
     </div>
   </div>
 </section>
@@ -204,7 +195,7 @@
     <div class="enter-copy">
       <p class="ribbon-tag">Contest entry is free</p>
       <h2>Put your cat in the next batch</h2>
-      <p>One photo, one email address. We'll email you the second judging closes on your batch — whether your cat's on the cover or one of the eleven.</p>
+      <p>One photo, one email address. We'll email you when judging closes on your batch, whether your cat's on the cover or one of the eleven.</p>
     </div>
     <form id="entryForm" class="entry-form" enctype="multipart/form-data">
       <label>
@@ -221,7 +212,7 @@
       </label>
       <label class="consent-label">
         <input type="checkbox" name="photoRights" id="photoRights" required />
-        I own this photo and grant Whiskr a license to print and sell it.
+        I took this photo (or have permission to use it), I'm 18 or older, and I agree to the <a href="terms.html#contest">contest rules</a>, including Whiskr's license to print and sell it in contest calendars.
       </label>
       <button type="submit" class="btn btn-primary">Submit entry</button>
       <p class="form-note" id="entryNote"></p>
@@ -230,63 +221,68 @@
 </section>
 
 <section id="picks" class="section picks">
-  <h2>Gear we actually use</h2>
-  <p class="section-sub">Products for the pets behind Whiskr — cats and dogs both. Some of these links earn us a small commission; it doesn't change your price.</p>
+  <h2>Handy gear for pet photos</h2>
+  <p class="section-sub">A few popular, well-reviewed products that make it easier to get a great shot of your cat or dog.</p>
 
   <h3 style="color:#fff; margin-top:34px;">For cats</h3>
   <div class="picks-grid">
-    <a class="pick-card" href="https://www.chewy.com/" target="_blank" rel="sponsored noopener">
-      <h4>Chewy — food &amp; treats</h4>
-      <p>Where we restock the studio cats between shoots.</p>
-    </a>
-    <a class="pick-card" href="https://www.amazon.com/s?k=dr+elseys+unscented+clumping+cat+litter" target="_blank" rel="sponsored noopener">
-      <h4>Dr. Elsey's Clumping Litter</h4>
-      <p>One of the best-selling cat litters on Amazon — unscented, so it doesn't fight with photo-day treats.</p>
-    </a>
     <a class="pick-card" href="https://www.amazon.com/s?k=inaba+churu+cat+treats" target="_blank" rel="sponsored noopener">
       <h4>INABA Churu Treats</h4>
-      <p>The single most effective bribe for a cat that won't look at the camera.</p>
+      <p>A lickable treat most cats will hold still for. Handy when yours won't look at the camera.</p>
+    </a>
+    <a class="pick-card" href="https://www.amazon.com/s?k=cat+feather+wand+toy" target="_blank" rel="sponsored noopener">
+      <h4>Feather Wand Toy</h4>
+      <p>Wave it just above the lens to get eyes pointed at the camera.</p>
     </a>
     <a class="pick-card" href="https://www.amazon.com/s?k=cat+photo+backdrop" target="_blank" rel="sponsored noopener">
-      <h4>Amazon — photo backdrops</h4>
-      <p>Cheap felt backdrops that make phone photos look studio-lit.</p>
+      <h4>Photo Backdrops</h4>
+      <p>A plain felt or paper backdrop makes a phone photo look far more polished.</p>
     </a>
     <a class="pick-card" href="https://www.amazon.com/s?k=cat+scratching+post" target="_blank" rel="sponsored noopener">
       <h4>Cat Scratching Post</h4>
-      <p>Keeps the claws off your furniture — and doubles as a decent photo prop.</p>
+      <p>Saves the furniture and doubles as a photo prop.</p>
+    </a>
+    <a class="pick-card" href="https://www.chewy.com/s?query=cat+treats" target="_blank" rel="sponsored noopener">
+      <h4>Chewy: Cat Treats</h4>
+      <p>A wide range of treats to reward a good sitter.</p>
     </a>
   </div>
 
   <h3 style="color:#fff; margin-top:44px;">For dogs</h3>
   <div class="picks-grid">
-    <a class="pick-card" href="https://www.chewy.com/s?query=dog+treats" target="_blank" rel="sponsored noopener">
-      <h4>Chewy — training treats</h4>
-      <p>The bribe that gets a dog to sit still and look at the camera.</p>
+    <a class="pick-card" href="https://www.chewy.com/s?query=dog+training+treats" target="_blank" rel="sponsored noopener">
+      <h4>Chewy: Training Treats</h4>
+      <p>Small treats that keep a dog sitting and looking at you.</p>
     </a>
-    <a class="pick-card" href="https://www.amazon.com/s?k=earth+rated+dog+poop+bags" target="_blank" rel="sponsored noopener">
-      <h4>Earth Rated Poop Bags</h4>
-      <p>The best-selling dog waste bags on Amazon, by a wide margin — worth the reorder.</p>
+    <a class="pick-card" href="https://www.amazon.com/s?k=squeaky+dog+toy" target="_blank" rel="sponsored noopener">
+      <h4>Squeaky Toy</h4>
+      <p>Squeak it right by the lens for the alert-ears shot.</p>
     </a>
     <a class="pick-card" href="https://www.amazon.com/s?k=no+pull+dog+harness" target="_blank" rel="sponsored noopener">
       <h4>No-Pull Harness</h4>
-      <p>For getting the shot without a wrestling match first.</p>
+      <p>Makes outdoor photo walks calmer for both of you.</p>
     </a>
     <a class="pick-card" href="https://www.amazon.com/s?k=dog+photo+backdrop" target="_blank" rel="sponsored noopener">
-      <h4>Amazon — photo backdrops</h4>
-      <p>Same backdrop trick as the cats — works just as well for dogs.</p>
+      <h4>Photo Backdrops</h4>
+      <p>Same trick as for cats, and it works just as well on dogs.</p>
     </a>
-    <a class="pick-card" href="https://www.amazon.com/s?k=squeaky+dog+toy" target="_blank" rel="sponsored noopener">
-      <h4>Squeaky toy — for that alert-ears photo</h4>
-      <p>Hold it by the camera lens. Works almost every time.</p>
+    <a class="pick-card" href="https://www.amazon.com/s?k=earth+rated+dog+poop+bags" target="_blank" rel="sponsored noopener">
+      <h4>Earth Rated Poop Bags</h4>
+      <p>A popular, well-reviewed pick for walks.</p>
     </a>
   </div>
 
-  <p class="affiliate-disclosure">Replace these href values with your real, tagged affiliate URLs before launch — see README.</p>
+  <p class="affiliate-disclosure">Links in this section are affiliate links: if you buy through them we may earn a commission, at no extra cost to you. As an Amazon Associate, Whiskr earns from qualifying purchases.</p>
 </section>
 
 <footer class="site-footer">
-  <div>Whiskr — custom cat &amp; dog prints, plus a small, honest monthly photo contest.</div>
-  <div class="footer-links"><a href="#top">Back to top</a></div>
+  <div>&copy; Whiskr: custom cat &amp; dog prints and the Cat of the Month contest.</div>
+  <div class="footer-links">
+    <a href="shipping-returns.html">Shipping &amp; returns</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="terms.html">Terms &amp; contest rules</a>
+    <a href="contact.html">Contact</a>
+  </div>
 </footer>
 
 <script src="script.js"></script>

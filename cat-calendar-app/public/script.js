@@ -1,7 +1,7 @@
 // ---------- hero slideshow ----------
 // Pulls a handful of random cat photos from the free cataas.com service as
 // placeholder hero imagery. Swap SLIDE_COUNT/urls for your own photography
-// whenever you're ready — see README.
+// (ideally real Whiskr products, and at least one dog) before running ads.
 (function heroSlideshow() {
   const SLIDE_COUNT = 6;
   const track = document.getElementById('heroSlides');
@@ -51,6 +51,16 @@
   dots.forEach((dot, i) => dot.addEventListener('click', () => show(i)));
 })();
 
+// ---------- post-checkout confirmation ----------
+// Stripe sends buyers back to /?order=success; without this they land on the
+// homepage with no sign the payment went through.
+(function orderBanner() {
+  const banner = document.getElementById('orderBanner');
+  if (!banner || new URLSearchParams(window.location.search).get('order') !== 'success') return;
+  banner.hidden = false;
+  history.replaceState(null, '', window.location.pathname + window.location.hash);
+})();
+
 // ---------- live batch status ----------
 async function loadStatus() {
   try {
@@ -72,7 +82,16 @@ async function loadStatus() {
       nameEl.textContent = data.lastWinner.cat_name;
       photoEl.src = data.lastWinner.photo_path;
       photoEl.alt = `${data.lastWinner.cat_name}, Cat of the Month`;
-      if (blurbEl) blurbEl.textContent = `Chosen as Cat of the Month by the last batch's judging. Their calendar — with the other 11 finalists — is in the shop below.`;
+      photoEl.hidden = false;
+      if (blurbEl) blurbEl.textContent = `Picked by our judges as Cat of the Month. Their calendar, with the other 11 cats from the batch, is just below.`;
+    }
+
+    // Only show the calendar offer once there's actually a finished batch to sell.
+    const calendars = document.getElementById('calendars');
+    const calLink = document.getElementById('latestCalendarLink');
+    if (calendars && calLink && data.lastCompletedGroupId) {
+      calLink.href = `calendar.html?group=${data.lastCompletedGroupId}`;
+      calendars.hidden = false;
     }
   } catch (err) {
     console.error('status load failed', err);
@@ -127,6 +146,10 @@ async function loadReviews() {
     if (reviews.length === 0) {
       grid.style.display = 'none';
       empty.style.display = 'block';
+      const heading = document.getElementById('reviewsHeading');
+      const sub = document.getElementById('reviewsSub');
+      if (heading) heading.textContent = 'Our print guarantee';
+      if (sub) sub.textContent = "We're a new shop, so there are no customer reviews yet. When there are, only verified orders will appear here.";
       return;
     }
 
@@ -218,8 +241,13 @@ loadReviews();
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-primary';
-      btn.textContent = p.id === productField.value ? 'Selected' : 'Choose this print';
-      btn.addEventListener('click', () => selectProduct(p));
+      if (p.available === false) {
+        btn.textContent = 'Coming soon';
+        btn.disabled = true;
+      } else {
+        btn.textContent = p.id === productField.value ? 'Selected' : 'Choose';
+        btn.addEventListener('click', () => selectProduct(p));
+      }
       card.appendChild(btn);
 
       grid.appendChild(card);
@@ -232,6 +260,7 @@ loadReviews();
     submitBtn.disabled = false;
     submitBtn.textContent = `Continue to checkout`;
     renderGrid();
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   toggle.querySelectorAll('button').forEach((btn) => {
@@ -288,35 +317,3 @@ loadReviews();
 
   loadProducts(currentSpecies);
 })();
-
-// ---------- checkout form ----------
-const checkoutForm = document.getElementById('checkoutForm');
-if (checkoutForm) {
-  checkoutForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const note = document.getElementById('checkoutNote');
-    const submitBtn = checkoutForm.querySelector('button[type=submit]');
-    note.classList.remove('error');
-    note.textContent = 'Redirecting to checkout…';
-    submitBtn.disabled = true;
-
-    const groupId = document.getElementById('checkoutGroup').value;
-    const quantity = document.getElementById('checkoutQty').value;
-    const email = document.getElementById('checkoutEmail').value;
-
-    try {
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupId, quantity, email }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Checkout is not available yet.');
-      window.location.href = data.url;
-    } catch (err) {
-      note.textContent = err.message;
-      note.classList.add('error');
-      submitBtn.disabled = false;
-    }
-  });
-}
