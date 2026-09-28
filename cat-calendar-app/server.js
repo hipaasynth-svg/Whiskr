@@ -56,6 +56,25 @@ const SUBSCRIBE_LIMIT_PER_IP_PER_DAY = Number(process.env.SUBSCRIBE_LIMIT_PER_IP
 // fulfils by hand, not a print. Someone opening five deposit sessions from
 // one connection in a day is a mistake or an attack either way.
 const COMMISSION_LIMIT_PER_IP_PER_DAY = Number(process.env.COMMISSION_LIMIT_PER_IP_PER_DAY || 4);
+
+// ---- shipment tracking ----
+// Days past a shipment's estimated delivery with no delivery scan before it
+// is flagged for a Printful lost-in-transit claim. Printful's window is 30
+// days from estimated delivery, so this leaves a wide margin to notice,
+// confirm the address with the customer, and file.
+const STALLED_DAYS_AFTER_ETA = Number(process.env.STALLED_DAYS_AFTER_ETA || 7);
+// Orders refreshed per daily run. Bounded because this is a serverless
+// function with a wall-clock limit and each order is one Printful API call.
+const SHIPMENT_POLL_BATCH = Number(process.env.SHIPMENT_POLL_BATCH || 100);
+// Days after DELIVERY before asking for a review. Previously the review
+// clock ran from order creation, which is how a lost parcel still got a
+// "how did we do?" email.
+const REVIEW_DELAY_AFTER_DELIVERY_DAYS = Number(process.env.REVIEW_DELAY_AFTER_DELIVERY_DAYS || 3);
+// Printful does not sign its webhooks (no signature is documented in their
+// v2 API surface), so the endpoint is protected by an unguessable path
+// segment instead, and every delivery is verified by re-fetching the order
+// from Printful rather than trusting the posted body. Unset = endpoint off.
+const PRINTFUL_WEBHOOK_TOKEN = process.env.PRINTFUL_WEBHOOK_TOKEN || '';
 // Salts the IP hash stored in the votes table so raw IPs are never persisted.
 // Set a real random value in production — the default is fine for local dev
 // only, since anyone who knows it could pre-compute hashes for known IPs.
@@ -451,6 +470,209 @@ function extractShippingJson(session) {
     session.shipping_details ||
     null;
   return shippingDetails ? JSON.stringify(shippingDetails) : null;
+}
+
+// ---------- shipment tracking ----------
+// Printful tells us an order shipped, but the order lifecycle used to end
+// at submitted_to_printful: no tracking, no delivery, no ship date. That
+// blindness had three costs -- we asked customers to review parcels that
+// never arrived, we could not answer "where is my order", and Printful's
+// lost-in-transit claim window (30 days from estimated delivery) could
+// expire before we knew a package was missing, turning a claim they would
+// have paid into a reprint we eat.
+
+// Writes one Printful shipment onto an order, then recomputes the order's
+// summary. Upserts on Printful's own shipment id, so a duplicate webhook,
+// an out-of-order delivery, or the daily poll re-reading the same shipment
+// all converge on the same row instead of appending a second one.
+async function upsertShipment(customOrderId, shipment) {
+  const now = new Date().toISOString();
+  await db.run(
+    `INSERT INTO custom_order_shipments
+       (custom_order_id, printful_shipment_id, tracking_number, tracking_url, carrier, service,
+        shipped_at, ship_date, delivery_status, delivered_at, estimated_delivery, is_reshipment,
+        delivery_checked_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (printful_shipment_id) DO UPDATE SET
+       tracking_number = COALESCE(EXCLUDED.tracking_number, custom_order_shipments.tracking_number),
+       tracking_url = COALESCE(EXCLUDED.tracking_url, custom_order_shipments.tracking_url),
+       carrier = COALESCE(EXCLUDED.carrier, custom_order_shipments.carrier),
+       service = COALESCE(EXCLUDED.service, custom_order_shipments.service),
+       shipped_at = COALESCE(EXCLUDED.shipped_at, custom_order_shipments.shipped_at),
+       ship_date = COALESCE(EXCLUDED.ship_date, custom_order_shipments.ship_date),
+       delivery_status = COALESCE(EXCLUDED.delivery_status, custom_order_shipments.delivery_status),
+       delivered_at = COALESCE(EXCLUDED.delivered_at, custom_order_shipments.delivered_at),
+       estimated_delivery = COALESCE(EXCLUDED.estimated_delivery, custom_order_shipments.estimated_delivery),
+       is_reshipment = EXCLUDED.is_reshipment,
+       delivery_checked_at = EXCLUDED.delivery_checked_at`,
+    [
+      customOrderId, shipment.printfulShipmentId, shipment.trackingNumber, shipment.trackingUrl,
+      shipment.carrier, shipment.service, shipment.shippedAt, shipment.shipDate,
+      shipment.deliveryStatus, shipment.deliveredAt, shipment.estimatedDelivery,
+      shipment.isReshipment, now, now,
+    ]
+  );
+}
+
+// Rolls every shipment on an order up into the order row.
+//
+// delivered_at is set only when EVERY shipment is delivered: a two-box
+// order with one box delivered has not arrived, and treating it as
+// arrived is exactly what would send a review request for a parcel the
+// customer is still waiting on.
+async function recomputeOrderShipping(customOrderId) {
+  const rows = await db.all(
+    `SELECT delivery_status, delivered_at, shipped_at, estimated_delivery
+       FROM custom_order_shipments WHERE custom_order_id = ?`,
+    [customOrderId]
+  );
+  if (rows.length === 0) return;
+
+  const shippedDates = rows.map((r) => r.shipped_at).filter(Boolean).sort();
+  const etas = rows.map((r) => r.estimated_delivery).filter(Boolean).sort();
+  const allDelivered = rows.every((r) => r.delivery_status === 'delivered');
+  const deliveredDates = rows.map((r) => r.delivered_at).filter(Boolean).sort();
+
+  await db.run(
+    `UPDATE custom_orders
+        SET first_shipped_at = ?, latest_estimated_delivery = ?, delivered_at = ?
+      WHERE id = ?`,
+    [
+      shippedDates[0] || null,
+      etas.length ? etas[etas.length - 1] : null,
+      allDelivered && deliveredDates.length ? deliveredDates[deliveredDates.length - 1] : null,
+      customOrderId,
+    ]
+  );
+}
+
+// Pulls an order's shipments from Printful and stores them. Every caller --
+// the webhook, the daily delivery poll, the admin refresh -- goes through
+// here, so there is one implementation of "what does Printful currently say
+// about this order" and the webhook payload is never trusted on its own.
+async function syncOrderShipments(customOrderId, { notify = true } = {}) {
+  const order = await db.get(`SELECT * FROM custom_orders WHERE id = ?`, [customOrderId]);
+  if (!order) return { ok: false, reason: 'order not found' };
+  if (!order.printful_order_id) return { ok: false, reason: 'order has no Printful id yet' };
+
+  const { shipments, dryRun } = await printful.getOrderShipments(order.printful_order_id);
+  if (dryRun) return { ok: false, reason: 'Printful not configured' };
+
+  let stored = 0;
+  for (const raw of shipments) {
+    const shipment = printful.normalizeShipment(raw);
+    if (!shipment) continue;
+    await upsertShipment(customOrderId, shipment);
+    stored++;
+  }
+  if (stored === 0) return { ok: true, shipments: 0 };
+
+  await recomputeOrderShipping(customOrderId);
+
+  // Tracking email, sent once. Guarded on tracking_emailed_at inside the
+  // UPDATE rather than around it, so two concurrent syncs (a webhook and
+  // the daily poll landing together) can't both send it.
+  if (notify) {
+    const fresh = await db.get(`SELECT * FROM custom_orders WHERE id = ?`, [customOrderId]);
+    if (fresh && fresh.first_shipped_at && !fresh.tracking_emailed_at) {
+      const claimed = await db.run(
+        `UPDATE custom_orders SET tracking_emailed_at = ? WHERE id = ? AND tracking_emailed_at IS NULL`,
+        [new Date().toISOString(), customOrderId]
+      );
+      if (claimed.changes > 0) {
+        const parcels = await db.all(
+          `SELECT tracking_number, tracking_url, carrier, estimated_delivery
+             FROM custom_order_shipments WHERE custom_order_id = ? ORDER BY id ASC`,
+          [customOrderId]
+        );
+        const product = productCatalog.getProduct(order.product_id);
+        try {
+          await mailer.sendShippedEmail({
+            email: order.email,
+            itemLabel: product ? product.name : 'your Whiskr order',
+            petName: order.pet_name,
+            parcels,
+          });
+        } catch (err) {
+          // The email is a courtesy; the tracking data is the asset. Don't
+          // unwind the stamp on a send failure -- retrying forever would
+          // mean a broken SMTP config mails the customer on every poll.
+          console.error(`[mailer] shipped email failed for custom order ${customOrderId}:`, err.message);
+        }
+      }
+    }
+  }
+
+  return { ok: true, shipments: stored };
+}
+
+// Daily: refresh shipments that haven't reached a terminal state, and flag
+// the ones that are overdue so a Printful claim gets filed inside their
+// window instead of after a customer complains.
+//
+// Delivery is polled, not pushed: shipment_sent is the only shipment event
+// Printful publishes. There is no "delivered" webhook, so without this the
+// delivered state would never arrive at all.
+// A shipment in one of these has finished moving; nothing the daily poll
+// does will change it again, so those rows stop being re-fetched. Held in
+// one place and interpolated into the query below rather than written out
+// twice, so the list and the SQL cannot drift apart.
+const TERMINAL_DELIVERY_STATUSES = ['delivered', 'return_to_sender', 'failure', 'canceled'];
+// Placeholders, not the values, so the list stays bound as parameters and
+// this file contains no SQL assembled by string concatenation.
+const TERMINAL_DELIVERY_PLACEHOLDERS = TERMINAL_DELIVERY_STATUSES.map(() => '?').join(',');
+
+async function pollShipmentDeliveries() {
+  if (!printful.configured()) return;
+
+  const stale = await db.all(
+    `SELECT DISTINCT s.custom_order_id
+       FROM custom_order_shipments s
+      WHERE (s.delivery_status IS NULL OR s.delivery_status NOT IN (${TERMINAL_DELIVERY_PLACEHOLDERS}))
+      ORDER BY s.custom_order_id ASC
+      LIMIT ?`,
+    [...TERMINAL_DELIVERY_STATUSES, SHIPMENT_POLL_BATCH]
+  );
+
+  for (const row of stale) {
+    try {
+      // notify:false -- the tracking email belongs to the ship event, not
+      // to a routine delivery refresh.
+      await syncOrderShipments(row.custom_order_id, { notify: false });
+    } catch (err) {
+      console.error(`[printful] delivery poll failed for order ${row.custom_order_id}:`, err.message);
+    }
+  }
+}
+
+async function flagStalledShipments() {
+  const cutoff = new Date(Date.now() - STALLED_DAYS_AFTER_ETA * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
+  const stalled = await db.all(
+    `SELECT o.id, o.email, o.latest_estimated_delivery, o.first_shipped_at
+       FROM custom_orders o
+      WHERE o.stalled_flagged_at IS NULL
+        AND o.delivered_at IS NULL
+        AND o.latest_estimated_delivery IS NOT NULL
+        AND o.latest_estimated_delivery <= ?
+        AND o.status NOT IN ('refunded','disputed')`,
+    [cutoff]
+  );
+
+  for (const o of stalled) {
+    await db.run(`UPDATE custom_orders SET stalled_flagged_at = ? WHERE id = ? AND stalled_flagged_at IS NULL`, [
+      new Date().toISOString(),
+      o.id,
+    ]);
+    await alertAdmin(
+      `Custom order #${o.id} is overdue - file the Printful claim`,
+      `Custom order #${o.id} (${o.email}) shipped on ${o.first_shipped_at || 'an unknown date'} with an estimated delivery of ${o.latest_estimated_delivery}, and still has no delivery scan ${STALLED_DAYS_AFTER_ETA} days later.\n\n` +
+        `Printful accepts a lost-in-transit claim up to 30 days after estimated delivery and covers the reprint and reshipping when the carrier lost it. File it now rather than waiting for the customer to ask.\n\n` +
+        `Note: if tracking says delivered, Printful will not cover it - that reship is ours.`
+    );
+  }
 }
 
 // Stripe webhook needs the raw request body for signature verification, so
@@ -1222,10 +1444,34 @@ async function sendDueReviewRequests() {
     }
   }
 
-  const dueCustom = await db.all(
-    `SELECT * FROM custom_orders WHERE status IN ('paid','submitted_to_printful') AND review_requested_at IS NULL AND created_at <= ?`,
-    [cutoff]
-  );
+  // Review requests used to run on a timer from ORDER CREATION, which
+  // meant a parcel still in transit -- or lost outright -- still got a
+  // "how did we do?" email. Now the clock starts at delivery.
+  //
+  // The fallback matters as much as the fix: when Printful isn't
+  // configured no shipment data will ever arrive, so requiring delivery
+  // there would silently stop review requests altogether. In that case
+  // only, the old created_at behaviour stands.
+  const deliveredCutoff = new Date(
+    Date.now() - REVIEW_DELAY_AFTER_DELIVERY_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  const dueCustom = printful.configured()
+    ? await db.all(
+        `SELECT * FROM custom_orders
+          WHERE status IN ('paid','submitted_to_printful')
+            AND review_requested_at IS NULL
+            AND delivered_at IS NOT NULL
+            AND delivered_at <= ?`,
+        [deliveredCutoff]
+      )
+    : await db.all(
+        `SELECT * FROM custom_orders
+          WHERE status IN ('paid','submitted_to_printful')
+            AND review_requested_at IS NULL
+            AND created_at <= ?`,
+        [cutoff]
+      );
   for (const o of dueCustom) {
     const product = productCatalog.getProduct(o.product_id);
     const token = reviewLink.tokenFor('custom', o.id, o.email);
@@ -1593,6 +1839,69 @@ async function verifyTurnstile(token, remoteIp) {
     return false;
   }
 }
+
+// Printful shipment webhook.
+//
+// Authentication is by unguessable path, not by signature: Printful's
+// documented v2 API surface exposes no signing secret and no signature
+// header, so there is nothing to verify a body against. The security model
+// is therefore "the payload is a hint, not a fact" -- we take the order id
+// from it, then re-fetch that order's shipments from Printful and store
+// whatever their API says. A forged request costs one API call.
+//
+// Register with: POST /v2/webhooks/shipment_sent  {"url": "<this path>"}
+// The event is `shipment_sent`. There is no delivery event -- delivery is
+// polled by the daily cron.
+app.post('/api/webhooks/printful/:token', async (req, res) => {
+  if (!PRINTFUL_WEBHOOK_TOKEN) {
+    return res.status(404).json({ error: 'Not found.' });
+  }
+  const provided = Buffer.from(String(req.params.token || ''));
+  const expected = Buffer.from(PRINTFUL_WEBHOOK_TOKEN);
+  const valid =
+    provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
+  if (!valid) {
+    console.warn('[printful webhook] rejected a delivery with a bad token');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const body = req.body || {};
+  const eventType = typeof body.type === 'string' ? body.type : null;
+  const printfulOrderId =
+    (body.data && body.data.order && body.data.order.id) ||
+    (body.data && body.data.shipment && body.data.shipment.order_id) ||
+    (body.order && body.order.id) ||
+    null;
+
+  // Acknowledge fast and unconditionally. Printful retries on a non-2xx
+  // (the envelope carries a `retries` count), and a retry storm caused by
+  // our own slow lookup is worse than a missed event the daily poll will
+  // pick up anyway.
+  res.json({ received: true });
+
+  if (eventType && eventType !== 'shipment_sent') {
+    console.log(`[printful webhook] ignoring event type '${eventType}'`);
+    return;
+  }
+  if (!printfulOrderId) {
+    console.warn('[printful webhook] delivery had no recognizable order id');
+    return;
+  }
+
+  try {
+    const order = await db.get(`SELECT id FROM custom_orders WHERE printful_order_id = ?`, [
+      String(printfulOrderId),
+    ]);
+    if (!order) {
+      console.warn(`[printful webhook] no custom order matches Printful order ${printfulOrderId}`);
+      return;
+    }
+    const result = await syncOrderShipments(order.id);
+    console.log(`[printful webhook] order #${order.id}: ${JSON.stringify(result)}`);
+  } catch (err) {
+    console.error('[printful webhook] sync failed:', err.message);
+  }
+});
 
 // Public catalog of custom cat/dog print products (see products.js).
 // Merges the fixed products.js catalog with whatever admin-uploaded photo/
@@ -2835,6 +3144,71 @@ app.post('/api/admin/commissions/:id/request-balance', requireAdmin, async (req,
   }
 });
 
+// Validates a path id before it reaches the database. Number('abc') is NaN
+// and Number('1e99') is a valid integer that no int4 column can hold --
+// both reach Postgres as errors rather than misses, and an uncaught one
+// takes the process down. Bounded to int4 so a bad id is a 400, not a 500.
+const PG_MAX_INT = 2147483647;
+function parseRowId(raw) {
+  const id = Number(raw);
+  return Number.isInteger(id) && id >= 1 && id <= PG_MAX_INT ? id : null;
+}
+
+// Shipment detail for one order, for the admin table's expand view.
+app.get('/api/admin/custom-orders/:id/shipments', requireAdmin, async (req, res) => {
+  // Validated before it reaches the database: Number('abc') is NaN, Postgres
+  // rejects NaN for an integer column, and the rejection escaped this async
+  // handler as an unhandled rejection that took the whole process down.
+  // Confirmed by request, not by reading -- a malformed admin URL crashed
+  // the server rather than returning an error.
+  const id = parseRowId(req.params.id);
+  if (id === null) {
+    return res.status(400).json({ error: 'Invalid order id.' });
+  }
+  try {
+    const shipments = await db.all(
+      `SELECT * FROM custom_order_shipments WHERE custom_order_id = ? ORDER BY id ASC`,
+      [id]
+    );
+    res.json({ shipments });
+  } catch (err) {
+    console.error(`[admin] shipments lookup failed for order ${id}:`, err.message);
+    res.status(500).json({ error: 'Could not load shipments.' });
+  }
+});
+
+// Pull the latest shipment state from Printful for one order, on demand --
+// for answering "where is my order?" without waiting for the daily poll.
+app.post('/api/admin/custom-orders/:id/refresh-shipping', requireAdmin, async (req, res) => {
+  try {
+    const id = parseRowId(req.params.id);
+    if (id === null) {
+      return res.status(400).json({ error: 'Invalid order id.' });
+    }
+    const order = await db.get(`SELECT id FROM custom_orders WHERE id = ?`, [id]);
+    if (!order) return res.status(404).json({ error: 'Order not found.' });
+    const result = await syncOrderShipments(id, { notify: false });
+    if (!result.ok) return res.status(400).json({ error: result.reason });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Could not refresh shipping.' });
+  }
+});
+
+// Runs the delivery poll and the stalled-shipment check immediately, for
+// testing without waiting a day for the cron.
+app.post('/api/admin/run-shipment-sync', requireAdmin, async (req, res) => {
+  try {
+    await pollShipmentDeliveries();
+    await flagStalledShipments();
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/admin/alerts', requireAdmin, async (req, res) => {
   const rows = await db.all(
     `SELECT * FROM admin_alerts ORDER BY resolved ASC, created_at DESC LIMIT 100`
@@ -3169,6 +3543,15 @@ app.get('/api/cron/daily', async (req, res) => {
     await runDueContestClose();
     await sendRankDropAlerts();
     await sendDueReviewRequests();
+    // Delivery is polled because Printful publishes no "delivered" event.
+    // Isolated like the Meta sync below: a Printful outage must not stop
+    // contest closing or review requests, which need no third party.
+    try {
+      await pollShipmentDeliveries();
+      await flagStalledShipments();
+    } catch (err) {
+      console.error('[cron] shipment sync failed:', err.message);
+    }
     // Isolated from the steps above: a Meta API hiccup (rate limit, an
     // expired token, a transient outage) should never block contest
     // closing or review requests, which don't depend on any third party.

@@ -355,6 +355,74 @@ async function sendCommissionBalanceDue({ email, petName, balanceUsd, payUrl, pa
   });
 }
 
+// Sent once, when Printful reports an order has shipped. Transactional --
+// it carries no purchase pitch, so no unsubscribe footer. Handles the
+// multi-parcel case because Printful can split one order across boxes, and
+// a customer told "here is your tracking" who then receives one of two
+// parcels needs to know a second one is coming.
+async function sendShippedEmail({ email, itemLabel, petName, parcels }) {
+  const list = Array.isArray(parcels) ? parcels.filter((p) => p && (p.tracking_url || p.tracking_number)) : [];
+  const who = petName ? escapeHtml(petName) + "'s" : 'Your';
+  const multiple = list.length > 1;
+
+  const parcelHtml = list
+    .map((p, i) => {
+      const label = multiple ? `Parcel ${i + 1}` : 'Track your parcel';
+      const carrier = p.carrier ? ` (${escapeHtml(p.carrier)})` : '';
+      const eta = p.estimated_delivery
+        ? `<br><span style="font-size:13px;color:#555;">Estimated delivery: ${escapeHtml(p.estimated_delivery)}</span>`
+        : '';
+      // Escaped and scheme-checked, like every other external value in this
+      // function. A tracking_url containing a double quote would otherwise
+      // break out of the href and inject markup into an email sent under
+      // our own From: address -- a convincing phishing lure inside a
+      // genuine transactional mail -- and a javascript:/data: URL would be
+      // accepted unchecked. The value comes from Printful's authenticated
+      // API rather than a request, so this is defence in depth, but
+      // mailer.js has shipped an unescaped-interpolation bug before.
+      const safeHref =
+        typeof p.tracking_url === 'string' && /^https?:\/\//i.test(p.tracking_url)
+          ? escapeHtml(p.tracking_url)
+          : null;
+      const href = safeHref;
+      const num = p.tracking_number ? escapeHtml(p.tracking_number) : '';
+      const inner = href
+        ? `<a href="${href}" style="background:#E8A33D;color:#1B2430;padding:10px 18px;border-radius:3px;text-decoration:none;font-weight:bold;">${label}${carrier}</a>`
+        : `${label}${carrier}: ${num}`;
+      return `<p style="text-align:center;margin:16px 0;">${inner}${num && href ? `<br><span style="font-size:12px;color:#777;">${num}</span>` : ''}${eta}</p>`;
+    })
+    .join('');
+
+  const splitNote = multiple
+    ? '<p>This order shipped in more than one parcel, so they may arrive on different days.</p>'
+    : '';
+
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p>${who} ${escapeHtml(itemLabel)} is on its way.</p>
+    ${splitNote}
+    ${parcelHtml}
+    <p style="font-size:13px;color:#555;">Tracking can take a day to start updating after a parcel is scanned in.</p>
+    <p>If it hasn't turned up when the carrier says it should, reply to this email and we'll sort it out.</p>
+    <p>— Whiskr</p>
+  `,
+    { tagline: 'Custom Pet Prints' }
+  );
+
+  const textLines = list.map((p, i) => {
+    const label = multiple ? `Parcel ${i + 1}` : 'Tracking';
+    return `${label}${p.carrier ? ' (' + p.carrier + ')' : ''}: ${p.tracking_url || p.tracking_number}${p.estimated_delivery ? ' — estimated delivery ' + p.estimated_delivery : ''}`;
+  });
+
+  return sendMail({
+    to: email,
+    subject: petName ? `${petName}'s order is on its way` : 'Your Whiskr order is on its way',
+    html,
+    text: `${petName ? petName + "'s" : 'Your'} ${itemLabel} is on its way.\n\n${textLines.join('\n')}\n\nTracking can take a day to start updating. If it hasn't arrived when the carrier says it should, reply to this email.`,
+  });
+}
+
 module.exports = {
   sendEntryConfirmation,
   sendWinnerEmail,
@@ -362,6 +430,7 @@ module.exports = {
   sendFinalRankEmail,
   sendRankDropEmail,
   sendReviewRequest,
+  sendShippedEmail,
   sendCommissionBooked,
   sendCommissionBalanceDue,
   sendMail,
