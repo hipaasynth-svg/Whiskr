@@ -86,9 +86,18 @@ price or supplier cost. It exits non-zero when a product is below the floor
 or when a discount would push one under, and prints the price that clears.
 
 A product with no known supplier cost reports `unknown`, never a passing
-margin. Four still do: the three Gallery Series items and the phone case.
-Their prices are market rates, and the file records the highest supplier
-cost each one can carry before it is underwater.
+margin. **None do any more** — every cost in the catalog was read off
+Printful's live API on 2026-09-28 and the last four were repriced from real
+numbers. Two of those four were underwater against prices that had been
+guessed from market rates: the luster framed print (cost $37.45 against a
+$74 price) and the phone case (cost $14.23 against $24.99).
+
+Two costs are a FLOOR rather than the cost, because one flat price covers
+many variants and only one variant has been priced: the sweatshirt is
+checked against 5XL ($27.17, not the $19.17 small) and the phone case
+against the iPhone 11 ($14.23). A newer or larger phone may cost more, and
+the flat price has to carry the most expensive one — price every device
+before trusting that margin.
 
 **No discounts.** Prices sit at the floor, so any discount at all lands
 under it — the report prints the largest the catalog survives, and that
@@ -109,10 +118,23 @@ Two things that are easy to get wrong here:
   comfortably and fail `FREE`: three canvases is $117 of revenue against
   nearly $18 of shipping. Checking only one number is how you end up
   confidently wrong.
-- The shipping figures in that file are **estimates**, not quotes.
-  Printful's domains are blocked from this environment, so no shipping
-  number in the repo has ever been confirmed against a live rate. Correct
-  them from the Printful dashboard before trusting any margin.
+- Shipping figures are now **real quotes** from `POST /shipping/rates`,
+  taken 2026-09-28, except three the file flags on their own rows: the tote
+  bag (Printful returns 400 for its rate request at every quantity, though
+  it prices the variant fine — worth checking they will actually fulfil it)
+  and the additional-unit rate for the luster framed poster and the 18x24
+  canvas, where one unit already clears the threshold so only a single-unit
+  quote exists. Printful is unreachable from this environment, so any new
+  rate has to be quoted from a machine that can reach it and pasted in.
+
+  **Never guess a shipping rate.** The estimates these replaced were wrong
+  in both directions and three prices had to rise a second time when the
+  truth arrived: the additional canvas rate was guessed at $4.50 against a
+  real $9.99, and apparel's first rate at $5.39 against a real $8.79, while
+  the mug was overestimated by 16%. A guess that happens to be high is not
+  safe either — it inflates a price and costs sales. Two framed prints are
+  still carrying prices set from a bad estimate and sit well above their
+  floor as a result.
 
 Shipping is free at **$79+** and charged below that. The threshold is a
 constant, deliberately not an environment variable, because it is also

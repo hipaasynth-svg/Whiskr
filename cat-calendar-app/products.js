@@ -29,36 +29,38 @@ const PRODUCTS = [
   // The Gallery Series — a premium tier above the everyday items below,
   // listed first so it leads the shop instead of getting lost in the grid
   // (see the `tier: 'premium'` badge these three get in seo.js/script.js).
-  // UNLIKE every other printfulVariantId in this file, these three are
-  // NOT yet confirmed against Printful's catalog API — printful.com
-  // itself isn't reachable from this environment to look them up. Until a
-  // real variant_id is pasted in here (Printful dashboard → Catalog →
-  // Wall Art → the matching product/size), a real order for one of these
-  // still charges the customer successfully but Printful submission fails
-  // safely afterward (submitCustomOrderToPrintful catches it, marks the
-  // order 'failed', and it shows up in admin.html's alerts panel) rather
-  // than shipping the wrong thing.
   //
-  // These three are also the ONLY prices in this file the 40% floor could
-  // not be applied to, because a margin needs a cost and no cost for them
-  // has ever been confirmed. Their prices are market rates, left as they
-  // were. What the check CAN say is the most each price can carry and
-  // still clear 40% after shipping:
+  // These three carried printfulVariantId: null for months, which meant a
+  // real order for one CHARGED THE CUSTOMER and then failed Printful
+  // submission (submitCustomOrderToPrintful catches it, marks the order
+  // 'failed', and it surfaces in admin.html's alerts panel). Real variant
+  // ids were read off the catalog API on 2026-09-28 and are now in place,
+  // so these can actually be fulfilled.
   //
-  //   Framed Gallery Print  $74  ->  Printful cost must be at or under $32.41
-  //   Framed Matte Print    $62  ->  at or under $25.20
-  //   Large Gallery Canvas  $89  ->  at or under $40.41
+  // Their prices had been guessed from market rates because no supplier
+  // cost was known. The real costs came back far higher than the guess,
+  // and two of the three were underwater:
   //
-  // Above those, the price is underwater and the item loses money on every
-  // sale. Read the real costs off the Printful dashboard, put them in
-  // orderEconomics.js, and run `node orderEconomics.js`.
+  //   Framed Gallery Print  cost $37.45, was $74 (33.2% at the free-
+  //                         shipping threshold) -> $89.99
+  //   Framed Matte Print    cost $32.77, was $62 (27.8%) -> $74.99
+  //   Large Gallery Canvas  cost $33.66, was $89 and already cleared at
+  //                         47.6% -> unchanged
+  //
+  // ONE THING STILL UNCONFIRMED: each framed product has several variants
+  // at the same size and the same cost, which are frame colours. The ids
+  // below are the first of each set and the colour has NOT been checked.
+  // Cost and therefore margin are identical across them, and neither
+  // product description names a colour, so nothing here is mis-sold — but
+  // confirm which colour ships before relying on a catalog photo that
+  // shows a particular frame.
   {
     id: 'framed-poster-luster-12x18',
     name: 'Framed Gallery Print',
     species: 'both',
     description: "Your pet's photo on luster photo paper, framed in solid wood — the finish Printful itself compares to a real photo-lab print, not a print-on-demand one. Ready to hang, no glass to crack in shipping.",
-    priceUsd: 74.0,
-    printfulVariantId: null, // Printful "Premium Luster Photo Paper Framed Poster", 12"x18" — confirm real variant_id
+    priceUsd: 89.99,
+    printfulVariantId: 6887, // Premium Luster Photo Paper Framed Poster (in), product 172, 12"x18" — cost $37.45
     mockupAspect: '2/3',
     tier: 'premium',
   },
@@ -67,8 +69,8 @@ const PRODUCTS = [
     name: 'Framed Matte Print',
     species: 'both',
     description: 'Museum-quality matte paper in a real wood frame — quieter and more understated than the luster finish, straight out of the box and onto the wall.',
-    priceUsd: 62.0,
-    printfulVariantId: null, // Printful "Enhanced Matte Paper Framed Poster", 12"x18" — confirm real variant_id
+    priceUsd: 74.99,
+    printfulVariantId: 4398, // Enhanced Matte Paper Framed Poster (in), product 2, 12"x18" — cost $32.77
     mockupAspect: '2/3',
     tier: 'premium',
   },
@@ -78,7 +80,7 @@ const PRODUCTS = [
     species: 'both',
     description: "An 18x24\" gallery-wrapped canvas — the statement piece. Same real canvas texture as our smaller size, built for a wall that means it.",
     priceUsd: 89.0,
-    printfulVariantId: null, // Printful large-format Canvas, 18"x24" — confirm real variant_id
+    printfulVariantId: 7, // Canvas (in), product 3, 18"x24" — cost $33.66
     mockupAspect: '3/4',
     tier: 'premium',
   },
@@ -107,10 +109,13 @@ const PRODUCTS = [
     name: 'Custom Pet Canvas',
     species: 'both',
     description: '12x12" gallery-wrapped canvas print, ready to hang.',
-    // Was $39.00, the largest correction in this catalog. Canvases are heavy
-    // and $39 put three of them over the free-shipping line at $117 of
-    // revenue against $17.99 of shipping we paid — 28.4%.
-    priceUsd: 47.99,
+    // The most-corrected price here, and a lesson in guessing shipping.
+    // $39.00 was underwater; $47.99 was set against an ESTIMATED $4.50 per
+    // additional canvas. The real quoted rate is $9.99 — a canvas is rigid
+    // and boxed on its own, so a second one costs nearly a second parcel.
+    // At $47.99 two canvases were $95.98 of revenue against $43.86 of goods
+    // and $20.38 of shipping we absorb at the free-shipping line: 33.1%.
+    priceUsd: 53.99,
     printfulVariantId: 823, // Canvas 12"x12" — cost $21.93
     mockupAspect: '1/1',
   },
@@ -119,12 +124,17 @@ const PRODUCTS = [
     name: 'Custom Pet Phone Case',
     species: 'both',
     description: "Your pet on a durable phone case. Tell us your phone model at checkout.",
-    // Left as it was: Printful prices cases per device and no device's cost
-    // has ever been confirmed, so there is no cost to compute a margin
-    // against. At $24.99 the floor holds only if Printful's cost is at or
-    // under $12.77 — check the dashboard and put the real number in
-    // orderEconomics.js.
-    priceUsd: 24.99,
+    // Was $24.99, set before any device's cost was known. The iPhone 11
+    // case came back at $14.23 on 2026-09-28, against a ceiling of $12.77,
+    // so it was underwater: 43.1% on a single sale but 34.2% on a
+    // four-case free-shipping order.
+    //
+    // $14.23 is a FLOOR on the cost, not the cost. Like the sweatshirt,
+    // one flat price covers many variants and only one device has been
+    // priced — a newer or larger phone may cost more, and this price has
+    // to carry the most expensive of them. Price every device before
+    // trusting this number.
+    priceUsd: 27.99,
     // Unlike every other product here, this one has no single fixed
     // variant — Printful sizes cases per exact device. The real variant ID
     // is chosen by the customer's phone-model selection at checkout (see
@@ -149,9 +159,10 @@ const PRODUCTS = [
     name: 'Custom Pet Throw Pillow',
     species: 'both',
     description: '16x16" throw pillow, insert included.',
-    // Was $29.00: 49.7% on a single sale, 31.3% on a three-pillow free-
-    // shipping order.
-    priceUsd: 33.99,
+    // $29.00 was underwater; $33.99 was set against an estimated $7.99 first
+    // / $4.00 additional. Real rates are $10.89 / $4.50, which put a
+    // three-pillow free-shipping order at 37.6%.
+    priceUsd: 35.99,
     printfulVariantId: 49854, // All-Over Print Basic Pillow 16"x16" — cost $14.59
     mockupAspect: '1/1',
   },
@@ -178,9 +189,11 @@ const PRODUCTS = [
     // a product that loses money every time someone orders a big one. That
     // is why this is $51.99 rather than the ~$40 the small size alone would
     // justify — the price carries the worst size in the range.
-    // Was $44.99, which cleared 39.6% on a single sale and only 31.2% on a
-    // two-shirt free-shipping order.
-    priceUsd: 51.99,
+    // $44.99 was underwater; $51.99 was set against an estimated $5.39 first
+    // / $2.20 additional. Apparel shipping was the worst of the estimates —
+    // real rates are $8.79 / $2.50 — leaving a two-shirt free-shipping order
+    // at 36.9%.
+    priceUsd: 54.99,
     // Unlike every other product here, this one has no single fixed
     // variant — it's sized S–5XL. The real variant ID is chosen by the
     // customer's size selection at checkout (see sweatshirtSizes.js,
