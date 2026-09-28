@@ -203,6 +203,12 @@ app.get('/commission', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'commission.html'));
 });
 
+// The brief's site map calls this /thanks, and it is the page an entrant is
+// sent to the moment they enter — the one that turns an entry into votes.
+app.get('/thanks', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'thanks.html'));
+});
+
 // Creates tables once per warm instance — required on Vercel, which has no
 // long-lived startup phase to create them in ahead of time.
 //
@@ -1578,8 +1584,12 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
       .sendEvent({ eventName: 'Lead', eventId: leadEventId, email, eventSourceUrl: BASE_URL })
       .catch((err) => console.error('[meta capi] Lead event failed:', err.message));
 
+    // The signed thank-you page. Same token as statusUrl, so this link keeps
+    // working when it arrives again in the confirmation email days later.
+    const thanksUrl = `${BASE_URL}/thanks?cat=${submissionId}&email=${encodeURIComponent(email)}&token=${statusToken.tokenFor(submissionId, email)}`;
+
     res.json({
-      ok: true, submissionId, voteUrl, statusUrl, lowResolution, width, height, discount, shareImageUrl: shareImagePath,
+      ok: true, submissionId, voteUrl, statusUrl, thanksUrl, lowResolution, width, height, discount, shareImageUrl: shareImagePath,
       metaEventId: leadEventId,
     });
   } catch (err) {
@@ -1901,6 +1911,72 @@ app.post('/api/webhooks/printful/:token', async (req, res) => {
   } catch (err) {
     console.error('[printful webhook] sync failed:', err.message);
   }
+});
+
+// Everything the /thanks page needs for one entrant, in one call.
+//
+// Authenticated with the same signed status token the entry-confirmation
+// email already carries, so an entrant can reach their own thank-you page
+// from that email days later — and nobody can read anyone else's by
+// guessing a submission id.
+app.get('/api/thanks', async (req, res) => {
+  const submissionId = Number(req.query.cat);
+  const { email, token } = req.query;
+  if (!statusToken.verify(submissionId, email, token)) {
+    return res.status(403).json({ error: 'Invalid or missing link.' });
+  }
+  const submission = await db.get(`SELECT * FROM submissions WHERE id = ?`, [submissionId]);
+  if (!submission || String(submission.email).toLowerCase() !== String(email).toLowerCase()) {
+    return res.status(404).json({ error: 'Not found.' });
+  }
+  const contest = submission.contest_id
+    ? await db.get(`SELECT * FROM contests WHERE id = ?`, [submission.contest_id])
+    : null;
+
+  // The three offers in the brief's merch block are framed / mug / bundle.
+  // There is no bundle product, and the real catalogue prices sit below the
+  // brief's figures ($74 framed, $19.99 mug) — repricing is the owner's
+  // revenue decision, not this page's, so these are the real products at
+  // the real prices, picked to cover the same three price points.
+  const offerIds = ['framed-poster-luster-12x18', 'mug-11oz', 'canvas-18x24'];
+  const media = await db.all(`SELECT product_id, hidden FROM product_media`);
+  const hidden = new Set(media.filter((m) => Number(m.hidden)).map((m) => m.product_id));
+  const offers = offerIds
+    .map((id) => productCatalog.getProduct(id))
+    .filter((p) => p && !hidden.has(p.id))
+    .map((p) => ({ id: p.id, name: p.name, priceUsd: p.priceUsd, mockupAspect: p.mockupAspect || '1/1' }));
+
+  // Re-issued rather than stored, so the page works when reopened from the
+  // email later: the same HMAC the shop already verifies (discountToken.js),
+  // scoped to this entrant's email and given a fresh window.
+  const discountExpiresAt = new Date(Date.now() + ENTRY_DISCOUNT_HOURS * 60 * 60 * 1000).toISOString();
+  const discount = {
+    percent: CONTEST_DISCOUNT_PERCENT,
+    email: submission.email,
+    expiresAt: discountExpiresAt,
+    token: discountToken.tokenFor(submission.email, discountExpiresAt),
+  };
+
+  res.json({
+    catName: submission.cat_name,
+    photoPath: submission.photo_path,
+    // Advisory, not a block — the same warning the entry form used to show
+    // inline, carried here so redirecting to this page doesn't lose it.
+    lowResolution: Boolean(submission.low_resolution),
+    photoWidth: submission.photo_width,
+    photoHeight: submission.photo_height,
+    shareImageUrl: submission.share_image_path || null,
+    voteUrl: `${BASE_URL}/vote.html?cat=${submission.id}`,
+    statusUrl: `${BASE_URL}/status.html?cat=${submission.id}&email=${encodeURIComponent(submission.email)}&token=${statusToken.tokenFor(submission.id, submission.email)}`,
+    closesAt: contest && contest.status === 'open' ? contest.closes_at : null,
+    disqualified: Boolean(submission.disqualified),
+    offers,
+    discount,
+    commission: {
+      fromUsd: commissionPricing.SIZES[0].priceUsd,
+      depositPercent: commissionPricing.publicPricing().depositPercent,
+    },
+  });
 });
 
 // Public catalog of custom cat/dog print products (see products.js).

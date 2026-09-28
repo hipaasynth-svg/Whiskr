@@ -520,59 +520,6 @@ function storeDiscount(discount) {
   try { localStorage.setItem('whiskr_discount', JSON.stringify(discount)); } catch (_) {}
 }
 
-// Shares the real share-card image (photo + name + vote link, composited
-// server-side — see generateShareCard in server.js) via Web Share Level 2's
-// `files`, when the browser supports sharing files, since an image posts
-// far better than a bare link on Stories/WhatsApp/feed. Falls back to a
-// plain link share, then clipboard, same ladder as vote.html's shareCat().
-async function shareEntryCard(shareImageUrl, catName, voteUrlIn, noteEl) {
-  // Tag only the link that actually gets shared out, not the plain voteUrl
-  // used elsewhere (the "go vote for your own cat now" link, the entry
-  // email) — those are the entrant's own direct visits, not a share, and
-  // tagging them would misattribute every entrant's own vote as "referred."
-  const voteUrl = voteUrlIn + (voteUrlIn.includes('?') ? '&' : '?') + 'via=share';
-  const text = `Vote for ${catName} in Whiskr's free cat photo contest! I'd owe you one:`;
-  try {
-    if (shareImageUrl && window.navigator.canShare) {
-      const resp = await fetch(shareImageUrl);
-      const blob = await resp.blob();
-      const file = new File([blob], 'vote-card.jpg', { type: blob.type || 'image/jpeg' });
-      if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: text, text, url: voteUrl });
-        return;
-      }
-    }
-    if (navigator.share) {
-      await navigator.share({ title: text, text, url: voteUrl });
-      return;
-    }
-  } catch (err) {
-    if (err && err.name === 'AbortError') return; // user cancelled the share sheet
-  }
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(`${text} ${voteUrl}`).then(() => {
-      if (noteEl) noteEl.textContent = 'Link copied — go paste it!';
-    });
-  } else {
-    window.prompt('Copy this link:', voteUrl);
-  }
-}
-
-function renderCountdown(el, expiresAt) {
-  function tick() {
-    const msLeft = new Date(expiresAt) - Date.now();
-    if (msLeft <= 0) {
-      el.textContent = 'Expired';
-      return;
-    }
-    const hours = Math.floor(msLeft / 3600000);
-    const mins = Math.floor((msLeft % 3600000) / 60000);
-    el.textContent = `Expires in ${hours}h ${mins}m`;
-    setTimeout(tick, 60000);
-  }
-  tick();
-}
-
 const entryForm = document.getElementById('entryForm');
 if (entryForm) {
   const photoInput = document.getElementById('entryPhoto');
@@ -598,42 +545,27 @@ if (entryForm) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Something went wrong.');
 
-      note.innerHTML = `You're entered! Check your email for your vote link, or <a href="${data.voteUrl}">go vote for your own cat now</a> and start sharing.`;
-
       // eventID matches the server-side Conversions API call for this same
       // submission (see /api/submissions in server.js) so Meta dedupes them.
       if (data.metaEventId) fbq('track', 'Lead', {}, { eventID: data.metaEventId });
 
       storeDiscount(data.discount);
 
-      // Real preview of the photo they just uploaded, styled like a
-      // finished print — not a fabricated 3D render (this app doesn't fake
-      // product mockups; see README). The discount is real, redeemed and
-      // verified server-side at checkout, not just a client-side display.
-      let photoUrl = '';
-      if (photoFile) photoUrl = URL.createObjectURL(photoFile);
-      mockup.innerHTML = `
-        <div class="entry-mockup">
-          ${photoUrl ? `<div class="entry-mockup-frame"><img src="${photoUrl}" alt="" /><div class="caption">A print of your cat could look like this</div></div>` : ''}
-          <div class="entry-share">
-            <p>Your voting link: <a href="${data.voteUrl}">${data.voteUrl}</a></p>
-            <button type="button" class="btn btn-primary" id="entryShareBtn">Share for votes</button>
-          </div>
-          ${data.discount ? `
-            <div class="entry-discount">
-              <div class="pct">${data.discount.percent}% off</div>
-              <div class="countdown" id="entryDiscountCountdown"></div>
-              <a href="#shop-custom" class="btn btn-primary">Get a print now</a>
-            </div>` : ''}
-          ${data.lowResolution ? `<div class="low-res-warning">Heads up: this photo is ${data.width}×${data.height}px. Prints larger than a mug (poster, canvas) may look a little soft — a higher-resolution photo will look sharper.</div>` : ''}
-        </div>`;
-      mockup.hidden = false;
-      if (data.discount) renderCountdown(document.getElementById('entryDiscountCountdown'), data.discount.expiresAt);
-      const shareBtn = document.getElementById('entryShareBtn');
-      if (shareBtn) {
-        shareBtn.addEventListener('click', () => shareEntryCard(data.shareImageUrl, catNameValue, data.voteUrl, note));
+      // Hand the entrant straight to /thanks rather than rendering a
+      // success block here. That page is built for the one job this moment
+      // is worth anything for -- getting the voting link shared -- and it
+      // survives a refresh, a back button, and arriving again days later
+      // from the confirmation email, none of which an inline block does.
+      // Falls back to the inline note only if the server didn't give us a
+      // signed link, so a missing thanksUrl can never strand a real entry.
+      if (data.thanksUrl) {
+        note.textContent = "You're in. Taking you to your voting link\u2026";
+        entryForm.reset();
+        window.location.href = data.thanksUrl;
+        return;
       }
 
+      note.textContent = "You're entered! Check your email for your voting link.";
       entryForm.reset();
       loadStatus();
     } catch (err) {

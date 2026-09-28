@@ -1052,3 +1052,16 @@ h1, h2, h3, h4 {
   .blog-cta { padding: 30px 20px 26px; }
   .blog-cta-actions .btn { width: 100%; }
 }
+
+/* Visible to screen readers, not on screen. For labels that a sighted user
+   doesn't need because the control's purpose is obvious from context, but
+   which a screen reader has no other way to announce. */
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
