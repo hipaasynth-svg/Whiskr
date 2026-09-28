@@ -56,6 +56,10 @@
     <a href="rules.html">Rules</a>
   </nav>
 </header>
+<!-- Everything between the site header and the footer is the page's main
+     content. Without this landmark none of it belongs to any region, so a
+     screen reader user has no way to skip the nav and jump straight to it. -->
+<main id="main-content">
 
 <div class="vote-wrap">
   <div class="vote-header">
@@ -70,6 +74,7 @@
 
 <div class="vote-toast" id="voteToast"></div>
 
+</main>
 <footer class="site-footer">
   <div>Whiskr — a free, real-public-vote cat photo contest.</div>
   <div class="footer-links"><a href="index.html">Home</a></div>

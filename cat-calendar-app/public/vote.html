@@ -100,10 +100,14 @@
     <a href="rules.html">Rules</a>
   </nav>
 </header>
+<!-- Everything between the site header and the footer is the page's main
+     content. Without this landmark none of it belongs to any region, so a
+     screen reader user has no way to skip the nav and jump straight to it. -->
+<main id="main-content">
 
 <div class="vote-wrap">
   <div class="vote-header">
-    <p class="ribbon-tag" id="voteContestLabel">Loading contest…</p>
+    <p class="ribbon-tag" id="voteContestLabel" role="status" aria-live="polite">Loading contest…</p>
     <h1>Vote for your favorite cat</h1>
     <p class="vote-note">Free to vote, no purchase necessary. One vote per cat per person — see <a href="rules.html">official rules</a>. Vote totals stay hidden until this round closes, so it's a fair count, not a popularity snowball. Votes are checked for abuse; suspicious activity is removed.</p>
     <div id="turnstileWidget"></div>
@@ -126,11 +130,12 @@
   <p class="vote-empty" id="voteEmpty" style="display:none;">No entries yet this round — be the first to <a href="index.html#enter">enter your cat</a>.</p>
 </div>
 
-<div class="vote-toast" id="voteToast"></div>
+<div class="vote-toast" id="voteToast" role="status" aria-live="polite"></div>
 <div class="vote-starburst" id="voteStarburst" aria-hidden="true">
   <div class="vote-starburst-shape">Voted!</div>
 </div>
 
+</main>
 <footer class="site-footer">
   <div>Whiskr — a free, real-public-vote cat photo contest.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
   <div class="footer-links"><a href="index.html">Home</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a></div>

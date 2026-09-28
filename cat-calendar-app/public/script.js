@@ -781,7 +781,9 @@ loadReviews();
         card.appendChild(badge);
       }
 
-      const h4 = document.createElement('h4');
+      // h3, not h4: the section heading above these cards is an h2, and
+      // jumping a level leaves a screen reader's heading outline broken.
+      const h4 = document.createElement('h3');
       h4.textContent = p.name;
       card.appendChild(h4);
 

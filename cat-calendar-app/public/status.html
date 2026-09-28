@@ -30,6 +30,10 @@
     <a href="vote.html">Vote</a>
   </nav>
 </header>
+<!-- Everything between the site header and the footer is the page's main
+     content. Without this landmark none of it belongs to any region, so a
+     screen reader user has no way to skip the nav and jump straight to it. -->
+<main id="main-content">
 
 <div class="status-wrap">
   <div class="status-card" id="statusCard">
@@ -38,6 +42,7 @@
   </div>
 </div>
 
+</main>
 <footer class="site-footer">
   <div>Whiskr — a free, real-public-vote cat photo contest.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
   <div class="footer-links"><a href="index.html">Home</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a></div>

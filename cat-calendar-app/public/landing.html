@@ -42,6 +42,10 @@
 <header class="site-header">
   <a href="#top" class="brand">Whiskr</a>
 </header>
+<!-- Everything between the site header and the footer is the page's main
+     content. Without this landmark none of it belongs to any region, so a
+     screen reader user has no way to skip the nav and jump straight to it. -->
+<main id="main-content">
 
 <section id="top" class="hero">
   <div class="hero-slides" id="heroSlides" aria-hidden="true"></div>
@@ -113,9 +117,9 @@
       </label>
       <label class="file-label">
         Photo
-        <input type="file" name="photo" id="entryPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
-        <span class="field-hint">Best quality wins — take your time, get good light, and frame your cat well.</span>
+        <input type="file" name="photo" id="entryPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required aria-describedby="landingPhotoHint" />
       </label>
+      <span class="field-hint" id="landingPhotoHint">Best quality wins — take your time, get good light, and frame your cat well.</span>
       <label class="consent-label">
         <input type="checkbox" name="photoRights" id="photoRights" required />
         <span>I own this photo (or have the owner's permission), and I'm giving Whiskr permission to show it on whiskr.lol and on Whiskr's own social accounts to run and promote the contest — and, if my cat wins, to paint the portrait from it. I keep ownership. Whiskr won't sell products made from my photo. (<a href="rules.html#photo-rights" target="_blank">full photo rights</a>)</span>
@@ -147,6 +151,7 @@
   </div>
 </section>
 
+</main>
 <footer class="site-footer">
   <div>Whiskr — a free, real-public-vote cat photo contest, plus custom cat &amp; dog prints.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
   <div class="footer-links"><a href="index.html">Full site</a> · <a href="rules.html">Official rules</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></div>
