@@ -208,6 +208,10 @@
       const badge = document.getElementById('discountBadge');
       badge.textContent = data.discount.percent + '% off, already applied';
       badge.hidden = false;
+      // The promise is added here rather than sitting in the markup, so the
+      // page never claims a discount that isn't being applied.
+      const lede = document.getElementById('blockBLede');
+      if (lede) lede.textContent += ' Your discount is applied automatically at checkout.';
       // Stored the same way the entry form stores it, so the shop's existing
       // applyStoredDiscount() picks it up at checkout rather than this page
       // inventing a second discount mechanism.

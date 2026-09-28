@@ -45,7 +45,7 @@
 const FREE_SHIPPING_THRESHOLD_USD = 79;
 
 // The owner's floor. Not a target — a floor.
-const MARGIN_FLOOR = 0.35;
+const MARGIN_FLOOR = 0.40;
 
 // Used for any product with no row below. Deliberately the most expensive
 // profile we carry, so an unlisted product over-collects shipping rather
@@ -248,6 +248,40 @@ function requiredPrice(productId, itemUsd) {
   return null;
 }
 
+// The worst margin this product shows at a given price, across both cases.
+function worstMarginAt(productId, priceUsd, itemUsd) {
+  const small = (priceUsd - itemUsd) / priceUsd;
+  const qty = Math.max(1, Math.ceil(FREE_SHIPPING_THRESHOLD_USD / priceUsd));
+  const revenue = priceUsd * qty;
+  const free = (revenue - itemUsd * qty - estimateShippingUsd(productId, qty)) / revenue;
+  return Math.min(small, free);
+}
+
+// The largest whole-percent discount the whole catalog survives.
+//
+// This exists because a discount is a price cut and the prices are set AT
+// the floor, so any discount lands under it. A 20% contest discount was
+// live against these prices and put every single product below: the mug at
+// 32.0%, the sweatshirt at 25.5%. Discounting is the quiet way to undo a
+// repricing, because nothing in a checkout session looks wrong while it
+// happens.
+//
+// Products with no known supplier cost are skipped — they cannot vote on a
+// number they have no cost for.
+function maxSafeDiscountPct(products) {
+  for (let d = 0; d <= 100; d++) {
+    const breaks = products.some((p) => {
+      const row = ECONOMICS[p.id];
+      if (!row || row.itemUsd === null || row.itemUsd === undefined) return false;
+      const discounted = Math.round(p.priceUsd * (1 - d / 100) * 100) / 100;
+      if (discounted <= 0) return true;
+      return worstMarginAt(p.id, discounted, row.itemUsd) < MARGIN_FLOOR;
+    });
+    if (breaks) return d - 1;
+  }
+  return 100;
+}
+
 function pct(n) {
   return n === null ? '     ?' : `${(n * 100).toFixed(1).padStart(5)}%`;
 }
@@ -288,8 +322,30 @@ function printReport() {
     console.log(`? no known supplier cost, margin unchecked: ${unknown.map((r) => r.id).join(', ')}`);
   }
   if (!below.length && !unknown.length) console.log('All products clear the floor in both cases.');
+
+  // A discount is a price cut against prices already set at the floor, so
+  // it is checked here rather than left to be discovered on a real order.
+  const products = listProducts('all');
+  const safe = maxSafeDiscountPct(products);
+  const live = Number(process.env.CONTEST_DISCOUNT_PERCENT || 0);
   console.log('');
-  return below.length;
+  console.log(`Largest discount the catalog survives at ${(MARGIN_FLOOR * 100).toFixed(0)}%: ${safe}%.`);
+  let discountBreaks = 0;
+  if (live > safe) {
+    discountBreaks = 1;
+    console.log(`! CONTEST_DISCOUNT_PERCENT is ${live}%, above that. At ${live}% these fall under the floor:`);
+    for (const p of products) {
+      const row = marginReport([p])[0];
+      if (row.itemUsd === null) continue;
+      const d = Math.round(p.priceUsd * (1 - live / 100) * 100) / 100;
+      const w = worstMarginAt(p.id, d, row.itemUsd);
+      if (w < MARGIN_FLOOR) {
+        console.log(`    ${p.id.padEnd(24)} $${p.priceUsd.toFixed(2)} -> $${d.toFixed(2)}  ${(w * 100).toFixed(1)}%`);
+      }
+    }
+  }
+  console.log('');
+  return below.length + discountBreaks;
 }
 
 if (require.main === module) {

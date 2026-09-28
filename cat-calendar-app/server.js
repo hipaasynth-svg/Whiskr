@@ -98,7 +98,19 @@ const IP_HASH_SALT = process.env.IP_HASH_SALT || 'dev-only-insecure-salt';
 // Post-entry / non-winner upsell discount. A percentage off, applied
 // server-side to the custom-print line item — no Stripe Coupon object
 // needed since checkout sessions here already build price_data inline.
-const CONTEST_DISCOUNT_PERCENT = Number(process.env.CONTEST_DISCOUNT_PERCENT || 20);
+//
+// DEFAULT IS 0, on the owner's instruction (2026-09-28): no discounting.
+// This used to default to 20%, and at 20% it broke the margin floor on
+// every single product in the catalog — the mug fell to 32.0%, the
+// sweatshirt to 25.5%. Prices are set to the floor, so any discount at all
+// lands under it; `node orderEconomics.js` prints the largest discount the
+// catalog can actually survive, and today that number is 0.
+//
+// Everything downstream already handles a zero percent: mailer.js renders
+// no discount block for a falsy discount, and thanks.js only shows the
+// badge when percent > 0. Raising this above what orderEconomics.js
+// reports as safe means selling below cost-plus-floor on real orders.
+const CONTEST_DISCOUNT_PERCENT = Number(process.env.CONTEST_DISCOUNT_PERCENT || 0);
 const ENTRY_DISCOUNT_HOURS = Number(process.env.ENTRY_DISCOUNT_HOURS || 48);
 const FINAL_RANK_DISCOUNT_HOURS = Number(process.env.FINAL_RANK_DISCOUNT_HOURS || 72);
 // Below this on either dimension, a photo is flagged (not blocked — see

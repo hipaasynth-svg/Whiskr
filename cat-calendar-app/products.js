@@ -4,10 +4,22 @@
 // Every printfulVariantId below is a real Printful catalog variant_id
 // (raw catalog variant, not a synced store product — see printful.js's
 // use of `variant_id` in the Orders API body), confirmed directly against
-// Printful's catalog API. priceUsd is set above Printful's base cost —
-// verified per-item, but not including shipping, which Printful bills
-// separately per order and varies by destination/weight; leave real margin
-// room rather than pricing right at cost.
+// Printful's catalog API.
+//
+// EVERY priceUsd BELOW IS SET BY ONE RULE, on the owner's instruction
+// (2026-09-28): a minimum 40% gross margin AFTER shipping, no discounting
+// to reach it. Not a target to eyeball — a floor the code checks.
+// orderEconomics.js owns the supplier costs and the shipping estimates;
+// `node orderEconomics.js` recomputes every margin and exits non-zero if
+// anything is under. Run it after touching a price or a cost, and never
+// move a price without it.
+//
+// The floor is checked in BOTH directions an order can go: under the
+// free-shipping threshold, where the customer pays shipping, and at or
+// over it, where we pay the whole parcel out of the same margin. The
+// second is the one that bites — see orderEconomics.js for why.
+// The prices that end in .99 and look like retail rounding are the
+// computed minimum rounded UP; rounding down would break the floor.
 // mockupAspect is a CSS aspect-ratio value for this product's own catalog
 // photo (admin-uploaded — see product_media in db.js), not the customer's
 // uploaded pet photo. Derived from each product's real physical dimensions
@@ -25,10 +37,21 @@ const PRODUCTS = [
   // still charges the customer successfully but Printful submission fails
   // safely afterward (submitCustomOrderToPrintful catches it, marks the
   // order 'failed', and it shows up in admin.html's alerts panel) rather
-  // than shipping the wrong thing. priceUsd here is set from typical
-  // market rates for this product tier, not a confirmed Printful cost —
-  // sanity-check both against the real numbers in your Printful dashboard
-  // before treating this as final pricing.
+  // than shipping the wrong thing.
+  //
+  // These three are also the ONLY prices in this file the 40% floor could
+  // not be applied to, because a margin needs a cost and no cost for them
+  // has ever been confirmed. Their prices are market rates, left as they
+  // were. What the check CAN say is the most each price can carry and
+  // still clear 40% after shipping:
+  //
+  //   Framed Gallery Print  $74  ->  Printful cost must be at or under $32.41
+  //   Framed Matte Print    $62  ->  at or under $25.20
+  //   Large Gallery Canvas  $89  ->  at or under $40.41
+  //
+  // Above those, the price is underwater and the item loses money on every
+  // sale. Read the real costs off the Printful dashboard, put them in
+  // orderEconomics.js, and run `node orderEconomics.js`.
   {
     id: 'framed-poster-luster-12x18',
     name: 'Framed Gallery Print',
@@ -73,7 +96,9 @@ const PRODUCTS = [
     name: 'Custom Pet Poster',
     species: 'both',
     description: 'A 12x16" matte poster print of your pet, ready to frame.',
-    priceUsd: 22.0,
+    // Was $22.00: fine on a single sale, 37.0% on a four-poster free-
+    // shipping order.
+    priceUsd: 23.99,
     printfulVariantId: 1349, // Enhanced Matte Paper Poster 12"x16" — cost $11.11
     mockupAspect: '3/4',
   },
@@ -82,7 +107,10 @@ const PRODUCTS = [
     name: 'Custom Pet Canvas',
     species: 'both',
     description: '12x12" gallery-wrapped canvas print, ready to hang.',
-    priceUsd: 39.0,
+    // Was $39.00, the largest correction in this catalog. Canvases are heavy
+    // and $39 put three of them over the free-shipping line at $117 of
+    // revenue against $17.99 of shipping we paid — 28.4%.
+    priceUsd: 47.99,
     printfulVariantId: 823, // Canvas 12"x12" — cost $21.93
     mockupAspect: '1/1',
   },
@@ -91,6 +119,11 @@ const PRODUCTS = [
     name: 'Custom Pet Phone Case',
     species: 'both',
     description: "Your pet on a durable phone case. Tell us your phone model at checkout.",
+    // Left as it was: Printful prices cases per device and no device's cost
+    // has ever been confirmed, so there is no cost to compute a margin
+    // against. At $24.99 the floor holds only if Printful's cost is at or
+    // under $12.77 — check the dashboard and put the real number in
+    // orderEconomics.js.
     priceUsd: 24.99,
     // Unlike every other product here, this one has no single fixed
     // variant — Printful sizes cases per exact device. The real variant ID
@@ -105,7 +138,8 @@ const PRODUCTS = [
     species: 'both',
     description: 'A sturdy canvas tote printed with your pet\'s photo.',
     // Was $21 against a $17.95 Printful cost — a loss once shipping was
-    // added. Raised to restore real margin (owner's call, 2026-09-11).
+    // added. Raised to restore real margin (owner's call, 2026-09-11), and
+    // already clears 40% both ways, so the 2026-09-28 repricing left it.
     priceUsd: 39.99,
     printfulVariantId: 16287, // AS Colour 1001 Cotton Tote Bag, Black — cost $17.95
     mockupAspect: '4/5',
@@ -115,7 +149,9 @@ const PRODUCTS = [
     name: 'Custom Pet Throw Pillow',
     species: 'both',
     description: '16x16" throw pillow, insert included.',
-    priceUsd: 29.0,
+    // Was $29.00: 49.7% on a single sale, 31.3% on a three-pillow free-
+    // shipping order.
+    priceUsd: 33.99,
     printfulVariantId: 49854, // All-Over Print Basic Pillow 16"x16" — cost $14.59
     mockupAspect: '1/1',
   },
@@ -134,11 +170,17 @@ const PRODUCTS = [
     species: 'both',
     description: "Your pet's photo on a soft, pre-shrunk Gildan 18000 crewneck sweatshirt. Black, sized S–5XL.",
     // Flat price regardless of size — standard for POD apparel, and
-    // simpler than per-size pricing. Verified to clear Printful's real
-    // cost at every size: $19.17 (S–XL) up to $27.17 (5XL), confirmed
-    // directly against the catalog API — even the most expensive size
-    // leaves real margin room before shipping.
-    priceUsd: 44.99,
+    // simpler than per-size pricing. Printful's cost runs $19.17 (S–XL) up
+    // to $27.17 (5XL), confirmed against the catalog API.
+    //
+    // The floor is therefore checked against $27.17, the 5XL, not the $19.17
+    // small: one flat price means a margin computed off the cheap end passes
+    // a product that loses money every time someone orders a big one. That
+    // is why this is $51.99 rather than the ~$40 the small size alone would
+    // justify — the price carries the worst size in the range.
+    // Was $44.99, which cleared 39.6% on a single sale and only 31.2% on a
+    // two-shirt free-shipping order.
+    priceUsd: 51.99,
     // Unlike every other product here, this one has no single fixed
     // variant — it's sized S–5XL. The real variant ID is chosen by the
     // customer's size selection at checkout (see sweatshirtSizes.js,

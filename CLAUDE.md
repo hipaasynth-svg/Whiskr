@@ -60,11 +60,17 @@ work that doesn't exist.
 ## Prices
 
 Product prices live in `products.js`, commission prices in the pricing
-module, and both are locked by the owner's brief — don't adjust them to
-"look right." Every `priceUsd` must clear Printful's real base cost with
-room for shipping, which Printful bills separately per order. A locked price
-under a risen cost is a loss on every single sale, so if a cost check says a
-locked price is underwater, say so rather than silently repricing.
+module. Don't adjust either to "look right" — the only thing that moves a
+product price is the margin floor below, and the only thing that moves a
+commission price is the owner saying so. A price under a risen cost is a
+loss on every single sale, so if a cost check says a price is underwater,
+say so; don't reprice on a hunch, and don't leave it either.
+
+**Commission prices are NOT set by the margin floor** and were not touched
+by the 2026-09-28 repricing. A commission is the owner's own labour and
+materials, and no cost basis for it exists anywhere in this repo — a margin
+needs a cost. $425 is also load-bearing in `rules.html` as the prize's
+public value, so moving it means moving the rules and the emails too.
 
 The contest prize is an original 11x16 acrylic. Its public value is
 **$425** — the real published commission price for that size. Never state
@@ -72,14 +78,25 @@ $160; that number is wrong and appeared in the official rules for weeks.
 
 ### The margin floor
 
-The owner's rule is a **minimum 35% gross margin after shipping, with no
-discounting to reach it**. `orderEconomics.js` is the one place that knows
+The owner's rule is a **minimum 40% gross margin after shipping, with no
+discounting to reach it** (raised from 35% on 2026-09-28, when the whole
+catalog was repriced to it). `orderEconomics.js` is the one place that knows
 what an order costs us; run `node orderEconomics.js` after changing any
 price or supplier cost. It exits non-zero when a product is below the floor
-and prints the price that would clear it.
+or when a discount would push one under, and prints the price that clears.
 
-It reports. It does not reprice — see the paragraph above. A product with no
-known supplier cost reports `unknown`, never a passing margin.
+A product with no known supplier cost reports `unknown`, never a passing
+margin. Four still do: the three Gallery Series items and the phone case.
+Their prices are market rates, and the file records the highest supplier
+cost each one can carry before it is underwater.
+
+**No discounts.** Prices sit at the floor, so any discount at all lands
+under it — the report prints the largest the catalog survives, and that
+number is currently **0%**. `CONTEST_DISCOUNT_PERCENT` therefore defaults
+to 0. It used to default to 20%, which put every single product below the
+floor (the mug at 32.0%, the sweatshirt at 25.5%) with nothing in a
+checkout session looking wrong while it happened. Discounting is the quiet
+way to undo a repricing. If you raise it, the report will fail.
 
 Two things that are easy to get wrong here:
 
