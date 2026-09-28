@@ -613,7 +613,14 @@ async function syncOrderShipments(customOrderId, { notify = true } = {}) {
 // Delivery is polled, not pushed: shipment_sent is the only shipment event
 // Printful publishes. There is no "delivered" webhook, so without this the
 // delivered state would never arrive at all.
+// A shipment in one of these has finished moving; nothing the daily poll
+// does will change it again, so those rows stop being re-fetched. Held in
+// one place and interpolated into the query below rather than written out
+// twice, so the list and the SQL cannot drift apart.
 const TERMINAL_DELIVERY_STATUSES = ['delivered', 'return_to_sender', 'failure', 'canceled'];
+// Placeholders, not the values, so the list stays bound as parameters and
+// this file contains no SQL assembled by string concatenation.
+const TERMINAL_DELIVERY_PLACEHOLDERS = TERMINAL_DELIVERY_STATUSES.map(() => '?').join(',');
 
 async function pollShipmentDeliveries() {
   if (!printful.configured()) return;
@@ -621,10 +628,10 @@ async function pollShipmentDeliveries() {
   const stale = await db.all(
     `SELECT DISTINCT s.custom_order_id
        FROM custom_order_shipments s
-      WHERE (s.delivery_status IS NULL OR s.delivery_status NOT IN ('delivered','return_to_sender','failure','canceled'))
+      WHERE (s.delivery_status IS NULL OR s.delivery_status NOT IN (${TERMINAL_DELIVERY_PLACEHOLDERS}))
       ORDER BY s.custom_order_id ASC
       LIMIT ?`,
-    [SHIPMENT_POLL_BATCH]
+    [...TERMINAL_DELIVERY_STATUSES, SHIPMENT_POLL_BATCH]
   );
 
   for (const row of stale) {
@@ -3137,21 +3144,47 @@ app.post('/api/admin/commissions/:id/request-balance', requireAdmin, async (req,
   }
 });
 
+// Validates a path id before it reaches the database. Number('abc') is NaN
+// and Number('1e99') is a valid integer that no int4 column can hold --
+// both reach Postgres as errors rather than misses, and an uncaught one
+// takes the process down. Bounded to int4 so a bad id is a 400, not a 500.
+const PG_MAX_INT = 2147483647;
+function parseRowId(raw) {
+  const id = Number(raw);
+  return Number.isInteger(id) && id >= 1 && id <= PG_MAX_INT ? id : null;
+}
+
 // Shipment detail for one order, for the admin table's expand view.
 app.get('/api/admin/custom-orders/:id/shipments', requireAdmin, async (req, res) => {
-  const id = Number(req.params.id);
-  const shipments = await db.all(
-    `SELECT * FROM custom_order_shipments WHERE custom_order_id = ? ORDER BY id ASC`,
-    [id]
-  );
-  res.json({ shipments });
+  // Validated before it reaches the database: Number('abc') is NaN, Postgres
+  // rejects NaN for an integer column, and the rejection escaped this async
+  // handler as an unhandled rejection that took the whole process down.
+  // Confirmed by request, not by reading -- a malformed admin URL crashed
+  // the server rather than returning an error.
+  const id = parseRowId(req.params.id);
+  if (id === null) {
+    return res.status(400).json({ error: 'Invalid order id.' });
+  }
+  try {
+    const shipments = await db.all(
+      `SELECT * FROM custom_order_shipments WHERE custom_order_id = ? ORDER BY id ASC`,
+      [id]
+    );
+    res.json({ shipments });
+  } catch (err) {
+    console.error(`[admin] shipments lookup failed for order ${id}:`, err.message);
+    res.status(500).json({ error: 'Could not load shipments.' });
+  }
 });
 
 // Pull the latest shipment state from Printful for one order, on demand --
 // for answering "where is my order?" without waiting for the daily poll.
 app.post('/api/admin/custom-orders/:id/refresh-shipping', requireAdmin, async (req, res) => {
   try {
-    const id = Number(req.params.id);
+    const id = parseRowId(req.params.id);
+    if (id === null) {
+      return res.status(400).json({ error: 'Invalid order id.' });
+    }
     const order = await db.get(`SELECT id FROM custom_orders WHERE id = ?`, [id]);
     if (!order) return res.status(404).json({ error: 'Order not found.' });
     const result = await syncOrderShipments(id, { notify: false });

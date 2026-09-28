@@ -11,8 +11,16 @@
 // and return a dry-run result instead of throwing.
 const PRINTFUL_API_KEY = process.env.PRINTFUL_API_KEY;
 // Overridable only so the shipment-sync path can be exercised end to end
-// against a stub in tests; production never sets it.
-const PRINTFUL_BASE = process.env.PRINTFUL_API_BASE || 'https://api.printful.com';
+// against a stub in tests, and honoured ONLY when NODE_ENV is 'test'.
+// Every request carries the account's bearer token, so an override that
+// applied in production would let anything able to set an environment
+// variable -- a preview deployment, a CI job, a mis-scoped dashboard entry
+// -- redirect that token to a host of its choosing. A test-only escape
+// hatch is worth having; one that reaches production is not.
+const PRINTFUL_BASE =
+  process.env.NODE_ENV === 'test' && process.env.PRINTFUL_API_BASE
+    ? process.env.PRINTFUL_API_BASE
+    : 'https://api.printful.com';
 
 function configured() {
   return Boolean(PRINTFUL_API_KEY);

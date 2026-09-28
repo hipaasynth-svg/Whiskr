@@ -372,7 +372,19 @@ async function sendShippedEmail({ email, itemLabel, petName, parcels }) {
       const eta = p.estimated_delivery
         ? `<br><span style="font-size:13px;color:#555;">Estimated delivery: ${escapeHtml(p.estimated_delivery)}</span>`
         : '';
-      const href = p.tracking_url || null;
+      // Escaped and scheme-checked, like every other external value in this
+      // function. A tracking_url containing a double quote would otherwise
+      // break out of the href and inject markup into an email sent under
+      // our own From: address -- a convincing phishing lure inside a
+      // genuine transactional mail -- and a javascript:/data: URL would be
+      // accepted unchecked. The value comes from Printful's authenticated
+      // API rather than a request, so this is defence in depth, but
+      // mailer.js has shipped an unescaped-interpolation bug before.
+      const safeHref =
+        typeof p.tracking_url === 'string' && /^https?:\/\//i.test(p.tracking_url)
+          ? escapeHtml(p.tracking_url)
+          : null;
+      const href = safeHref;
       const num = p.tracking_number ? escapeHtml(p.tracking_number) : '';
       const inner = href
         ? `<a href="${href}" style="background:#E8A33D;color:#1B2430;padding:10px 18px;border-radius:3px;text-decoration:none;font-weight:bold;">${label}${carrier}</a>`
