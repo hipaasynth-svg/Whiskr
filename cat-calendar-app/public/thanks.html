@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>You're in — Whiskr</title>
+<!-- Every URL here carries a personal signed token, so it must never be
+     indexed or previewed by a crawler. -->
+<meta name="robots" content="noindex, nofollow" />
+<meta name="referrer" content="no-referrer" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<script>window.va = window.va || function() { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
+<style>
+  .thanks-wrap { max-width: 760px; margin: 0 auto; padding: 44px 20px 90px; }
+  .thanks-head { text-align: center; margin-bottom: 8px; }
+  .thanks-head h1 { font-size: clamp(1.7rem, 5vw, 2.5rem); margin-bottom: 6px; }
+  .thanks-sub { color: #55503f; font-size: 1.02rem; margin: 0; }
+  .closes-line { color: var(--forest); font-weight: 600; font-size: 0.92rem; margin-top: 10px; }
+
+  .block { background: var(--paper-card); border: 1px solid var(--line); border-radius: 8px; padding: 26px; margin-top: 26px; }
+  .block h2 { font-size: 1.25rem; margin-bottom: 4px; }
+  .block .lede { color: #55503f; font-size: 0.95rem; margin-top: 0; }
+
+  /* Block A — the whole point of this page: get the link shared. */
+  .copy-row { display: flex; gap: 10px; margin: 18px 0 8px; flex-wrap: wrap; }
+  .copy-row input {
+    flex: 1; min-width: 200px; padding: 14px 14px; font-size: 0.95rem;
+    border: 1px solid var(--line); border-radius: 4px; background: #fff;
+    font-family: var(--font-body); color: var(--ink);
+  }
+  .btn-copy { padding: 14px 26px; font-size: 1rem; white-space: nowrap; }
+  .copy-note { font-size: 0.85rem; color: var(--forest); min-height: 1.2em; font-weight: 600; }
+
+  .share-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 18px; }
+  .share-btn {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 5px;
+    padding: 12px 14px; font-family: var(--font-body); font-size: 0.88rem; color: var(--ink);
+  }
+  .share-btn:hover { border-color: var(--marigold); background: rgba(232,163,61,0.08); }
+  .share-btn strong { display: block; font-size: 0.92rem; margin-bottom: 2px; }
+  .share-btn span { color: #6b6552; font-size: 0.8rem; }
+
+  .card-preview { margin-top: 20px; text-align: center; }
+  .card-preview img { max-width: 300px; border-radius: 6px; border: 1px solid var(--line); margin: 0 auto 10px; }
+
+  /* Block B */
+  .offer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin-top: 18px; }
+  .offer { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff; display: flex; flex-direction: column; }
+  .offer .shot { background: var(--paper); display: flex; align-items: center; justify-content: center; padding: 14px; }
+  .offer .shot img { width: 100%; object-fit: cover; border-radius: 3px; }
+  .offer .meta { padding: 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .offer .name { font-family: var(--font-display); font-size: 1rem; }
+  .offer .price { font-family: var(--font-display); font-size: 1.25rem; }
+  .offer .was { font-size: 0.82rem; color: #6b6552; text-decoration: line-through; margin-left: 6px; }
+  .offer .btn { margin-top: auto; text-align: center; font-size: 0.88rem; padding: 10px; }
+  .discount-badge {
+    display: inline-block; background: var(--forest); color: #fff; font-size: 0.78rem;
+    font-weight: 700; padding: 4px 10px; border-radius: 3px; margin-bottom: 10px;
+  }
+
+  /* Block C */
+  .original-block { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .original-block h2 { color: #fff; }
+  .original-block .lede { color: rgba(239,230,216,0.8); }
+  .original-block .sub { color: rgba(239,230,216,0.65); font-size: 0.88rem; margin: 10px 0 0; }
+
+  .thanks-error { background: var(--paper-card); border: 1px dashed var(--line); border-radius: 8px; padding: 30px; text-align: center; color: #55503f; }
+  .skeleton { background: linear-gradient(90deg, #eee7d8 25%, #f5efe3 50%, #eee7d8 75%); background-size: 200% 100%; animation: sk 1.4s infinite; border-radius: 4px; }
+  @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+</style>
+</head>
+<body>
+<div id="siteBackdrop" aria-hidden="true"></div>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="siteNav">
+    <span></span><span></span><span></span>
+  </button>
+  <nav class="site-nav" id="siteNav">
+    <a href="index.html">Home</a>
+    <a href="vote.html">Vote</a>
+    <a href="/commission">Commission</a>
+  </nav>
+</header>
+
+<div class="thanks-wrap">
+  <div id="thanksLoading">
+    <div class="skeleton" style="height:42px;max-width:420px;margin:0 auto 14px;"></div>
+    <div class="skeleton" style="height:20px;max-width:300px;margin:0 auto;"></div>
+  </div>
+
+  <div id="thanksError" class="thanks-error" hidden>
+    <h2 style="font-size:1.2rem;">We couldn't open your entry.</h2>
+    <p id="thanksErrorMsg">This link may have expired or been copied incompletely.</p>
+    <p style="margin-bottom:0;"><a href="index.html#enter">Go to the entry form</a>, or reply to your confirmation email and we'll sort it out.</p>
+  </div>
+
+  <div id="thanksContent" hidden>
+    <div class="thanks-head">
+      <h1 id="thanksTitle">You're in.</h1>
+      <p class="thanks-sub" id="thanksSub"></p>
+      <p class="closes-line" id="closesLine" hidden></p>
+    </div>
+
+    <!-- Block A — campaign kit -->
+    <section class="block" aria-labelledby="blockAHeading">
+      <h2 id="blockAHeading">Your voting link</h2>
+      <p class="lede" id="blockALede">Every vote comes from someone opening this link. Send it to five people who like cats.</p>
+
+      <div class="copy-row">
+        <label for="voteUrlField" class="visually-hidden">Your voting link</label>
+        <input type="text" id="voteUrlField" readonly />
+        <button type="button" class="btn btn-primary btn-copy" id="copyBtn">Copy link</button>
+      </div>
+      <p class="copy-note" id="copyNote" role="status" aria-live="polite"></p>
+
+      <div class="share-grid" id="shareGrid"></div>
+
+      <div class="card-preview" id="cardPreview" hidden>
+        <img id="shareCardImg" alt="" />
+        <button type="button" class="btn btn-ghost" id="saveCardBtn" style="color:var(--ink);border-color:var(--ink);">Save the share card</button>
+      </div>
+    </section>
+
+    <!-- Block B — merch, using their own photo -->
+    <section class="block" aria-labelledby="blockBHeading">
+      <span class="discount-badge" id="discountBadge" hidden></span>
+      <h2 id="blockBHeading">Keep <span id="catNameB">your cat</span> on the wall either way</h2>
+      <p class="lede">Win or not, this is the photo you already love. Your discount is applied automatically at checkout.</p>
+      <div class="offer-grid" id="offerGrid"></div>
+      <p class="lede" id="lowResNote" style="margin-top:14px;" hidden></p>
+    </section>
+
+    <!-- Block C — the original -->
+    <section class="block original-block" aria-labelledby="blockCHeading">
+      <h2 id="blockCHeading">Skip the contest. Commission the painting.</h2>
+      <p class="lede">One winner a month gets one painted. You don't have to wait for the draw.</p>
+      <p style="margin:18px 0 0;"><a href="/commission" class="btn btn-primary">See commission prices</a></p>
+      <p class="sub" id="commissionSub"></p>
+    </section>
+
+    <p style="text-align:center;margin-top:26px;font-size:0.9rem;">
+      <a href="#" id="statusLink">Check your standing any time</a>
+    </p>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div>Whiskr — a free, real-public-vote cat photo contest.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <div class="footer-links"><a href="index.html">Home</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a></div>
+</footer>
+
+<script src="script.js"></script>
+<script src="thanks.js"></script>
+</body>
+</html>
