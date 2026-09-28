@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Past winners — Whiskr</title>
+<meta name="robots" content="index, follow" />
+<meta name="description" content="Every Whiskr Cat of the Month: the winning cat, the original acrylic painted from their photo, and how the round went." />
+<link rel="canonical" href="https://whiskr.lol/winners" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Whiskr" />
+<meta property="og:title" content="Past winners — Whiskr" />
+<meta property="og:description" content="Every Cat of the Month, and the original acrylic painted from their photo." />
+<meta property="og:url" content="https://whiskr.lol/winners" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Past winners — Whiskr" />
+<meta name="twitter:description" content="Every Cat of the Month, and the painting made from their photo." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<script>window.va = window.va || function() { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
+<style>
+  .winners-wrap { max-width: 900px; margin: 0 auto; padding: 46px 20px 90px; }
+  .winners-intro { max-width: 58ch; color: #55503f; }
+
+  .winner-round { margin-top: 44px; }
+  .round-label {
+    font-family: var(--font-display); font-size: 1.15rem; color: var(--ink);
+    border-bottom: 2px solid var(--ink); padding-bottom: 6px; margin-bottom: 18px;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  .round-label .closed { font-family: var(--font-body); font-size: 0.82rem; color: #6b6552; font-weight: 500; }
+
+  .winner-card { background: var(--paper-card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .winner-pair { display: grid; grid-template-columns: 1fr 1fr; }
+  .winner-pair figure { margin: 0; position: relative; background: var(--paper); }
+  .winner-pair img { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; }
+  .winner-pair figcaption {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(27,36,48,0.82); color: #fff;
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; padding: 3px 8px; border-radius: 2px;
+  }
+  /* A round closes weeks before its painting is finished. That gap is a
+     real state, so it gets a real panel rather than a missing image. */
+  .painting-pending {
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    aspect-ratio: 4/5; padding: 20px; color: #6b6552; font-size: 0.9rem;
+    background: repeating-linear-gradient(45deg, var(--paper), var(--paper) 10px, #ebe3d4 10px, #ebe3d4 20px);
+  }
+
+  .winner-body { padding: 20px 22px 22px; }
+  .winner-name { font-family: var(--font-display); font-size: 1.45rem; margin: 0 0 4px; }
+  .winner-story { color: #4a4536; font-size: 0.97rem; margin: 0 0 16px; }
+  .winner-ctas { display: flex; gap: 10px; flex-wrap: wrap; }
+  .winner-ctas .btn { font-size: 0.87rem; padding: 10px 18px; }
+
+  .winners-empty { background: var(--paper-card); border: 1px dashed var(--line); border-radius: 8px; padding: 34px; max-width: 620px; margin-top: 30px; }
+  .winners-empty h2 { font-size: 1.15rem; }
+  .winners-empty p { color: #55503f; font-size: 0.95rem; }
+  .skeleton { background: linear-gradient(90deg, #eee7d8 25%, #f5efe3 50%, #eee7d8 75%); background-size: 200% 100%; animation: sk 1.4s infinite; border-radius: 6px; }
+  @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+
+  @media (max-width: 640px) {
+    .winner-pair { grid-template-columns: 1fr; }
+    .winner-pair img, .painting-pending { aspect-ratio: 1/1; }
+  }
+</style>
+</head>
+<body>
+<div id="siteBackdrop" aria-hidden="true"></div>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="siteNav">
+    <span></span><span></span><span></span>
+  </button>
+  <nav class="site-nav" id="siteNav">
+    <a href="index.html">Home</a>
+    <a href="vote.html">Vote</a>
+    <a href="/winners">Winners</a>
+    <a href="/commission">Commission</a>
+  </nav>
+</header>
+
+<div class="winners-wrap">
+  <p class="ribbon-tag">The archive</p>
+  <h1>Cat of the Month, every month</h1>
+  <p class="winners-intro">
+    One cat a month wins an original acrylic portrait, painted from the photo their owner entered.
+    Here they all are — the photo that won, and the painting it became.
+  </p>
+
+  <div id="winnersLoading">
+    <div class="skeleton" style="height:28px;max-width:220px;margin:44px 0 18px;"></div>
+    <div class="skeleton" style="height:320px;"></div>
+  </div>
+
+  <div id="winnersEmpty" class="winners-empty" hidden>
+    <h2>No rounds have finished yet.</h2>
+    <p>The first Cat of the Month is still being voted on. When the round closes, the winner and their painting show up here.</p>
+    <p style="margin-bottom:0;"><a href="index.html#enter" class="btn btn-primary" style="margin-top:8px;">Enter your cat free</a></p>
+  </div>
+
+  <div id="winnersError" class="winners-empty" hidden>
+    <h2>We couldn't load the archive.</h2>
+    <p>That's us, not you. Refresh in a moment.</p>
+    <p style="margin-bottom:0;"><button type="button" class="btn btn-primary" id="winnersRetry">Try again</button></p>
+  </div>
+
+  <div id="winnersList"></div>
+</div>
+
+<footer class="site-footer">
+  <div>Whiskr — a free, real-public-vote cat photo contest.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <div class="footer-links"><a href="index.html">Home</a> · <a href="rules.html">Rules</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a></div>
+</footer>
+
+<script src="script.js"></script>
+<script src="winners.js"></script>
+</body>
+</html>

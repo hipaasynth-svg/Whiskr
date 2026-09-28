@@ -174,6 +174,7 @@ app.get('/sitemap.xml', (req, res) => {
     { loc: `${BASE_URL}/vote.html`, changefreq: 'hourly', priority: '0.9' },
     ...blog.sitemapEntries(BASE_URL),
     { loc: `${BASE_URL}/commission`, changefreq: 'monthly', priority: '0.8' },
+    { loc: `${BASE_URL}/winners`, changefreq: 'monthly', priority: '0.7' },
     { loc: `${BASE_URL}/rules.html`, changefreq: 'monthly', priority: '0.3' },
     { loc: `${BASE_URL}/privacy.html`, changefreq: 'monthly', priority: '0.2' },
     { loc: `${BASE_URL}/terms.html`, changefreq: 'monthly', priority: '0.2' },
@@ -222,6 +223,10 @@ app.get('/commission', (req, res) => {
 // sent to the moment they enter — the one that turns an entry into votes.
 app.get('/thanks', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'thanks.html'));
+});
+
+app.get('/winners', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'winners.html'));
 });
 
 // Creates tables once per warm instance — required on Vercel, which has no
@@ -2066,6 +2071,41 @@ app.get('/api/thanks', async (req, res) => {
   });
 });
 
+// The winner archive behind /winners.
+//
+// A round appears here as soon as it closes, whether or not its painting
+// exists yet: voting ends on a date, the painting takes two to four weeks
+// after that. Showing the winning cat with "being painted now" is the
+// honest state, and hiding the round until the painting lands would make
+// the archive look emptier than the contest actually is.
+app.get('/api/winners', async (req, res) => {
+  const rows = await db.all(
+    `SELECT c.id, c.label, c.closes_at, c.painting_photo_path, c.winner_story,
+            s.cat_name, s.photo_path, s.vote_count
+       FROM contests c
+       JOIN groups g ON g.id = c.group_id
+       JOIN submissions s ON s.id = g.winner_submission_id
+      WHERE c.status = 'completed'
+      ORDER BY c.closes_at DESC
+      LIMIT 60`
+  );
+
+  res.json({
+    winners: rows.map((r) => ({
+      label: r.label,
+      closedAt: r.closes_at,
+      catName: r.cat_name,
+      photoPath: r.photo_path,
+      paintingPath: r.painting_photo_path || null,
+      story: r.winner_story || null,
+      // Deliberately not the vote count. Totals stay hidden while a round
+      // runs so it is a fair count rather than a popularity snowball, and
+      // publishing them afterwards would let anyone reconstruct the
+      // running order of a future round from the same page.
+    })),
+  });
+});
+
 // Public catalog of custom cat/dog print products (see products.js).
 // Merges the fixed products.js catalog with whatever admin-uploaded photo/
 // copy exists in product_media (see /api/admin/products), resolving each
@@ -3373,6 +3413,61 @@ app.post('/api/admin/run-shipment-sync', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// The winner archive's editable side: every completed round, with whatever
+// painting and story it currently has.
+app.get('/api/admin/winners', requireAdmin, async (req, res) => {
+  const rows = await db.all(
+    `SELECT c.id, c.label, c.closes_at, c.painting_photo_path, c.winner_story,
+            s.id AS submission_id, s.cat_name, s.photo_path, s.email
+       FROM contests c
+       JOIN groups g ON g.id = c.group_id
+       JOIN submissions s ON s.id = g.winner_submission_id
+      WHERE c.status = 'completed'
+      ORDER BY c.closes_at DESC`
+  );
+  res.json({ winners: rows });
+});
+
+// Upload the finished painting for a round, and/or set its one-line story.
+// Both optional and independent: the story can be written the day a round
+// closes, the painting arrives weeks later.
+app.post('/api/admin/winners/:contestId', requireAdmin, upload.single('painting'), async (req, res) => {
+  try {
+    const contestId = parseRowId(req.params.contestId);
+    if (contestId === null) return res.status(400).json({ error: 'Invalid contest id.' });
+
+    const contest = await db.get(`SELECT id, status FROM contests WHERE id = ?`, [contestId]);
+    if (!contest) return res.status(404).json({ error: 'Round not found.' });
+    if (contest.status !== 'completed') {
+      return res.status(400).json({ error: 'That round has not closed yet.' });
+    }
+
+    if (req.file) {
+      const paintingPath = await storePhoto(req.file);
+      await db.run(
+        `UPDATE contests SET painting_photo_path = ?, painting_shown_at = ? WHERE id = ?`,
+        [paintingPath, new Date().toISOString(), contestId]
+      );
+    }
+
+    if (typeof req.body.story === 'string') {
+      // Stripped of newlines and bounded, same as every other
+      // owner-supplied string that ends up in a page and an email.
+      const story = req.body.story.replace(/[\r\n]+/g, ' ').trim().slice(0, 300);
+      await db.run(`UPDATE contests SET winner_story = ? WHERE id = ?`, [story || null, contestId]);
+    }
+
+    const updated = await db.get(
+      `SELECT id, label, painting_photo_path, winner_story FROM contests WHERE id = ?`,
+      [contestId]
+    );
+    res.json({ ok: true, round: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Could not update that round.' });
   }
 });
 
