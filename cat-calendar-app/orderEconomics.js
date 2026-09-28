@@ -52,9 +52,18 @@ const MARGIN_FLOOR = 0.40;
 // than shipping at a loss. A missing row is a bug, not a pricing decision.
 const DEFAULT_RATE = { shipFirstUsd: 12.99, shipAdditionalUsd: 6.5 };
 
+// itemUsd values were all read off Printful's live catalog API on
+// 2026-09-28 (GET /products/variant/{id}). The seven that were already here
+// came back byte-identical, so no supplier cost has drifted.
+//
+// shipFirstUsd / shipAdditionalUsd are ESTIMATES except where a comment
+// says otherwise. Only the mug has a real quote so far.
 const ECONOMICS = {
-  // --- verified item cost, estimated shipping ---
-  'mug-11oz': { itemUsd: 6.07, shipFirstUsd: 7.99, shipAdditionalUsd: 4.0 },
+  // Real shipping, quoted from POST /shipping/rates to a CA address on
+  // 2026-09-28: $6.69 for one, $17.19 for four, so $3.50 per extra mug.
+  // The estimate it replaces was $7.99/$4.00 - conservative in the safe
+  // direction, which is the only direction a shipping guess may be wrong.
+  'mug-11oz': { itemUsd: 6.07, shipFirstUsd: 6.69, shipAdditionalUsd: 3.5 },
   'poster-12x16': { itemUsd: 11.11, shipFirstUsd: 4.99, shipAdditionalUsd: 2.0 },
   'canvas-12x12': { itemUsd: 21.93, shipFirstUsd: 8.99, shipAdditionalUsd: 4.5 },
   'tote-bag': { itemUsd: 17.95, shipFirstUsd: 4.69, shipAdditionalUsd: 1.85 },
@@ -66,18 +75,24 @@ const ECONOMICS = {
   // loses money every time someone orders a big one.
   'crewneck-sweatshirt': { itemUsd: 27.17, shipFirstUsd: 5.39, shipAdditionalUsd: 2.2 },
 
-  // --- item cost not known ---
-  // Priced per device, and no device's cost has been read off the catalog
-  // API. Shipping is the small-parcel rate.
-  'phone-case': { itemUsd: null, shipFirstUsd: 4.39, shipAdditionalUsd: 1.5 },
-  // The three Gallery Series items. products.js says plainly that their
-  // printfulVariantIds were never confirmed and their prices came from
-  // market rates rather than a real Printful cost, so there is no cost to
-  // check a margin against. Framed pieces ship in oversized boxes, hence
-  // the high estimate.
-  'framed-poster-luster-12x18': { itemUsd: null, shipFirstUsd: 15.99, shipAdditionalUsd: 8.0 },
-  'framed-poster-matte-12x18': { itemUsd: null, shipFirstUsd: 15.99, shipAdditionalUsd: 8.0 },
-  'canvas-18x24': { itemUsd: null, shipFirstUsd: 12.99, shipAdditionalUsd: 6.5 },
+  // Tough Case, iPhone 11 (variant 15381). Like the sweatshirt this is one
+  // flat price over many variants, and only this one device has been
+  // priced - a newer, larger phone may well cost more, and the flat price
+  // has to carry the worst of them. Treat 14.23 as a FLOOR on the cost,
+  // not the cost.
+  'phone-case': { itemUsd: 14.23, shipFirstUsd: 4.39, shipAdditionalUsd: 1.5 },
+
+  // The Gallery Series, confirmed 2026-09-28 against the catalog API and
+  // far more expensive than the market rates their prices were guessed
+  // from. Shipping is still an estimate; framed pieces go in oversized
+  // boxes, hence the high figure.
+  // Premium Luster Photo Paper Framed Poster (in), product 172, 12x18.
+  'framed-poster-luster-12x18': { itemUsd: 37.45, shipFirstUsd: 15.99, shipAdditionalUsd: 8.0 },
+  // Enhanced Matte Paper Framed Poster (in), product 2, 12x18.
+  'framed-poster-matte-12x18': { itemUsd: 32.77, shipFirstUsd: 15.99, shipAdditionalUsd: 8.0 },
+  // Canvas (in), product 3, 18x24 - the one Gallery item whose guessed
+  // price was already high enough to carry its real cost.
+  'canvas-18x24': { itemUsd: 33.66, shipFirstUsd: 12.99, shipAdditionalUsd: 6.5 },
 };
 
 // Calendars are not a Printful product and not in products.js — they are
@@ -329,9 +344,18 @@ function printReport() {
   const safe = maxSafeDiscountPct(products);
   const live = Number(process.env.CONTEST_DISCOUNT_PERCENT || 0);
   console.log('');
-  console.log(`Largest discount the catalog survives at ${(MARGIN_FLOOR * 100).toFixed(0)}%: ${safe}%.`);
   let discountBreaks = 0;
-  if (live > safe) {
+  if (safe < 0) {
+    // Not "a negative discount". maxSafeDiscountPct walks up from 0 and
+    // returns one less than the first percentage that breaks, so -1 means
+    // even 0% breaks — i.e. a price is already under the floor before any
+    // discount touches it. The per-product failures above are the real
+    // report; saying "-1%" here would read as nonsense.
+    console.log(`Discount headroom: none — prices are under the floor before any discount.`);
+  } else {
+    console.log(`Largest discount the catalog survives at ${(MARGIN_FLOOR * 100).toFixed(0)}%: ${safe}%.`);
+  }
+  if (live > safe && safe >= 0) {
     discountBreaks = 1;
     console.log(`! CONTEST_DISCOUNT_PERCENT is ${live}%, above that. At ${live}% these fall under the floor:`);
     for (const p of products) {

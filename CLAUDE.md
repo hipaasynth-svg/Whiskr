@@ -86,9 +86,18 @@ price or supplier cost. It exits non-zero when a product is below the floor
 or when a discount would push one under, and prints the price that clears.
 
 A product with no known supplier cost reports `unknown`, never a passing
-margin. Four still do: the three Gallery Series items and the phone case.
-Their prices are market rates, and the file records the highest supplier
-cost each one can carry before it is underwater.
+margin. **None do any more** — every cost in the catalog was read off
+Printful's live API on 2026-09-28 and the last four were repriced from real
+numbers. Two of those four were underwater against prices that had been
+guessed from market rates: the luster framed print (cost $37.45 against a
+$74 price) and the phone case (cost $14.23 against $24.99).
+
+Two costs are a FLOOR rather than the cost, because one flat price covers
+many variants and only one variant has been priced: the sweatshirt is
+checked against 5XL ($27.17, not the $19.17 small) and the phone case
+against the iPhone 11 ($14.23). A newer or larger phone may cost more, and
+the flat price has to carry the most expensive one — price every device
+before trusting that margin.
 
 **No discounts.** Prices sit at the floor, so any discount at all lands
 under it — the report prints the largest the catalog survives, and that
@@ -109,10 +118,15 @@ Two things that are easy to get wrong here:
   comfortably and fail `FREE`: three canvases is $117 of revenue against
   nearly $18 of shipping. Checking only one number is how you end up
   confidently wrong.
-- The shipping figures in that file are **estimates**, not quotes.
-  Printful's domains are blocked from this environment, so no shipping
-  number in the repo has ever been confirmed against a live rate. Correct
-  them from the Printful dashboard before trusting any margin.
+- Most shipping figures in that file are still **estimates**, not quotes;
+  each one says which it is. Printful is unreachable from this environment,
+  so they have to be quoted from a machine that can reach it (`POST
+  /shipping/rates`) and pasted in. Only the mug has a real quote so far:
+  $6.69 first, $3.50 each additional, against an estimate of $7.99/$4.00.
+  That one data point came in 16% BELOW the guess, so the estimates may be
+  systematically high and some prices may come down once real rates land —
+  but a high shipping guess errs toward charging enough, which is the only
+  direction it may be wrong.
 
 Shipping is free at **$79+** and charged below that. The threshold is a
 constant, deliberately not an environment variable, because it is also
