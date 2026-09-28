@@ -56,43 +56,85 @@ const DEFAULT_RATE = { shipFirstUsd: 12.99, shipAdditionalUsd: 6.5 };
 // 2026-09-28 (GET /products/variant/{id}). The seven that were already here
 // came back byte-identical, so no supplier cost has drifted.
 //
-// shipFirstUsd / shipAdditionalUsd are ESTIMATES except where a comment
-// says otherwise. Only the mug has a real quote so far.
+// shipFirstUsd / shipAdditionalUsd were quoted the same day from POST
+// /shipping/rates to a California address. Eight of the ten products are
+// fully real. The exceptions are called out on their own rows: the tote bag
+// (Printful 400s on every rate request for it) and the additional-unit rate
+// for the luster framed poster and the 18x24 canvas, where a single unit
+// already clears the free-shipping threshold so only a one-unit quote was
+// taken.
+//
+// The estimates these replaced were wrong in BOTH directions, which is why
+// guessing them was never safe: the mug was overestimated by 16%, while the
+// additional canvas rate was $4.50 against a real $9.99 and apparel's first
+// rate was $5.39 against a real $8.79. Three prices had to rise again once
+// the real numbers landed.
 const ECONOMICS = {
   // Real shipping, quoted from POST /shipping/rates to a CA address on
   // 2026-09-28: $6.69 for one, $17.19 for four, so $3.50 per extra mug.
   // The estimate it replaces was $7.99/$4.00 - conservative in the safe
   // direction, which is the only direction a shipping guess may be wrong.
   'mug-11oz': { itemUsd: 6.07, shipFirstUsd: 6.69, shipAdditionalUsd: 3.5 },
-  'poster-12x16': { itemUsd: 11.11, shipFirstUsd: 4.99, shipAdditionalUsd: 2.0 },
-  'canvas-12x12': { itemUsd: 21.93, shipFirstUsd: 8.99, shipAdditionalUsd: 4.5 },
+  // Real: $4.99 first, $0.40 each additional. Posters ship rolled in one
+  // tube, so extras are nearly free - the estimate had this at $2.00.
+  'poster-12x16': { itemUsd: 11.11, shipFirstUsd: 4.99, shipAdditionalUsd: 0.4 },
+  // Real: $10.39 first, $9.99 each additional - the estimate had $8.99/$4.50
+  // and the additional rate was less than half the truth. A canvas is rigid
+  // and boxed individually, so a second one costs almost a second parcel.
+  // This is what pushed the 12x12 under the floor at the free-shipping line.
+  'canvas-12x12': { itemUsd: 21.93, shipFirstUsd: 10.39, shipAdditionalUsd: 9.99 },
+  // STILL AN ESTIMATE, and the only product whose rate could not be quoted:
+  // POST /shipping/rates returns 400 for variant 16287 at every quantity,
+  // while GET /products/variant/16287 returns its cost fine. A catalogue
+  // entry Printful will price but not ship is worth checking before relying
+  // on this product at all - if they cannot quote it, they may not fulfil
+  // it. Rate below is the old estimate and is NOT confirmed.
   'tote-bag': { itemUsd: 17.95, shipFirstUsd: 4.69, shipAdditionalUsd: 1.85 },
-  'throw-pillow': { itemUsd: 14.59, shipFirstUsd: 7.99, shipAdditionalUsd: 4.0 },
-  'fridge-magnet': { itemUsd: 3.91, shipFirstUsd: 3.99, shipAdditionalUsd: 0.75 },
+  // Real: $10.89 first, $4.50 each additional. Estimate was $7.99/$4.00 -
+  // low on both.
+  'throw-pillow': { itemUsd: 14.59, shipFirstUsd: 10.89, shipAdditionalUsd: 4.5 },
+  // Real: $4.69 first, $0.99 each additional.
+  'fridge-magnet': { itemUsd: 3.91, shipFirstUsd: 4.69, shipAdditionalUsd: 0.99 },
   // Sized S-5XL at one flat price, so the only honest cost to check the
   // margin against is the most expensive size. $19.17 at S-XL, $27.17 at
   // 5XL; a margin computed off the cheap end would pass a product that
   // loses money every time someone orders a big one.
-  'crewneck-sweatshirt': { itemUsd: 27.17, shipFirstUsd: 5.39, shipAdditionalUsd: 2.2 },
+  // Real: $8.79 first, $2.50 each additional. Estimate was $5.39/$2.20, so
+  // apparel shipping was badly underestimated.
+  'crewneck-sweatshirt': { itemUsd: 27.17, shipFirstUsd: 8.79, shipAdditionalUsd: 2.5 },
 
   // Tough Case, iPhone 11 (variant 15381). Like the sweatshirt this is one
   // flat price over many variants, and only this one device has been
   // priced - a newer, larger phone may well cost more, and the flat price
   // has to carry the worst of them. Treat 14.23 as a FLOOR on the cost,
   // not the cost.
-  'phone-case': { itemUsd: 14.23, shipFirstUsd: 4.39, shipAdditionalUsd: 1.5 },
+  // Real shipping: $5.19 first, $1.00 each additional.
+  'phone-case': { itemUsd: 14.23, shipFirstUsd: 5.19, shipAdditionalUsd: 1.0 },
 
   // The Gallery Series, confirmed 2026-09-28 against the catalog API and
   // far more expensive than the market rates their prices were guessed
   // from. Shipping is still an estimate; framed pieces go in oversized
   // boxes, hence the high figure.
   // Premium Luster Photo Paper Framed Poster (in), product 172, 12x18.
-  'framed-poster-luster-12x18': { itemUsd: 37.45, shipFirstUsd: 15.99, shipAdditionalUsd: 8.0 },
+  // First rate is real ($10.89). The ADDITIONAL rate is INFERRED, not
+  // quoted: at $89.99 a single one already clears the free-shipping
+  // threshold, so the quote script only asked for one. $4.50 is the matte
+  // framed poster's real additional rate - same physical product, same
+  // $10.89 first rate, different paper - which makes it the best available
+  // stand-in. Quote it directly before leaning on it.
+  'framed-poster-luster-12x18': { itemUsd: 37.45, shipFirstUsd: 10.89, shipAdditionalUsd: 4.5 },
   // Enhanced Matte Paper Framed Poster (in), product 2, 12x18.
-  'framed-poster-matte-12x18': { itemUsd: 32.77, shipFirstUsd: 15.99, shipAdditionalUsd: 8.0 },
+  // Real: $10.89 first, $4.50 each additional. The $15.99/$8.00 estimate
+  // assumed framed art shipped like furniture; it does not.
+  'framed-poster-matte-12x18': { itemUsd: 32.77, shipFirstUsd: 10.89, shipAdditionalUsd: 4.5 },
   // Canvas (in), product 3, 18x24 - the one Gallery item whose guessed
   // price was already high enough to carry its real cost.
-  'canvas-18x24': { itemUsd: 33.66, shipFirstUsd: 12.99, shipAdditionalUsd: 6.5 },
+  // First rate is real ($10.39). The ADDITIONAL rate is INFERRED and is the
+  // weakest number in this file: one at $89 already clears the threshold so
+  // only a single-unit quote was taken. $9.99 is the 12x12 canvas's real
+  // additional rate, and an 18x24 is larger, so the truth is probably
+  // HIGHER. Quote it before selling these in pairs.
+  'canvas-18x24': { itemUsd: 33.66, shipFirstUsd: 10.39, shipAdditionalUsd: 9.99 },
 };
 
 // Calendars are not a Printful product and not in products.js — they are
@@ -312,7 +354,7 @@ function printReport() {
   const rows = marginReport(listProducts('all'));
   console.log(
     `\nMargin floor ${(MARGIN_FLOOR * 100).toFixed(0)}%. Free shipping at $${FREE_SHIPPING_THRESHOLD_USD}+.` +
-      ` Shipping figures are ESTIMATES (see the header).`
+      ` Shipping quoted from Printful except where the file says otherwise.`
   );
   console.log('SMALL = under the threshold, customer pays shipping.');
   console.log('FREE  = smallest order that reaches the threshold, we pay the parcel.\n');

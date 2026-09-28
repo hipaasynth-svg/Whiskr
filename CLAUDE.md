@@ -118,15 +118,23 @@ Two things that are easy to get wrong here:
   comfortably and fail `FREE`: three canvases is $117 of revenue against
   nearly $18 of shipping. Checking only one number is how you end up
   confidently wrong.
-- Most shipping figures in that file are still **estimates**, not quotes;
-  each one says which it is. Printful is unreachable from this environment,
-  so they have to be quoted from a machine that can reach it (`POST
-  /shipping/rates`) and pasted in. Only the mug has a real quote so far:
-  $6.69 first, $3.50 each additional, against an estimate of $7.99/$4.00.
-  That one data point came in 16% BELOW the guess, so the estimates may be
-  systematically high and some prices may come down once real rates land —
-  but a high shipping guess errs toward charging enough, which is the only
-  direction it may be wrong.
+- Shipping figures are now **real quotes** from `POST /shipping/rates`,
+  taken 2026-09-28, except three the file flags on their own rows: the tote
+  bag (Printful returns 400 for its rate request at every quantity, though
+  it prices the variant fine — worth checking they will actually fulfil it)
+  and the additional-unit rate for the luster framed poster and the 18x24
+  canvas, where one unit already clears the threshold so only a single-unit
+  quote exists. Printful is unreachable from this environment, so any new
+  rate has to be quoted from a machine that can reach it and pasted in.
+
+  **Never guess a shipping rate.** The estimates these replaced were wrong
+  in both directions and three prices had to rise a second time when the
+  truth arrived: the additional canvas rate was guessed at $4.50 against a
+  real $9.99, and apparel's first rate at $5.39 against a real $8.79, while
+  the mug was overestimated by 16%. A guess that happens to be high is not
+  safe either — it inflates a price and costs sales. Two framed prints are
+  still carrying prices set from a bad estimate and sit well above their
+  floor as a result.
 
 Shipping is free at **$79+** and charged below that. The threshold is a
 constant, deliberately not an environment variable, because it is also

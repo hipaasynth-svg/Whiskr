@@ -109,10 +109,13 @@ const PRODUCTS = [
     name: 'Custom Pet Canvas',
     species: 'both',
     description: '12x12" gallery-wrapped canvas print, ready to hang.',
-    // Was $39.00, the largest correction in this catalog. Canvases are heavy
-    // and $39 put three of them over the free-shipping line at $117 of
-    // revenue against $17.99 of shipping we paid — 28.4%.
-    priceUsd: 47.99,
+    // The most-corrected price here, and a lesson in guessing shipping.
+    // $39.00 was underwater; $47.99 was set against an ESTIMATED $4.50 per
+    // additional canvas. The real quoted rate is $9.99 — a canvas is rigid
+    // and boxed on its own, so a second one costs nearly a second parcel.
+    // At $47.99 two canvases were $95.98 of revenue against $43.86 of goods
+    // and $20.38 of shipping we absorb at the free-shipping line: 33.1%.
+    priceUsd: 53.99,
     printfulVariantId: 823, // Canvas 12"x12" — cost $21.93
     mockupAspect: '1/1',
   },
@@ -156,9 +159,10 @@ const PRODUCTS = [
     name: 'Custom Pet Throw Pillow',
     species: 'both',
     description: '16x16" throw pillow, insert included.',
-    // Was $29.00: 49.7% on a single sale, 31.3% on a three-pillow free-
-    // shipping order.
-    priceUsd: 33.99,
+    // $29.00 was underwater; $33.99 was set against an estimated $7.99 first
+    // / $4.00 additional. Real rates are $10.89 / $4.50, which put a
+    // three-pillow free-shipping order at 37.6%.
+    priceUsd: 35.99,
     printfulVariantId: 49854, // All-Over Print Basic Pillow 16"x16" — cost $14.59
     mockupAspect: '1/1',
   },
@@ -185,9 +189,11 @@ const PRODUCTS = [
     // a product that loses money every time someone orders a big one. That
     // is why this is $51.99 rather than the ~$40 the small size alone would
     // justify — the price carries the worst size in the range.
-    // Was $44.99, which cleared 39.6% on a single sale and only 31.2% on a
-    // two-shirt free-shipping order.
-    priceUsd: 51.99,
+    // $44.99 was underwater; $51.99 was set against an estimated $5.39 first
+    // / $2.20 additional. Apparel shipping was the worst of the estimates —
+    // real rates are $8.79 / $2.50 — leaving a two-shirt free-shipping order
+    // at 36.9%.
+    priceUsd: 54.99,
     // Unlike every other product here, this one has no single fixed
     // variant — it's sized S–5XL. The real variant ID is chosen by the
     // customer's size selection at checkout (see sweatshirtSizes.js,
