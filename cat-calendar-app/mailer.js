@@ -290,6 +290,71 @@ async function sendReviewRequest({ email, itemLabel, reviewUrl }) {
   });
 }
 
+// Sent once, from the Stripe webhook, the moment a commission deposit
+// actually clears. Purely transactional — it confirms a booking the
+// customer just paid for and carries no purchase pitch, so no unsubscribe
+// footer (adding one to a receipt is how receipts end up in spam folders).
+async function sendCommissionBooked({ email, petName, sizeLabel, depositUsd, balanceUsd, totalUsd, rush }) {
+  const subject = petName
+    ? `${petName}'s painting is booked`
+    : 'Your painting is booked';
+  const who = petName ? escapeHtml(petName) : 'your pet';
+  const timeline = rush
+    ? 'Because you added rush, it will be finished in under 10 days.'
+    : 'It will be finished 2 to 4 weeks from today.';
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p>Your deposit came through, and ${who}'s original acrylic (${escapeHtml(sizeLabel)}) is on Cody's bench. ${timeline}</p>
+    <p><strong>What you paid today:</strong> $${escapeHtml(depositUsd)} deposit<br>
+       <strong>Balance due before it ships:</strong> $${escapeHtml(balanceUsd)}<br>
+       <strong>Total:</strong> $${escapeHtml(totalUsd)}</p>
+    <p>You will not be charged the balance automatically. When the painting is finished we will email you a photo of it first, along with a payment link — so you see the work before you pay the rest of it.</p>
+    <p>If Cody needs a clearer reference photo, he will reply to this email and ask. Replying here reaches a person.</p>
+    <p>— Whiskr</p>
+  `,
+    { tagline: 'Original Acrylic Commission' }
+  );
+  return sendMail({
+    to: email,
+    subject,
+    html,
+    text: `Your deposit came through and ${petName || 'your pet'}'s original acrylic (${sizeLabel}) is booked. ${timeline}\n\nPaid today: $${depositUsd} deposit. Balance due before shipping: $${balanceUsd}. Total: $${totalUsd}.\n\nYou will not be charged the balance automatically — when the painting is finished we email you a photo of it plus a payment link, so you see the work before paying the rest. Reply to this email to reach a person.`,
+  });
+}
+
+// Sent by hand from admin.html once a painting is finished: the photo of
+// the work plus the link to pay the remaining balance. The customer sees
+// what they are paying for before they pay for it.
+async function sendCommissionBalanceDue({ email, petName, balanceUsd, payUrl, paintingImageUrl }) {
+  const who = petName ? escapeHtml(petName) : 'your pet';
+  const preview = paintingImageUrl
+    ? `<p style="text-align:center;margin:20px 0;"><img src="${paintingImageUrl}" alt="The finished painting" style="max-width:100%;border-radius:4px;border:1px solid #d8cdb5;"></p>`
+    : '';
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p>${who}'s painting is finished.</p>
+    ${preview}
+    <p>The remaining balance is <strong>$${escapeHtml(balanceUsd)}</strong>. Once that is paid it gets varnished, packed and shipped to the address you gave at booking.</p>
+    <p style="text-align:center;margin:24px 0;">
+      <a href="${payUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
+        Pay the balance — $${escapeHtml(balanceUsd)}
+      </a>
+    </p>
+    <p style="font-size:13px;color:#555;">Not happy with it? Reply to this email before paying and tell us what is wrong — that is exactly why the balance is not charged automatically.</p>
+    <p>— Whiskr</p>
+  `,
+    { tagline: 'Original Acrylic Commission' }
+  );
+  return sendMail({
+    to: email,
+    subject: petName ? `${petName}'s painting is finished` : 'Your painting is finished',
+    html,
+    text: `${petName || 'Your pet'}'s painting is finished. The remaining balance is $${balanceUsd}. Pay it here and it ships: ${payUrl}\n\nNot happy with it? Reply to this email before paying and tell us what is wrong — that is why the balance is not charged automatically.`,
+  });
+}
+
 module.exports = {
   sendEntryConfirmation,
   sendWinnerEmail,
@@ -297,6 +362,8 @@ module.exports = {
   sendFinalRankEmail,
   sendRankDropEmail,
   sendReviewRequest,
+  sendCommissionBooked,
+  sendCommissionBalanceDue,
   sendMail,
   isSuppressed,
   unsubscribeUrl,

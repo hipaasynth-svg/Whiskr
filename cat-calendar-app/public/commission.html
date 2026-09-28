@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Commission an original painting — Whiskr</title>
+<meta name="robots" content="index, follow" />
+<meta name="description" content="Commission an original hand-painted acrylic portrait of your pet by artist Cody Carlson. 11x16 from $425. 40% deposit books your spot; finished in 2-4 weeks." />
+<link rel="canonical" href="https://whiskr.lol/commission" />
+
+<!-- Open Graph / link previews (iMessage, Slack, Facebook, etc.) -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Whiskr" />
+<meta property="og:title" content="Commission an original painting — Whiskr" />
+<meta property="og:description" content="An original hand-painted acrylic portrait of your pet. 11x16 from $425. 40% deposit books your spot; finished in 2-4 weeks." />
+<meta property="og:url" content="https://whiskr.lol/commission" />
+
+<!-- Twitter/X card -->
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Commission an original painting — Whiskr" />
+<meta name="twitter:description" content="An original hand-painted acrylic portrait of your pet, from $425." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<!-- Vercel Web Analytics -->
+<script>window.va = window.va || function() { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
+<style>
+  /* A studio page, not a shop page: wide margins, one column, no grid of
+     cards competing for a click. The only product here is Cody's time. */
+  .studio-wrap { max-width: 860px; margin: 0 auto; padding: 50px 36px 100px; }
+  .studio-lede { font-size: 1.12rem; color: #33301f; max-width: 58ch; }
+
+  .pair-gallery { display: grid; gap: 30px; margin: 40px 0 10px; }
+  .pair { background: var(--paper-card); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .pair-images { display: grid; grid-template-columns: 1fr 1fr; }
+  .pair-images figure { margin: 0; position: relative; }
+  .pair-images img { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; }
+  .pair-images figcaption {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(27,36,48,0.82); color: #fff;
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; padding: 3px 8px; border-radius: 2px;
+  }
+  .pair-caption { padding: 14px 18px; font-size: 0.9rem; color: #55503f; }
+  .gallery-empty {
+    background: var(--paper-card); border: 1px dashed var(--line);
+    border-radius: 6px; padding: 28px; color: #55503f; font-size: 0.95rem;
+  }
+
+  .process { list-style: none; padding: 0; margin: 40px 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .process li { border-top: 2px solid var(--ink); padding-top: 14px; }
+  .process .step-num { font-family: var(--font-display); font-size: 1.4rem; color: var(--blush); display: block; }
+  .process h3 { font-size: 1rem; margin: 4px 0 4px; }
+  .process p { font-size: 0.87rem; color: #55503f; margin: 0; }
+
+  table.rate-card { width: 100%; border-collapse: collapse; margin: 22px 0; font-size: 0.97rem; }
+  table.rate-card th, table.rate-card td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); }
+  table.rate-card th { color: #6b6552; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.rate-card td.amount { text-align: right; font-family: var(--font-display); font-size: 1.15rem; white-space: nowrap; }
+  .rate-note { font-size: 0.88rem; color: #6b6552; }
+
+  .booking-form {
+    background: var(--paper-card); border: 1px solid var(--line); border-radius: 6px;
+    padding: 30px; margin-top: 12px; display: flex; flex-direction: column; gap: 16px;
+  }
+  .booking-form label { font-size: 0.85rem; font-weight: 500; display: flex; flex-direction: column; gap: 6px; }
+  .booking-form input[type=text], .booking-form input[type=email], .booking-form select, .booking-form textarea {
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px;
+    font-family: var(--font-body); font-size: 0.95rem; background: #fff;
+  }
+  .booking-form textarea { min-height: 80px; resize: vertical; }
+  .quote-box {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 4px; padding: 16px 18px;
+  }
+  .quote-box .line { display: flex; justify-content: space-between; font-size: 0.92rem; padding: 3px 0; }
+  .quote-box .line.total { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; font-weight: 600; }
+  .quote-box .line.due { color: var(--forest); font-weight: 700; font-size: 1.02rem; }
+  .gift-note {
+    border-left: 3px solid var(--marigold); padding: 2px 0 2px 16px;
+    margin: 34px 0; color: #55503f; font-size: 0.93rem;
+  }
+  @media (max-width: 760px) {
+    .process { grid-template-columns: repeat(2, 1fr); }
+    .pair-images img { aspect-ratio: 1/1; }
+  }
+</style>
+</head>
+<body>
+<div id="siteBackdrop" aria-hidden="true"></div>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="siteNav">
+    <span></span><span></span><span></span>
+  </button>
+  <nav class="site-nav" id="siteNav">
+    <a href="index.html">Home</a>
+    <a href="vote.html">Vote</a>
+    <a href="/commission">Commission</a>
+  </nav>
+</header>
+
+<div class="studio-wrap">
+  <p class="ribbon-tag">The studio</p>
+  <h1>An original painting of your pet</h1>
+  <p class="studio-lede">
+    Not a print. A one-of-a-kind acrylic on canvas, painted by hand by Cody Carlson
+    from a photo you send. It takes two to four weeks because that is how long it
+    takes to paint something properly.
+  </p>
+
+  <!-- Real uploaded work only. Until a painting/photo pair is uploaded in
+       admin, this shows an honest empty state — never stock art standing in
+       for work that does not exist. -->
+  <h2 style="margin-top:46px;">Recent work</h2>
+  <div class="pair-gallery" id="pairGallery" hidden></div>
+  <div class="gallery-empty" id="galleryEmpty" hidden>
+    <p style="margin:0;">Photos of finished commissions are going up here as they come off the bench.
+    In the meantime, <a href="https://codycarlson.art" target="_blank" rel="noopener">codycarlson.art</a>
+    has Cody's wider portfolio.</p>
+  </div>
+
+  <h2 style="margin-top:46px;">How it works</h2>
+  <ol class="process">
+    <li><span class="step-num">1</span><h3>Photo</h3><p>You send the reference photo. Good light, eyes visible, taken close up.</p></li>
+    <li><span class="step-num">2</span><h3>Drawing</h3><p>Cody blocks in the drawing and composition on canvas.</p></li>
+    <li><span class="step-num">3</span><h3>Paint</h3><p>Acrylic, built up in layers. This is the part that takes the time.</p></li>
+    <li><span class="step-num">4</span><h3>Varnish</h3><p>Sealed, cured, packed and shipped to you.</p></li>
+  </ol>
+
+  <h2 style="margin-top:46px;">Price</h2>
+  <table class="rate-card">
+    <thead><tr><th>Size</th><th style="text-align:right;">Price</th></tr></thead>
+    <tbody id="rateRows">
+      <tr><td colspan="2" class="rate-note">Loading the current rate card…</td></tr>
+    </tbody>
+  </table>
+  <p class="rate-note" id="rateExtras"></p>
+  <p class="rate-note" id="rateTerms"></p>
+
+  <p class="gift-note">
+    The monthly contest winner's painting is a gift, not a discount tier. Winning
+    the contest is free and always will be — it isn't a cheaper way to buy one of
+    these, and commissioning one doesn't affect the contest.
+    <a href="index.html#enter">Entering the contest is free.</a>
+  </p>
+
+  <h2 style="margin-top:46px;">Reserve your spot</h2>
+  <p class="rate-note" id="depositExplainer"></p>
+
+  <form id="commissionForm" class="booking-form" enctype="multipart/form-data">
+    <label>
+      Size
+      <select name="sizeId" id="cSize" required>
+        <option value="">Choose a size…</option>
+      </select>
+    </label>
+
+    <label class="consent-label">
+      <input type="checkbox" name="rush" id="cRush" />
+      <span id="rushLabel">Rush</span>
+    </label>
+
+    <label>
+      Pets in the painting
+      <select name="extraPets" id="cExtraPets">
+        <option value="0">Just one</option>
+      </select>
+    </label>
+
+    <label>
+      Your name
+      <input type="text" name="customerName" id="cName" maxlength="80" placeholder="Jane Doe" />
+    </label>
+
+    <label>
+      Pet's name
+      <input type="text" name="petName" id="cPetName" maxlength="60" placeholder="Biscuit" />
+    </label>
+
+    <label>
+      Your email
+      <input type="email" name="email" id="cEmail" placeholder="you@example.com" required />
+    </label>
+
+    <label class="file-label">
+      Reference photo
+      <input type="file" name="photo" id="cPhoto" accept="image/png, image/jpeg, image/webp, image/gif" required />
+      <div class="upload-preview" id="cPreview"></div>
+    </label>
+
+    <label>
+      Anything Cody should know (optional)
+      <textarea name="notes" id="cNotes" maxlength="1000" placeholder="Background colour, a collar to include or leave out, which photo matters most…"></textarea>
+    </label>
+
+    <label class="consent-label">
+      <input type="checkbox" name="photoRights" id="cPhotoRights" required />
+      <span>I own this photo (or have the owner's permission), and I'm giving Cody permission to paint from it and to show the finished painting as an example of his work. I keep ownership of the photo, and it won't be printed on products for sale.</span>
+    </label>
+
+    <div class="quote-box" id="quoteBox" hidden></div>
+
+    <button type="submit" class="btn btn-primary" id="cSubmit" disabled>Choose a size first</button>
+    <p class="form-note" id="cNote"></p>
+    <p class="rate-note" style="margin:0;">
+      Want a sculpture, a wood carving, or something that isn't a pet portrait?
+      That work lives at <a href="https://codycarlson.art" target="_blank" rel="noopener">codycarlson.art</a>.
+    </p>
+  </form>
+</div>
+
+<footer class="site-footer">
+  <div>Whiskr — original pet portraits and a free monthly cat photo contest.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <div class="footer-links"><a href="index.html">Home</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="shipping.html">Shipping</a></div>
+</footer>
+
+<script src="imageResize.js"></script>
+<script src="script.js"></script>
+<script src="commission.js"></script>
+</body>
+</html>

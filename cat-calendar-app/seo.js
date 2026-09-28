@@ -136,7 +136,7 @@ function renderLiveOffline({ nextSessionAt, lastSession }) {
     ${nextLine}${lastLine}
     <p class="live-offline-ctas">
       <a href="#enter" class="btn btn-primary">Enter this month's contest</a>
-      <a href="https://codycarlson.art" target="_blank" rel="noopener" class="btn btn-ghost">Commission with Cody Carlson</a>
+      <a href="/commission" class="btn btn-ghost">Commission an original</a>
     </p>
   </div>`;
 }
