@@ -2146,3 +2146,19 @@ enter") and privacy page all say it is used only to reach the entrant about
 their entry and never for marketing texts — keep it that way: texting
 promotions to these numbers without separate consent would be a TCPA
 problem. Older entries have no phone (NULL).
+
+## Update — 2026-09-30: name at entry, and winners can claim their prize
+
+Owner's direction: entry is name + phone + email (plus the cat's name and
+photo); Whiskr tries to reach the winner, and the winner can also check back
+and claim. Entry now requires the entrant's name (`submissions.owner_name`).
+When a round closes, the winner email carries a "Claim your prize" button — a
+signed link (`claimToken.js`) to `/claim`, where the winner gives a mailing
+address. A winner who lost the email can go to `/claim` (linked from
+/winners and their status page) and prove it's them with the email and phone
+they entered with; wrong pairs get the same "couldn't find" answer as a
+non-winner, and lookups are rate-limited per connection. The address is saved
+on the round's `year_awards` row, shown in admin → Painting winners (with
+owner name, tap-to-email and tap-to-call), and emailed to ADMIN_EMAIL. The
+rules' Prize section and the privacy page describe exactly this. No claim
+deadline or forfeit rule exists yet — that's an owner decision.

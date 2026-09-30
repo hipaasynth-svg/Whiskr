@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Claim your prize — Whiskr</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;0,700;1,500&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<!-- Vercel Web Analytics -->
+<script>window.va = window.va || function() { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
+<style>
+  .claim-wrap { max-width: 560px; margin: 0 auto; padding: 60px 24px 100px; }
+  .claim-card { background: var(--paper-card); border: 1px solid var(--line); border-radius: 8px; padding: 32px 26px; }
+  .claim-card h1 { font-size: clamp(1.6rem, 5vw, 2.1rem); margin: 6px 0 10px; }
+  .claim-card p { color: #55503f; }
+  .claim-photo { width: 100%; max-width: 260px; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 6px; display: block; margin: 12px auto 18px; }
+  .claim-form { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
+  .claim-form label { font-size: 0.85rem; font-weight: 500; display: flex; flex-direction: column; gap: 6px; }
+  .claim-form input { padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; font-family: var(--font-body); font-size: 16px; width: 100%; min-width: 0; box-sizing: border-box; }
+  .claim-row label { min-width: 0; }
+  .claim-row { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+  @media (max-width: 520px) { .claim-row { grid-template-columns: 1fr 1fr; } .claim-row label:first-child { grid-column: 1 / -1; } }
+</style>
+</head>
+<body>
+<div id="siteBackdrop" aria-hidden="true"></div>
+
+<header class="site-header">
+  <a href="index.html" class="brand">Whiskr</a>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="siteNav">
+    <span></span><span></span><span></span>
+  </button>
+  <nav class="site-nav" id="siteNav">
+    <a href="vote.html">Vote</a>
+    <a href="/winners">Winners</a>
+  </nav>
+</header>
+<main id="main-content">
+
+<div class="claim-wrap">
+  <!-- Step 1: prove it's you (skipped when arriving from the winner email) -->
+  <div class="claim-card" id="lookupCard">
+    <p class="ribbon-tag">Cat of the Month winners</p>
+    <h1>Claim your prize</h1>
+    <p>Did your cat win? Enter the email and phone number you used when you entered, and we'll ask where to send your painting.</p>
+    <form class="claim-form" id="lookupForm">
+      <label>
+        Email you entered with
+        <input type="email" name="email" id="lookupEmail" autocomplete="email" required />
+      </label>
+      <label>
+        Phone number you entered with
+        <input type="tel" name="phone" id="lookupPhone" autocomplete="tel" required />
+      </label>
+      <button type="submit" class="btn btn-primary">Find my prize</button>
+      <p class="form-note" id="lookupNote" role="status" aria-live="polite"></p>
+    </form>
+  </div>
+
+  <!-- Step 2: the winning entry + mailing address -->
+  <div class="claim-card" id="addressCard" hidden>
+    <p class="ribbon-tag" id="claimRound">Cat of the Month</p>
+    <h1 id="claimTitle">Congratulations!</h1>
+    <img class="claim-photo" id="claimPhoto" alt="" hidden />
+    <p id="claimIntro">Your cat won an original 11x16 acrylic portrait, hand-painted by Cody Carlson. Tell us where to send it — it arrives within 6–8 weeks.</p>
+    <form class="claim-form" id="addressForm">
+      <label>
+        Full name
+        <input type="text" name="name" id="shipName" autocomplete="name" maxlength="80" required />
+      </label>
+      <label>
+        Street address
+        <input type="text" name="line1" id="shipLine1" autocomplete="address-line1" maxlength="120" required />
+      </label>
+      <label>
+        Apartment, suite, etc. (optional)
+        <input type="text" name="line2" id="shipLine2" autocomplete="address-line2" maxlength="120" />
+      </label>
+      <div class="claim-row">
+        <label>City <input type="text" name="city" id="shipCity" autocomplete="address-level2" maxlength="80" required /></label>
+        <label>State <input type="text" name="state" id="shipState" autocomplete="address-level1" maxlength="60" required /></label>
+        <label>ZIP <input type="text" name="zip" id="shipZip" autocomplete="postal-code" maxlength="20" required /></label>
+      </div>
+      <label>
+        Country
+        <input type="text" name="country" id="shipCountry" autocomplete="country-name" maxlength="60" value="United States" />
+      </label>
+      <button type="submit" class="btn btn-primary" id="addressBtn">Send my address</button>
+      <p class="form-note" id="addressNote" role="status" aria-live="polite"></p>
+    </form>
+  </div>
+
+  <p style="text-align:center;margin-top:22px;font-size:0.9rem;">Trouble claiming? Email <a href="mailto:contest@whiskr.lol">contest@whiskr.lol</a>.</p>
+</div>
+
+</main>
+<footer class="site-footer">
+  <div>Whiskr — a free, real-public-vote cat photo contest.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <div class="footer-links"><a href="index.html">Home</a> · <a href="rules.html">Rules</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></div>
+</footer>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const lookupCard = document.getElementById('lookupCard');
+  const addressCard = document.getElementById('addressCard');
+  let claim = null;
+
+  function showClaim(data) {
+    claim = data;
+    lookupCard.hidden = true;
+    addressCard.hidden = false;
+    document.getElementById('claimRound').textContent = data.roundLabel ? `Cat of the Month · ${data.roundLabel}` : 'Cat of the Month';
+    document.getElementById('claimTitle').textContent = `Congratulations — ${data.catName} won!`;
+    if (data.photoPath) {
+      const img = document.getElementById('claimPhoto');
+      img.src = data.photoPath;
+      img.alt = data.catName;
+      img.hidden = false;
+    }
+    document.getElementById('shipName').value = data.shippingName || '';
+    if (data.address) {
+      const a = data.address;
+      document.getElementById('shipLine1').value = a.line1 || '';
+      document.getElementById('shipLine2').value = a.line2 || '';
+      document.getElementById('shipCity').value = a.city || '';
+      document.getElementById('shipState').value = a.state || '';
+      document.getElementById('shipZip').value = a.zip || '';
+      document.getElementById('shipCountry').value = a.country || 'United States';
+    }
+    if (data.claimed) {
+      document.getElementById('claimIntro').textContent =
+        "We have your address — you're all set. Your painting arrives within 6–8 weeks of when you sent it. Need to change it? Update it below.";
+      document.getElementById('addressBtn').textContent = 'Update my address';
+    }
+    addressCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Arriving from the winner email or status page: signed link, no lookup needed.
+  if (params.get('award') && params.get('token')) {
+    fetch(`/api/claim?award=${encodeURIComponent(params.get('award'))}&token=${encodeURIComponent(params.get('token'))}`)
+      .then(async (r) => ({ ok: r.ok, data: await r.json() }))
+      .then(({ ok, data }) => {
+        if (ok) showClaim(data);
+        else document.getElementById('lookupNote').textContent = data.error;
+      })
+      .catch(() => {});
+  }
+
+  document.getElementById('lookupForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const note = document.getElementById('lookupNote');
+    const btn = e.target.querySelector('button');
+    note.classList.remove('error');
+    note.textContent = 'Checking…';
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/claim/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: document.getElementById('lookupEmail').value,
+          phone: document.getElementById('lookupPhone').value,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      note.textContent = '';
+      showClaim(data);
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('addressForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!claim) return;
+    const note = document.getElementById('addressNote');
+    const btn = document.getElementById('addressBtn');
+    note.classList.remove('error');
+    note.textContent = 'Sending…';
+    btn.disabled = true;
+    const body = { award: claim.award, token: claim.token };
+    for (const [k, v] of new FormData(e.target).entries()) body[k] = v;
+    try {
+      const res = await fetch('/api/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      note.textContent = "Got it — thank you! Your painting will arrive within 6–8 weeks. We'll be in touch if we need anything.";
+      btn.textContent = 'Update my address';
+    } catch (err) {
+      note.textContent = err.message;
+      note.classList.add('error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+<script src="script.js"></script>
+</body>
+</html>

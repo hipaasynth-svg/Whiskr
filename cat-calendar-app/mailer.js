@@ -174,7 +174,7 @@ async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, close
 // is kept as the param name for continuity with the (now dormant)
 // tallyAndCloseYearAward path that also calls this same shape of email
 // content; it names when the painting ships, not a sculpture.
-async function sendWinnerEmail({ email, catName, sculptureDeadline }) {
+async function sendWinnerEmail({ email, catName, sculptureDeadline, claimUrl }) {
   const safeName = escapeHtml(catName);
   // A window counted from the winner's reply, not a fixed date: painting
   // can't start until we have somewhere to send it, and a hand-painted
@@ -184,8 +184,9 @@ async function sendWinnerEmail({ email, catName, sculptureDeadline }) {
     <p>Hi there,</p>
     <p><strong>${safeName} got the most votes and is this month's Cat of the Month! 🏆</strong></p>
     <p><strong>${safeName} wins a one-of-a-kind original 11x16 acrylic painting of ${safeName}, hand-painted by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. Expect it within 6–8 weeks of sending us your mailing address.</p>
-    <p>Reply to this email with a mailing address and we'll get started.</p>
-    <p>Congratulations, and thank you for being part of Whiskr.</p>
+    ${claimUrl ? `<p style="text-align:center;margin:24px 0;"><a href="${claimUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">Claim your prize</a></p>
+    <p>That button takes you to a short form for your mailing address. You can also claim any time at ${BASE_URL}/claim with the email and phone number you entered with, or just reply to this email.</p>` : `<p>Reply to this email with a mailing address and we'll get started.</p>`}
+    <p>We'll also try to reach you by phone. Congratulations, and thank you for being part of Whiskr.</p>
     <p>— Whiskr</p>
   `,
     { showUnsubscribe: true, email, tagline: 'Cat of the Month' }
@@ -194,7 +195,7 @@ async function sendWinnerEmail({ email, catName, sculptureDeadline }) {
     to: email,
     subject: `${catName} is Cat of the Month — you're getting an original painting! 🏆`,
     html,
-    text: `${catName} got the most votes and is Cat of the Month! ${catName} wins a one-of-a-kind original 11x16 acrylic painting, hand-painted by Cody Carlson. Expect it within 6–8 weeks of sending us your mailing address. Reply to this email with a mailing address.\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} got the most votes and is Cat of the Month! ${catName} wins a one-of-a-kind original 11x16 acrylic painting, hand-painted by Cody Carlson. Expect it within 6–8 weeks of sending us your mailing address.${claimUrl ? ` Claim your prize (send your address) here: ${claimUrl}` : ' Reply to this email with a mailing address.'}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 

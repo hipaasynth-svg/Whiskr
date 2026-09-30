@@ -96,8 +96,10 @@
         card.innerHTML = `
           <h1 class="ribbon-tag">${escapeHtml(data.catName)}'s final result</h1>
           <div class="status-rank">#${data.finalRank}</div>
-          <p class="status-sub">${won ? 'Cat of the Month! An original hand-painted portrait is on its way — check your email.' : 'Thanks for entering this round!'}</p>
-          <p style="margin-top:24px;"><a href="index.html#shop-custom" class="btn btn-primary">Get a solo print</a></p>
+          <p class="status-sub">${won ? 'Cat of the Month! Your cat won an original hand-painted portrait.' : 'Thanks for entering this round!'}</p>
+          ${won
+            ? `<p style="margin-top:24px;"><a href="${escapeHtml(data.claimUrl || '/claim')}" class="btn btn-primary">Claim your prize</a></p>`
+            : '<p style="margin-top:24px;"><a href="index.html#shop-custom" class="btn btn-primary">Get a solo print</a></p>'}
         `;
       }
     } catch (err) {

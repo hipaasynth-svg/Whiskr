@@ -99,6 +99,9 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS disqualified_reason TEXT;
 -- Required at entry since 2026-09-30 so a winner can be reached by phone as
 -- well as email. Stored normalized (+15551234567). Older entries are NULL.
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS phone TEXT;
+-- The entrant's own name (required at entry since 2026-09-30), so a winner
+-- can be contacted by name. Older entries are NULL.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS owner_name TEXT;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS notified_rank INTEGER NOT NULL DEFAULT 0;
 -- Live-rank drop alerts (see sendRankDropAlerts in server.js): the last
 -- rank an entrant was actually emailed about, so the daily check only fires
@@ -171,6 +174,12 @@ CREATE TABLE IF NOT EXISTS year_awards (
   sculpture_deadline TEXT,               -- the delivery commitment for this cycle's winner
   created_at TEXT NOT NULL
 );
+-- Where to ship the winner's painting, submitted by the winner through the
+-- signed link in their winner email (see claimToken.js, POST /api/claim).
+-- shipping_address is JSON {line1, line2, city, state, zip, country}.
+ALTER TABLE year_awards ADD COLUMN IF NOT EXISTS shipping_name TEXT;
+ALTER TABLE year_awards ADD COLUMN IF NOT EXISTS shipping_address TEXT;
+ALTER TABLE year_awards ADD COLUMN IF NOT EXISTS address_submitted_at TEXT;
 -- One row per (year_award, that year's Cat-of-the-Month winner) — the
 -- finalist ballot. Auto-populated from the groups table when an admin
 -- opens an award (see the /api/admin/year-award/open handler).
