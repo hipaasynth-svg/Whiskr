@@ -1359,6 +1359,18 @@ app.get('/calendar.html', async (req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- helpers ----------
+// Contest entries need a phone number so a winner can be reached (owner's
+// call, 2026-09-30). Returns a normalized +<digits> string, or null if it
+// doesn't look like a real number. A bare 10-digit number is taken as US.
+function normalizePhone(raw) {
+  const s = String(raw || '').trim();
+  const digits = s.replace(/\D/g, '');
+  if (!s.startsWith('+') && digits.length === 10) return `+1${digits}`;
+  if (!s.startsWith('+') && digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  if (s.startsWith('+') && digits.length >= 8 && digits.length <= 15) return `+${digits}`;
+  return null;
+}
+
 function isValidEmail(e) {
   return typeof e === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
@@ -1794,6 +1806,10 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     if (!isValidEmail(email)) {
       return res.status(400).json({ error: 'A valid email is required.' });
     }
+    const phone = normalizePhone(req.body.phone);
+    if (!phone) {
+      return res.status(400).json({ error: 'A valid phone number is required, so we can reach you if your cat wins.' });
+    }
     if (!req.file) {
       return res.status(400).json({ error: 'A photo is required.' });
     }
@@ -1827,9 +1843,9 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     const contest = await getOrOpenCurrentContest();
 
     const info = await db.run(
-      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution, share_image_path, utm_campaign, ip_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, name, photoPath, now, now, contest.id, width, height, lowResolution, shareImagePath, utmCampaign, ipHash]
+      `INSERT INTO submissions (email, phone, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution, share_image_path, utm_campaign, ip_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, phone, name, photoPath, now, now, contest.id, width, height, lowResolution, shareImagePath, utmCampaign, ipHash]
     );
     const submissionId = info.rows[0].id;
     const voteUrl = `${BASE_URL}/vote.html?cat=${submissionId}`;
@@ -3029,7 +3045,7 @@ app.post('/api/admin/contest/force-close', requireAdmin, async (req, res) => {
 // "open a vote" step to manage anymore.
 app.get('/api/admin/year-award', requireAdmin, async (req, res) => {
   const awards = await db.all(
-    `SELECT ya.*, s.cat_name, s.email, s.photo_path
+    `SELECT ya.*, s.cat_name, s.email, s.phone, s.photo_path
      FROM year_awards ya
      LEFT JOIN submissions s ON s.id = ya.winner_submission_id
      ORDER BY ya.created_at DESC`

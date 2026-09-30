@@ -2134,3 +2134,15 @@ a banner on `?order=success`), a supplier name in the framed-print
 description, a lowercase "your pet's painting is finished" email opener,
 two privacy-page lines, and shared vote links now carry the cat's name in
 the page title as well as the preview.
+
+## Update — 2026-09-30: phone number required at entry
+
+Owner's call: an entry now needs a phone number as well as an email, so a
+winner can be reached by phone. `POST /api/submissions` rejects a missing or
+invalid number and stores it normalized (`+17015550142`; a bare 10-digit
+number is taken as US). It's shown with a tap-to-call link next to each
+winner's email in admin → Painting winners. The form, rules ("How to
+enter") and privacy page all say it is used only to reach the entrant about
+their entry and never for marketing texts — keep it that way: texting
+promotions to these numbers without separate consent would be a TCPA
+problem. Older entries have no phone (NULL).

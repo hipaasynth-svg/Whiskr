@@ -96,6 +96,9 @@ ALTER TABLE submissions ADD COLUMN IF NOT EXISTS vote_count INTEGER NOT NULL DEF
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS final_rank INTEGER;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS disqualified INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS disqualified_reason TEXT;
+-- Required at entry since 2026-09-30 so a winner can be reached by phone as
+-- well as email. Stored normalized (+15551234567). Older entries are NULL.
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS phone TEXT;
 ALTER TABLE submissions ADD COLUMN IF NOT EXISTS notified_rank INTEGER NOT NULL DEFAULT 0;
 -- Live-rank drop alerts (see sendRankDropAlerts in server.js): the last
 -- rank an entrant was actually emailed about, so the daily check only fires
