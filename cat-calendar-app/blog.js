@@ -289,7 +289,7 @@ ${ogImage ? `<meta name="twitter:image" content="${seo.escapeHtml(ogImage)}" />\
 ${main}
 
 <footer class="site-footer">
-  <div>Whiskr — a free, real-public-vote cat photo contest, plus custom cat &amp; dog prints.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
+  <div>Whiskr — a free, real-public-vote cat photo contest, plus custom cat prints.<span class="business-address-line" hidden> · <span class="business-address"></span></span></div>
   <div class="footer-links"><a href="/">Home</a> · <a href="/blog">Blog</a> · <a href="/rules.html">Official rules</a> · <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a> · <a href="/shipping.html">Shipping</a></div>
 </footer>
 

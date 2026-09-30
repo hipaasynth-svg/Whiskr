@@ -41,7 +41,7 @@ function productsJsonLd(products, baseUrl) {
   return JSON.stringify({
     '@context': 'https://schema.org',
     '@type': 'ItemList',
-    name: 'Whiskr custom pet print catalog',
+    name: 'Whiskr custom cat print catalog',
     itemListElement,
   });
 }

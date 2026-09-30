@@ -237,7 +237,7 @@ CREATE TABLE IF NOT EXISTS marketing_subscribers (
 );
 CREATE INDEX IF NOT EXISTS marketing_subscribers_ip_hash_idx ON marketing_subscribers(ip_hash, subscribed_at);
 
--- Custom cat/dog print-on-demand orders: a customer's own photo + a product
+-- Custom cat print-on-demand orders: a customer's own photo + a product
 -- from products.js, fulfilled through Printful (see printful.js). Separate
 -- from "orders" (which is always tied to a contest calendar group) because
 -- these aren't tied to any group.
@@ -245,7 +245,7 @@ CREATE TABLE IF NOT EXISTS custom_orders (
   id SERIAL PRIMARY KEY,
   email TEXT NOT NULL,
   product_id TEXT NOT NULL,
-  species TEXT NOT NULL,             -- cat | dog
+  species TEXT NOT NULL,             -- 'cat' (cats only since 2026-09-30; older rows may say 'dog')
   pet_name TEXT,
   photo_path TEXT NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,

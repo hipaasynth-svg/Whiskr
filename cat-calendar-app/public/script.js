@@ -638,13 +638,20 @@ async function loadReviews() {
 }
 loadReviews();
 
-// ---------- custom pet product shop ----------
+// ---------- post-checkout confirmation ----------
+(function orderBanner() {
+  const banner = document.getElementById('orderBanner');
+  if (!banner || new URLSearchParams(window.location.search).get('order') !== 'success') return;
+  banner.hidden = false;
+  // Drop the query so a refresh or a shared link doesn't show it again.
+  history.replaceState(null, '', window.location.pathname + window.location.hash);
+})();
+
+// ---------- custom cat print shop ----------
 (function customShop() {
   const grid = document.getElementById('customGrid');
-  const toggle = document.getElementById('speciesToggle');
-  if (!grid || !toggle) return;
+  if (!grid) return;
 
-  const speciesField = document.getElementById('customSpecies');
   const productField = document.getElementById('customProductId');
   const selectedNote = document.getElementById('customSelectedNote');
   const submitBtn = document.getElementById('customSubmitBtn');
@@ -659,7 +666,8 @@ loadReviews();
   const sweatshirtSizeLabel = document.getElementById('customSweatshirtSizeLabel');
   const sweatshirtSizeSelect = document.getElementById('customSweatshirtSize');
 
-  let currentSpecies = 'cat';
+  // Whiskr is cats only (owner's call, 2026-09-30) — no species switch.
+  const currentSpecies = 'cat';
   let products = [];
 
   // Phone cases are sized per exact device (see phoneCases.js server-side)
@@ -847,29 +855,6 @@ loadReviews();
     renderGrid();
   }
 
-  toggle.querySelectorAll('button').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      toggle.querySelectorAll('button').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentSpecies = btn.dataset.species;
-      speciesField.value = currentSpecies;
-      productField.value = '';
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Choose a product first';
-      selectedNote.textContent = 'Pick a product above to get started.';
-      if (phoneModelLabel && phoneModelSelect) {
-        phoneModelLabel.hidden = true;
-        phoneModelSelect.required = false;
-        phoneModelSelect.value = '';
-      }
-      if (sweatshirtSizeLabel && sweatshirtSizeSelect) {
-        sweatshirtSizeLabel.hidden = true;
-        sweatshirtSizeSelect.required = false;
-        sweatshirtSizeSelect.value = '';
-      }
-      loadProducts(currentSpecies);
-    });
-  });
 
   if (photoInput) {
     photoInput.addEventListener('change', () => {

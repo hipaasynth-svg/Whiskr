@@ -1,8 +1,8 @@
-# Whiskr — custom cat/dog prints, verified reviews, and a real-public-vote contest
+# Whiskr — custom cat prints, verified reviews, and a real-public-vote contest
 
 A real, runnable Node/Express site with two things going on:
 
-- **Evergreen storefront**: upload a photo of your cat or dog, pick a
+- **Evergreen storefront**: upload a photo of your cat, pick a
   product (mug, poster, canvas, phone case, tote, pillow), pay, and it's
   printed and shipped through **Printful** — no inventory, always open,
   doesn't depend on the contest running.
@@ -220,7 +220,7 @@ relying on this for real orders, verify against your own account: that
 works via the plain `owner/name` API path without a pinned version hash,
 and that a real low-res test photo actually comes back sharper. `GFPGAN`
 face restoration (`PHOTO_ENHANCE_FACE=true`) is off by default — it's
-trained on human faces and may distort a cat or dog's face in ways you
+trained on human faces and may distort a cat's face in ways you
 won't want; only turn it on after eyeballing real results yourself.
 
 If you're on Vercel's **Hobby** plan (10s function timeout by default),

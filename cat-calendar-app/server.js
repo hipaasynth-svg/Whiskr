@@ -279,6 +279,7 @@ app.get('/vote.html', async (req, res, next) => {
     const pageUrl = seo.escapeHtml(`${BASE_URL}/vote.html?cat=${cat.id}`);
     let html = await fs.promises.readFile(VOTE_HTML_PATH, 'utf8');
     html = html
+      .replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`)
       .replace(/<meta property="og:title" content="[^"]*" \/>/, `<meta property="og:title" content="${title}" />`)
       .replace(/<meta name="twitter:title" content="[^"]*" \/>/, `<meta name="twitter:title" content="${title}" />`)
       .replace(/<meta property="og:url" content="[^"]*" \/>/, `<meta property="og:url" content="${pageUrl}" />`);
@@ -2308,7 +2309,7 @@ app.get('/api/winners', async (req, res) => {
   });
 });
 
-// Public catalog of custom cat/dog print products (see products.js).
+// Public catalog of custom cat print products (see products.js).
 // Merges the fixed products.js catalog with whatever admin-uploaded photo/
 // copy exists in product_media (see /api/admin/products), resolving each
 // optional override down to the one effective value a consumer actually
@@ -2447,16 +2448,16 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     if (!stripe) {
       return res.status(400).json({ error: 'Stripe is not configured on this server yet.' });
     }
-    const { email, productId, species, petName, photoRights, quantity } = req.body;
+    const { email, productId, petName, photoRights, quantity } = req.body;
+    // Cats only since 2026-09-30 (owner's call). The column stays for older
+    // orders; a client-sent species is ignored rather than trusted.
+    const species = 'cat';
 
     if (!isValidEmail(email)) {
       return res.status(400).json({ error: 'A valid email is required.' });
     }
     if (!req.file) {
       return res.status(400).json({ error: 'A photo is required.' });
-    }
-    if (species !== 'cat' && species !== 'dog') {
-      return res.status(400).json({ error: 'Please choose cat or dog.' });
     }
     // Photo rights: same requirement as contest entries, narrower grant —
     // before printing a customer's photo and handing it to Printful, we

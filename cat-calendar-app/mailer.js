@@ -302,7 +302,7 @@ async function sendReviewRequest({ email, itemLabel, reviewUrl }) {
     <p>Thanks for being one of our first customers,</p>
     <p>— The Whiskr team</p>
   `,
-    { showUnsubscribe: true, email, tagline: 'Custom Pet Prints & Cat of the Month', reason: 'order' }
+    { showUnsubscribe: true, email, tagline: 'Custom Cat Prints & Cat of the Month', reason: 'order' }
   );
   return sendMail({
     to: email,
@@ -320,7 +320,7 @@ async function sendCommissionBooked({ email, petName, sizeLabel, depositUsd, bal
   const subject = petName
     ? `${petName}'s painting is booked`
     : 'Your painting is booked';
-  const who = petName ? escapeHtml(petName) : 'your pet';
+  const who = petName ? escapeHtml(petName) : 'your cat';
   const timeline = rush
     ? 'Because you added rush, it will be finished in under 10 days.'
     : 'It will be finished 2 to 4 weeks from today.';
@@ -341,7 +341,7 @@ async function sendCommissionBooked({ email, petName, sizeLabel, depositUsd, bal
     to: email,
     subject,
     html,
-    text: `Your deposit came through and ${petName || 'your pet'}'s original acrylic (${sizeLabel}) is booked. ${timeline}\n\nPaid today: $${depositUsd} deposit. Balance due before shipping: $${balanceUsd}. Total: $${totalUsd}.\n\nYou will not be charged the balance automatically — when the painting is finished we email you a photo of it plus a payment link, so you see the work before paying the rest. Reply to this email to reach a person.`,
+    text: `Your deposit came through and ${petName || 'your cat'}'s original acrylic (${sizeLabel}) is booked. ${timeline}\n\nPaid today: $${depositUsd} deposit. Balance due before shipping: $${balanceUsd}. Total: $${totalUsd}.\n\nYou will not be charged the balance automatically — when the painting is finished we email you a photo of it plus a payment link, so you see the work before paying the rest. Reply to this email to reach a person.`,
   });
 }
 
@@ -349,14 +349,14 @@ async function sendCommissionBooked({ email, petName, sizeLabel, depositUsd, bal
 // the work plus the link to pay the remaining balance. The customer sees
 // what they are paying for before they pay for it.
 async function sendCommissionBalanceDue({ email, petName, balanceUsd, payUrl, paintingImageUrl }) {
-  const who = petName ? escapeHtml(petName) : 'your pet';
+  const who = petName ? escapeHtml(petName) : 'your cat';
   const preview = paintingImageUrl
     ? `<p style="text-align:center;margin:20px 0;"><img src="${paintingImageUrl}" alt="The finished painting" style="max-width:100%;border-radius:4px;border:1px solid #d8cdb5;"></p>`
     : '';
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p>${who}'s painting is finished.</p>
+    <p>${petName ? who : 'Your cat'}'s painting is finished.</p>
     ${preview}
     <p>The remaining balance is <strong>$${escapeHtml(balanceUsd)}</strong>. Once that is paid it gets varnished, packed and shipped to the address you gave at booking.</p>
     <p style="text-align:center;margin:24px 0;">
@@ -373,7 +373,7 @@ async function sendCommissionBalanceDue({ email, petName, balanceUsd, payUrl, pa
     to: email,
     subject: petName ? `${petName}'s painting is finished` : 'Your painting is finished',
     html,
-    text: `${petName || 'Your pet'}'s painting is finished. The remaining balance is $${balanceUsd}. Pay it here and it ships: ${payUrl}\n\nNot happy with it? Reply to this email before paying and tell us what is wrong — that is why the balance is not charged automatically.`,
+    text: `${petName || 'Your cat'}'s painting is finished. The remaining balance is $${balanceUsd}. Pay it here and it ships: ${payUrl}\n\nNot happy with it? Reply to this email before paying and tell us what is wrong — that is why the balance is not charged automatically.`,
   });
 }
 
@@ -429,7 +429,7 @@ async function sendShippedEmail({ email, itemLabel, petName, parcels }) {
     <p>If it hasn't turned up when the carrier says it should, reply to this email and we'll sort it out.</p>
     <p>— Whiskr</p>
   `,
-    { tagline: 'Custom Pet Prints', reason: 'order' }
+    { tagline: 'Custom Cat Prints', reason: 'order' }
   );
 
   const textLines = list.map((p, i) => {

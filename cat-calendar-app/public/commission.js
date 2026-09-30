@@ -56,7 +56,7 @@
 
     document.getElementById('rateExtras').textContent =
       'Rush (finished in under ' + pricing.rushDays + ' days) adds ' + money(pricing.rushUsd) +
-      '. Each extra pet in the same painting adds ' + money(pricing.extraPetUsd) + '.';
+      '. Each extra cat in the same painting adds ' + money(pricing.extraPetUsd) + '.';
 
     document.getElementById('rateTerms').textContent =
       pricing.depositPercent + '% deposit books your spot; the balance is due before it ships. Finished ' +
@@ -79,7 +79,7 @@
     for (let i = 1; i <= pricing.maxExtraPets; i++) {
       const opt = document.createElement('option');
       opt.value = String(i);
-      opt.textContent = (i + 1) + ' pets (+' + money(pricing.extraPetUsd * i) + ')';
+      opt.textContent = (i + 1) + ' cats (+' + money(pricing.extraPetUsd * i) + ')';
       petsSel.appendChild(opt);
     }
   }

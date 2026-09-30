@@ -568,19 +568,6 @@ h1, h2, h3, h4 {
 }
 
 /* ---------- custom pet product shop ---------- */
-.species-toggle { display: flex; gap: 10px; margin: 26px 0 6px; }
-.species-toggle button {
-  padding: 10px 22px;
-  border-radius: 20px;
-  border: 1.5px solid var(--ink);
-  background: transparent;
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 0.9rem;
-  cursor: pointer;
-  color: var(--ink);
-}
-.species-toggle button.active { background: var(--ink); color: var(--paper); }
 .custom-grid { margin-top: 26px; }
 .custom-card {
   width: 280px;
@@ -1069,4 +1056,13 @@ h1, h2, h3, h4 {
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---------- post-checkout banner ---------- */
+.order-banner {
+  background: var(--forest);
+  color: #fff;
+  padding: 14px 24px;
+  font-size: 0.95rem;
+  text-align: center;
 }

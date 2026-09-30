@@ -2117,3 +2117,20 @@ and verified locally; decisions the owner made directly are marked.
 
 Not verifiable here: Stripe checkout, Printful submission, real email
 delivery, and the live site itself (all blocked from this sandbox).
+
+## Update — 2026-09-30: cats only
+
+Owner's call: Whiskr is cats only. The shop's Cats/Dogs switch is gone,
+every product is "Custom Cat …" with cat copy, the commission page and its
+emails say "cat" (extra cats, not extra pets), and footers, meta, llms.txt
+and the policy pages no longer mention dogs. `POST /api/custom-orders`
+ignores any client-sent species and records 'cat'; the column stays so
+older rows keep whatever they were saved with.
+
+The re-read that followed also fixed: the entry form's "Best quality wins"
+(winners are decided by votes, not quality — a copy/mechanism mismatch),
+print buyers returning from Stripe to a homepage with no confirmation (now
+a banner on `?order=success`), a supplier name in the framed-print
+description, a lowercase "your pet's painting is finished" email opener,
+two privacy-page lines, and shared vote links now carry the cat's name in
+the page title as well as the preview.
