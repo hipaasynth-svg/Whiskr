@@ -257,6 +257,9 @@ window.fbq = window.fbq || function () { (window.fbq.queue = window.fbq.queue ||
       });
       grid.hidden = false;
       empty.hidden = true;
+      // landing.html hides the whole section until there's something in it.
+      const section = grid.closest('section');
+      if (section) section.hidden = false;
     })
     .catch((err) => console.error('originals showcase load failed', err));
 })();
@@ -468,6 +471,7 @@ async function loadStatus() {
       if (ribbonEl) ribbonEl.textContent = 'Most recent Cat of the Month';
       nameEl.textContent = data.lastWinner.cat_name;
       photoEl.src = data.lastWinner.photo_path;
+      photoEl.hidden = false;
       photoEl.alt = `${data.lastWinner.cat_name}, Cat of the Month`;
       if (blurbEl) blurbEl.textContent = 'Chosen as Cat of the Month by real public vote.';
     } else if (data.contestId) {
@@ -594,6 +598,10 @@ async function loadReviews() {
       empty.style.display = 'block';
       return;
     }
+
+    // landing.html hides the whole section until real reviews exist.
+    const reviewsSection = grid.closest('section');
+    if (reviewsSection) reviewsSection.hidden = false;
 
     grid.innerHTML = '';
     reviews.forEach((r) => {
@@ -730,7 +738,19 @@ loadReviews();
   }
 
   const activeDiscount = loadActiveDiscount();
+  // Only claim a discount once the server confirms discounting is on — a
+  // link or a stored entry from before it was switched off would otherwise
+  // show "a discount is applied" for an order that gets 0% off.
   if (activeDiscount && discountBanner) {
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (cfg && cfg.contestDiscountPercent > 0) applyDiscount(activeDiscount);
+        else try { localStorage.removeItem('whiskr_discount'); } catch (_) {}
+      })
+      .catch(() => {});
+  }
+  function applyDiscount(activeDiscount) {
     setHiddenField('discountEmail', activeDiscount.email);
     setHiddenField('discountExpires', activeDiscount.expiresAt);
     setHiddenField('discountToken', activeDiscount.token);
@@ -799,7 +819,7 @@ loadReviews();
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-primary';
-      btn.textContent = p.id === productField.value ? 'Selected' : 'Choose this print';
+      btn.textContent = p.id === productField.value ? 'Selected' : 'Choose';
       btn.addEventListener('click', () => selectProduct(p));
       card.appendChild(btn);
 

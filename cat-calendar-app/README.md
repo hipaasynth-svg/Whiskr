@@ -240,7 +240,7 @@ immediately entered, no batch to wait for), then vote for it at
 `http://localhost:3000/vote.html`.
 
 To see a round actually close and a calendar get created without waiting
-for `CONTEST_LENGTH_DAYS`, force-close the current contest from
+for the end of the month, force-close the current contest from
 `http://localhost:3000/admin.html` (enter your `ADMIN_KEY`, "Force-close
 now" in the Current contest section), or directly:
 
@@ -383,7 +383,11 @@ not just a trust problem.
 - *Submissions, custom orders, and votes are all rate-limited per IP per
   day* (see `SUBMISSION_LIMIT_PER_IP_PER_DAY`, `CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY`,
   `VOTE_LIMIT_PER_IP_PER_DAY` in `.env.example`) — tune these if real
-  traffic needs different thresholds.
+  traffic needs different thresholds. Votes also have a per-cat cap for the
+  whole round, `VOTE_LIMIT_PER_IP_PER_CAT` (default 3), which is what stops
+  one person clearing cookies and re-voting for the same cat. Set
+  `TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY` before running ads to turn on
+  the bot check as well.
 
 ## 10. Replacing the placeholder content
 

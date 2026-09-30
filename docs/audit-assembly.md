@@ -2057,3 +2057,63 @@ cleanly to `index.html#shop-custom` roughly 1.1s after the starburst
 (long enough to actually see it before leaving); screenshotted the
 starburst mid-animation to confirm it reads clearly against the vote
 card underneath it.
+
+## Update — 2026-09-30: launch-readiness fixes before paid ads
+
+A full read of every public page and email on `main`, run end to end
+against a local Postgres, turned up the list below. Every item was fixed
+and verified locally; decisions the owner made directly are marked.
+
+- **Vote stuffing.** The vote limits were totals across all cats, so one
+  person could clear cookies (or use a private window) and vote for the
+  same cat ~60 times a day from one connection — ~1,800 a round. Added
+  `VOTE_LIMIT_PER_IP_PER_CAT` (default 3, so a household on shared Wi-Fi
+  can each vote), enforced for the whole round. Rules copy updated to say
+  so. Turnstile is still off in production until its keys are set.
+- **"0% off" in every contest email.** `CONTEST_DISCOUNT_PERCENT` defaults
+  to 0 but a discount object was still issued, so entry and final-placement
+  emails showed a boxed "0% off a print" offer and the shop said "a
+  discount is applied." `issueDiscount()` now returns null at 0%, and the
+  shop checks `/api/config` before trusting a discount stored in the
+  browser.
+- **Shared vote links had no preview image.** `vote.html?cat=N` is now
+  rendered with the cat's own share card as og:image (before the DB
+  middleware, falling back to the plain page on any error). Every page
+  ships a default text card (`public/og-default.png`, no stock imagery);
+  the homepage swaps in an admin-uploaded photo when one exists.
+- **Upload errors leaked stack traces.** Multer rejections now return
+  JSON `{ error }`.
+- **Winner promise** (owner: 6–8 weeks). The winner email said "by" a date
+  14 days out, tighter than the commission page's 2–4 weeks. It now says
+  6–8 weeks from receiving a mailing address; rules and shipping match.
+- **Calendar-month rounds** (owner's call). Rounds ran 30 days from
+  opening and took the opening month's name, so they drifted and two could
+  share a name. Rounds now close at midnight CT at month end and carry that
+  month's name; one opened with under 7 days left runs to the end of the
+  next month. Votes stop at the stated close rather than when the cron
+  tallies; an entry in that gap opens the next round. The round that was
+  live when this shipped keeps its original close date, since entrants were
+  already emailed it. `CONTEST_LENGTH_DAYS` is retired.
+- **One close-time wording everywhere** ("October 31 at 11:59 p.m. CT"):
+  pages used the visitor's zone and emails the server's (UTC), so they
+  named different days.
+- **Ad landing page** hides its originals and reviews sections until they
+  have content, and no longer links off to codycarlson.art.
+- **Thanks page** no longer promises finished paintings that don't exist
+  or calls the vote a "draw".
+- **Copy:** batch-era leftovers, "Choose this print", "A couple to choose
+  from", the review page's old footer, product lists missing framed prints
+  and sweatshirts, the privacy page's GDPR/CCPA line, "no questions asked"
+  vs the 14-day photo requirement, the phone-case "at checkout" line, and
+  the order-email footer that said a cat photo was submitted.
+- **Removed:** the hidden affiliate "picks" section (unverifiable claims
+  still in the page source); `year-award.html` now returns 410 unless
+  `YEAR_AWARD_MANUAL_VOTE_ENABLED` is on. Added a favicon.
+- **Card fee in the margin floor** (owner's call). `orderEconomics.js` now
+  subtracts Stripe's 2.9% + $0.30 in both cases. Four products fell under
+  40% and were raised with the owner's approval: 12x12 canvas $56.99,
+  phone case $29.99, pillow $37.99, sweatshirt $57.99. No paid calendar
+  orders exist (owner confirmed), so no refund wording was needed.
+
+Not verifiable here: Stripe checkout, Printful submission, real email
+delivery, and the live site itself (all blocked from this sandbox).

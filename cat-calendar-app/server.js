@@ -50,10 +50,10 @@ process.on('uncaughtException', (err) => {
 app.set('trust proxy', true);
 
 const PORT = process.env.PORT || 3000;
-// Real public-voting contest sizing. CONTEST_LENGTH_DAYS is how long entry +
-// voting stays open before a contest closes and promotes its top vote-getters
-// into a calendar; CONTEST_WINNERS_COUNT is how many of them do.
-const CONTEST_LENGTH_DAYS = Number(process.env.CONTEST_LENGTH_DAYS || 30);
+// Rounds run by calendar month in Central time — see nextRoundWindow.
+// (CONTEST_LENGTH_DAYS, a fixed 30-day length, was retired 2026-09-30.)
+// CONTEST_WINNERS_COUNT is how many top vote-getters each round's internal
+// results record groups together.
 const CONTEST_WINNERS_COUNT = Number(process.env.CONTEST_WINNERS_COUNT || 12);
 // Anti-fraud vote rate limits — generous enough for a real family sharing a
 // link, tight enough to slow down a script or a bought-votes farm. Neither
@@ -61,6 +61,12 @@ const CONTEST_WINNERS_COUNT = Number(process.env.CONTEST_WINNERS_COUNT || 12);
 // admin fraud-review view for the rest of the defense.
 const VOTE_LIMIT_PER_VOTER_PER_DAY = Number(process.env.VOTE_LIMIT_PER_VOTER_PER_DAY || 30);
 const VOTE_LIMIT_PER_IP_PER_DAY = Number(process.env.VOTE_LIMIT_PER_IP_PER_DAY || 60);
+// The two limits above are totals across every cat, so on their own they let
+// one person clear cookies (or open a private window) and vote for the SAME
+// cat ~60 times a day from one connection — about 1,800 votes over a round.
+// This caps votes for any one cat from one connection for the whole round.
+// Default 3, not 1, so a household sharing Wi-Fi can each vote once.
+const VOTE_LIMIT_PER_IP_PER_CAT = Number(process.env.VOTE_LIMIT_PER_IP_PER_CAT || 3);
 // Same anti-fraud shape as voting above, applied to the two endpoints that
 // previously had no limit at all: a real cat owner never submits or orders
 // this many times a day, but a script flooding fake entries or fake print
@@ -115,6 +121,17 @@ const IP_HASH_SALT = process.env.IP_HASH_SALT || 'dev-only-insecure-salt';
 // badge when percent > 0. Raising this above what orderEconomics.js
 // reports as safe means selling below cost-plus-floor on real orders.
 const CONTEST_DISCOUNT_PERCENT = Number(process.env.CONTEST_DISCOUNT_PERCENT || 0);
+
+// A signed, time-limited discount for `email`, or null while discounting is
+// off. Returning null (rather than a 0% discount) matters: every consumer —
+// the entry and final-placement emails, the thanks page, the shop's
+// "a discount is applied" banner — treats a present discount as something
+// to advertise, and a boxed "0% off" offer is worse than none.
+function issueDiscount(email, hours) {
+  if (!(CONTEST_DISCOUNT_PERCENT > 0)) return null;
+  const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+  return { percent: CONTEST_DISCOUNT_PERCENT, email, expiresAt, token: discountToken.tokenFor(email, expiresAt) };
+}
 const ENTRY_DISCOUNT_HOURS = Number(process.env.ENTRY_DISCOUNT_HOURS || 48);
 const FINAL_RANK_DISCOUNT_HOURS = Number(process.env.FINAL_RANK_DISCOUNT_HOURS || 72);
 // Below this on either dimension, a photo is flagged (not blocked — see
@@ -223,11 +240,79 @@ ${urls.map((u) => `  <url>
 // routes further down must keep winning over the raw files of the same
 // name, so those three paths alone fall through to their own handlers (and
 // to the late express.static as the prerender's fallback).
-const SERVER_RENDERED_PATHS = new Set(['/', '/index.html', '/calendar.html']);
+// Browsers still ask for /favicon.ico on some pages; the icon is an SVG.
+app.get('/favicon.ico', (req, res) => res.redirect(301, '/favicon.svg'));
+
+// (/year-award.html is here too: it's served as a 410 below — see YEAR_AWARD_GONE_HTML.)
+const SERVER_RENDERED_PATHS = new Set(['/', '/index.html', '/calendar.html', '/year-award.html']);
+// A shared vote link (vote.html?cat=N) is how the contest spreads — it's the
+// link every entrant posts and texts. Served as a plain file, every one of
+// those previewed as a generic "Vote for a cat" with no picture. This gives
+// the preview the cat's own name and share card (the 1080x1080 image made
+// at entry, see generateShareCard). It runs before the DB-init middleware
+// on purpose, like the static files above it: any failure — no such cat, no
+// card, the database unreachable — just falls through to the plain page.
+const VOTE_HTML_PATH = path.join(__dirname, 'public', 'vote.html');
+
+// Every static page ships the default preview card (public/og-default.png);
+// pages with a real photo to show swap it in here.
+const DEFAULT_PREVIEW_IMAGE = 'https://whiskr.lol/og-default.png';
+function swapPreviewImage(html, imageUrl, size) {
+  const url = seo.escapeHtml(imageUrl);
+  html = html.split(DEFAULT_PREVIEW_IMAGE).join(url);
+  html = html.replace(/<meta property="og:image:width" content="\d+" \/>/, size ? `<meta property="og:image:width" content="${size.width}" />` : '');
+  html = html.replace(/<meta property="og:image:height" content="\d+" \/>/, size ? `<meta property="og:image:height" content="${size.height}" />` : '');
+  return html;
+}
+app.get('/vote.html', async (req, res, next) => {
+  const catId = Number(req.query.cat);
+  if (!Number.isInteger(catId) || catId <= 0) return next();
+  try {
+    const cat = await db.get(
+      `SELECT id, cat_name, share_image_path, photo_path FROM submissions WHERE id = ? AND disqualified = 0`,
+      [catId]
+    );
+    const imagePath = cat && (cat.share_image_path || cat.photo_path);
+    if (!imagePath) return next();
+    const imageUrl = imagePath.startsWith('http') ? imagePath : `${BASE_URL}${imagePath}`;
+    const title = seo.escapeHtml(`Vote for ${cat.cat_name} on Whiskr`);
+    const pageUrl = seo.escapeHtml(`${BASE_URL}/vote.html?cat=${cat.id}`);
+    let html = await fs.promises.readFile(VOTE_HTML_PATH, 'utf8');
+    html = html
+      .replace(/<meta property="og:title" content="[^"]*" \/>/, `<meta property="og:title" content="${title}" />`)
+      .replace(/<meta name="twitter:title" content="[^"]*" \/>/, `<meta name="twitter:title" content="${title}" />`)
+      .replace(/<meta property="og:url" content="[^"]*" \/>/, `<meta property="og:url" content="${pageUrl}" />`);
+    html = swapPreviewImage(html, imageUrl, { width: 1080, height: 1080 });
+    res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+  } catch (err) {
+    console.error('[render] vote preview failed, serving the plain page:', err.message);
+    next();
+  }
+});
+
 const staticAssets = express.static(path.join(__dirname, 'public'), { index: false });
 app.use((req, res, next) => {
   if (SERVER_RENDERED_PATHS.has(req.path)) return next();
   return staticAssets(req, res, next);
+});
+
+// The Cat of the Year vote was folded into the monthly win on 2026-09-11 and
+// the rules no longer offer it, but the page still loaded and described an
+// award that doesn't exist. Gone unless the manual-override flag that still
+// drives its API is switched on.
+const YEAR_AWARD_GONE_HTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<title>No longer available — Whiskr</title><meta name="robots" content="noindex, nofollow" />
+<link rel="stylesheet" href="/style.css" /></head>
+<body><main style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;">
+<h1>This page is no longer available.</h1>
+<p>There's no separate Cat of the Year vote anymore: each month's winner gets an original hand-painted portrait directly.</p>
+<p><a href="/">Back to Whiskr</a></p>
+</main></body></html>`;
+app.get('/year-award.html', (req, res, next) => {
+  if (process.env.YEAR_AWARD_MANUAL_VOTE_ENABLED === 'true') return next();
+  res.status(410).set('Content-Type', 'text/html; charset=utf-8').send(YEAR_AWARD_GONE_HTML);
 });
 
 // The commission page is a clean URL over a plain file — no database, so it
@@ -290,7 +375,7 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
   fileFilter: (req, file, cb) => {
     if (!Object.prototype.hasOwnProperty.call(EXT_FOR_MIME, file.mimetype)) {
-      return cb(new Error('Only jpg, png, webp, or gif photos are accepted.'));
+      return cb(Object.assign(new Error('Only jpg, png, webp, or gif photos are accepted.'), { uploadRejected: true }));
     }
     cb(null, true);
   },
@@ -1011,7 +1096,9 @@ app.use(express.json());
 // Same query the /api/status JSON endpoint answers, shared so the
 // server-rendered homepage and the client's live re-check never disagree.
 async function getContestStatus() {
-  const contest = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  // Same round the entry form and vote page use, so the homepage never says
+  // "a new contest opens soon" — entry is always open (see rules.html).
+  const contest = await getOrOpenCurrentContest();
   const lastCompleted = await db.get(
     `SELECT id, winner_submission_id FROM groups WHERE status = 'completed' ORDER BY id DESC LIMIT 1`
   );
@@ -1078,6 +1165,7 @@ async function renderIndexHtml() {
     html = seo.fillEmpty(html, 'winnerName', seo.escapeHtml(lastWinner.cat_name));
     html = seo.setAttr(html, 'winnerPhoto', 'src', lastWinner.photo_path);
     html = seo.setAttr(html, 'winnerPhoto', 'alt', `${lastWinner.cat_name}, Cat of the Month`);
+    html = seo.revealHidden(html, 'winnerPhoto');
     html = seo.fillEmpty(
       html,
       'winnerBlurb',
@@ -1126,11 +1214,10 @@ async function renderIndexHtml() {
   const previewImagePath = (slides[0] && slides[0].image_path) || (originals[0] && originals[0].image_path);
   if (previewImagePath) {
     const previewImageUrl = previewImagePath.startsWith('http') ? previewImagePath : `${BASE_URL}${previewImagePath}`;
-    html = seo.injectIntoHead(
-      html,
-      `<meta property="og:image" content="${seo.escapeHtml(previewImageUrl)}" />\n<meta name="twitter:image" content="${seo.escapeHtml(previewImageUrl)}" />`
-    );
-    html = html.replace('name="twitter:card" content="summary"', 'name="twitter:card" content="summary_large_image"');
+    // Replaces the static page's default card (og-default.png) rather than
+    // adding a second og:image, which crawlers resolve unpredictably. The
+    // default's fixed 1200x630 size tags are dropped since a photo's differ.
+    html = swapPreviewImage(html, previewImageUrl);
   }
 
   const blockRows = await db.all(`SELECT * FROM site_blocks`);
@@ -1194,6 +1281,7 @@ async function renderIndexHtml() {
 // an old bookmark somewhere useful instead of a bare error.
 const CALENDAR_GONE_HTML = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 <title>No longer available — Whiskr</title><meta name="robots" content="noindex, nofollow" />
 <link rel="stylesheet" href="/style.css" /></head>
 <body><main style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;">
@@ -1334,19 +1422,95 @@ function hashIp(ip) {
 // The one contest entries/votes currently attach to. Lazily opens the next
 // one the moment the previous closes (or on first-ever request) — entry
 // should never hit a dead end, same "always open" spirit as the print shop.
+//
+// Rounds run by calendar month in Central time (owner's call, 2026-09-30):
+// a round closes at midnight CT as its month ends, and is labelled with that
+// month, so "October 2026" is always exactly one round. Before this, rounds
+// ran a fixed 30 days from whenever they opened and took the opening
+// month's name, so they drifted and two rounds could share a month name.
+//
+// A round that has passed its closes_at but not yet been tallied (the daily
+// cron does that, a few hours after midnight) is treated as closed here: a
+// new entry goes into the next round rather than one whose voting is over.
+// Both rounds are briefly 'open' in that window; every reader takes the
+// newest (ORDER BY id DESC), and the cron tallies the older one by id.
 async function getOrOpenCurrentContest() {
   const open = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
-  if (open) return open;
+  if (open && new Date(open.closes_at) > new Date()) return open;
 
-  const now = new Date();
-  const closes = new Date(now.getTime() + CONTEST_LENGTH_DAYS * 24 * 60 * 60 * 1000);
-  const label = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const info = await db.run(
-    `INSERT INTO contests (label, opens_at, closes_at, status, created_at) VALUES (?, ?, ?, 'open', ?) RETURNING id`,
-    [label, now.toISOString(), closes.toISOString(), now.toISOString()]
-  );
-  console.log(`[contest] Opened "${label}" (#${info.rows[0].id}), closes ${closes.toISOString()}`);
-  return db.get(`SELECT * FROM contests WHERE id = ?`, [info.rows[0].id]);
+  // Serialized so two simultaneous first entries of a month can't each open
+  // a round. Re-checked inside the lock for the same reason.
+  const id = await db.transaction(async (tx) => {
+    await tx.run(`SELECT pg_advisory_xact_lock(hashtext('whiskr-open-contest'))`);
+    const latest = await tx.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+    if (latest && new Date(latest.closes_at) > new Date()) return latest.id;
+
+    const now = new Date();
+    const { closesAt, label } = nextRoundWindow(now);
+    const info = await tx.run(
+      `INSERT INTO contests (label, opens_at, closes_at, status, created_at) VALUES (?, ?, ?, 'open', ?) RETURNING id`,
+      [label, now.toISOString(), closesAt.toISOString(), now.toISOString()]
+    );
+    console.log(`[contest] Opened "${label}" (#${info.rows[0].id}), closes ${closesAt.toISOString()}`);
+    return info.rows[0].id;
+  });
+  return db.get(`SELECT * FROM contests WHERE id = ?`, [id]);
+}
+
+const CONTEST_TIME_ZONE = 'America/Chicago';
+// A round opened with fewer than this many days left in the month runs to
+// the end of the NEXT month instead, rather than being a two-day round.
+const MIN_ROUND_DAYS = 7;
+
+// Year/month (month 0-11) of `date` as seen in Central time.
+function monthInContestZone(date) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: CONTEST_TIME_ZONE, year: 'numeric', month: 'numeric' })
+    .formatToParts(date);
+  return {
+    year: Number(parts.find((p) => p.type === 'year').value),
+    month: Number(parts.find((p) => p.type === 'month').value) - 1,
+  };
+}
+
+// The UTC instant of midnight Central time at the start of the given
+// month (month may be 12, meaning January of the next year). CT is UTC-5
+// or UTC-6; whichever of the two actually reads as midnight in CT is right.
+function midnightInContestZone(year, month) {
+  for (const offsetHours of [5, 6]) {
+    const candidate = new Date(Date.UTC(year, month, 1, offsetHours));
+    const hour = new Intl.DateTimeFormat('en-US', { timeZone: CONTEST_TIME_ZONE, hour: 'numeric', hourCycle: 'h23' })
+      .format(candidate);
+    if (Number(hour) === 0) return candidate;
+  }
+  return new Date(Date.UTC(year, month, 1, 6));
+}
+
+function nextRoundWindow(now) {
+  const { year, month } = monthInContestZone(now);
+  let closesAt = midnightInContestZone(year, month + 1);
+  let labelMonth = new Date(Date.UTC(year, month, 15));
+  if (closesAt - now < MIN_ROUND_DAYS * 24 * 60 * 60 * 1000) {
+    closesAt = midnightInContestZone(year, month + 2);
+    labelMonth = new Date(Date.UTC(year, month + 1, 15));
+  }
+  const label = labelMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return { closesAt, label };
+}
+
+// One way of stating a round's close, used by every page and email so they
+// can't disagree ("October 31 at 11:59 p.m. CT"). A midnight close is shown
+// as 11:59 p.m. the day before, which is how people read "end of the day".
+function formatContestClose(closesAtIso) {
+  let when = new Date(closesAtIso);
+  const hm = new Intl.DateTimeFormat('en-US', { timeZone: CONTEST_TIME_ZONE, hour: 'numeric', minute: 'numeric', hourCycle: 'h23' })
+    .format(when);
+  if (hm === '00:00') when = new Date(when.getTime() - 60 * 1000);
+  const day = when.toLocaleDateString('en-US', { timeZone: CONTEST_TIME_ZONE, month: 'long', day: 'numeric' });
+  const time = when
+    .toLocaleTimeString('en-US', { timeZone: CONTEST_TIME_ZONE, hour: 'numeric', minute: '2-digit' })
+    .replace('AM', 'a.m.')
+    .replace('PM', 'p.m.');
+  return `${day} at ${time} CT`;
 }
 
 // Every contest's own #1 vote-getter directly wins the grand prize — an
@@ -1405,16 +1569,10 @@ async function tallyAndCloseContest(contestId) {
         const { deadline } = await awardPainting(s, `${contest.label} winner`);
         await mailer.sendWinnerEmail({ email: s.email, catName: s.cat_name, sculptureDeadline: deadline });
       } else {
-        const discountExpiresAt = new Date(Date.now() + FINAL_RANK_DISCOUNT_HOURS * 60 * 60 * 1000).toISOString();
         await mailer.sendFinalRankEmail({
           email: s.email, catName: s.cat_name, rank, totalEntries: ranked.length,
           shopUrl: `${BASE_URL}/#shop-custom`,
-          discount: {
-            percent: CONTEST_DISCOUNT_PERCENT,
-            email: s.email,
-            expiresAt: discountExpiresAt,
-            token: discountToken.tokenFor(s.email, discountExpiresAt),
-          },
+          discount: issueDiscount(s.email, FINAL_RANK_DISCOUNT_HOURS),
         });
       }
       await db.run(`UPDATE submissions SET notified_result = 1, notified_rank = 1 WHERE id = ?`, [s.id]);
@@ -1439,7 +1597,11 @@ async function tallyAndCloseContest(contestId) {
 // needs a correction.
 async function awardPainting(winnerSubmission, label) {
   const now = new Date().toISOString();
-  const deadline = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  // Owner's call (2026-09-30): winners are promised 6–8 weeks, counted from
+  // when they send a mailing address. The stored deadline is the outer end
+  // (8 weeks from the round closing) and is only an admin tracking date —
+  // the winner email states the 6–8 week window, not this date.
+  const deadline = new Date(Date.now() + 8 * 7 * 24 * 60 * 60 * 1000).toISOString();
   const info = await db.run(
     `INSERT INTO year_awards (label, opens_at, closes_at, status, winner_submission_id, sculpture_deadline, created_at)
      VALUES (?, ?, ?, 'completed', ?, ?, ?) RETURNING id`,
@@ -1676,13 +1838,7 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     // version of a "pre-order mockup": no fake 3D render, just a real
     // incentive to buy a print of the photo they just uploaded while the
     // moment (and the discount) is still fresh.
-    const discountExpiresAt = new Date(Date.now() + ENTRY_DISCOUNT_HOURS * 60 * 60 * 1000).toISOString();
-    const discount = {
-      percent: CONTEST_DISCOUNT_PERCENT,
-      email,
-      expiresAt: discountExpiresAt,
-      token: discountToken.tokenFor(email, discountExpiresAt),
-    };
+    const discount = issueDiscount(email, ENTRY_DISCOUNT_HOURS);
 
     try {
       await mailer.sendEntryConfirmation({
@@ -1728,14 +1884,20 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
 // Random order per request so late entrants get equal shelf space instead
 // of always scrolling to the bottom.
 app.get('/api/contest/current', async (req, res) => {
-  const contest = await db.get(`SELECT * FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  // Opens the round if none is open, or rolls to the next one if the open
+  // round is past its close but not yet tallied — so the vote page never
+  // shows a round whose voting is already over. Entry is always open.
+  const contest = await getOrOpenCurrentContest();
   if (!contest) return res.json({ contest: null, entries: [] });
   const entries = await db.all(
     `SELECT id, cat_name, photo_path, share_image_path FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY RANDOM()`,
     [contest.id]
   );
   res.json({
-    contest: { id: contest.id, label: contest.label, opensAt: contest.opens_at, closesAt: contest.closes_at },
+    contest: {
+      id: contest.id, label: contest.label, opensAt: contest.opens_at, closesAt: contest.closes_at,
+      closesLabel: formatContestClose(contest.closes_at),
+    },
     entries,
   });
 });
@@ -1778,6 +1940,7 @@ app.get('/api/my-status', async (req, res) => {
       liveRank,
       totalEntries: ranked.length,
       closesAt: contest.closes_at,
+      closesLabel: formatContestClose(contest.closes_at),
       referredVotes: Number(referred.c),
     });
   }
@@ -1804,13 +1967,15 @@ app.post('/api/vote', async (req, res) => {
     if (!submissionId) return res.status(400).json({ error: 'Missing submissionId.' });
 
     const submission = await db.get(
-      `SELECT s.*, c.status AS contest_status FROM submissions s
+      `SELECT s.*, c.status AS contest_status, c.closes_at AS contest_closes_at FROM submissions s
        JOIN contests c ON c.id = s.contest_id WHERE s.id = ?`,
       [submissionId]
     );
     if (!submission) return res.status(404).json({ error: 'Cat not found.' });
     if (submission.disqualified) return res.status(400).json({ error: 'This entry is no longer eligible.' });
-    if (submission.contest_status !== 'open') {
+    // Voting ends at the stated close, not whenever the daily cron gets
+    // round to tallying (a few hours later) — see getOrOpenCurrentContest.
+    if (submission.contest_status !== 'open' || new Date(submission.contest_closes_at) <= new Date()) {
       return res.status(400).json({ error: 'Voting has closed for this contest.' });
     }
 
@@ -1852,6 +2017,15 @@ app.post('/api/vote', async (req, res) => {
       ]);
       if (Number(ipCount.c) >= VOTE_LIMIT_PER_IP_PER_DAY) {
         throw Object.assign(new Error('Too many votes from this connection today — try again tomorrow.'), { rateLimited: true });
+      }
+      const ipCatCount = await tx.get(`SELECT COUNT(*) AS c FROM votes WHERE ip_hash = ? AND submission_id = ?`, [
+        ipHash, submissionId,
+      ]);
+      if (Number(ipCatCount.c) >= VOTE_LIMIT_PER_IP_PER_CAT) {
+        throw Object.assign(
+          new Error("This cat already has the most votes we accept from one connection this round. Thanks for the support!"),
+          { rateLimited: true }
+        );
       }
 
       let referredBySubmissionId = null;
@@ -2074,13 +2248,7 @@ app.get('/api/thanks', async (req, res) => {
   // Re-issued rather than stored, so the page works when reopened from the
   // email later: the same HMAC the shop already verifies (discountToken.js),
   // scoped to this entrant's email and given a fresh window.
-  const discountExpiresAt = new Date(Date.now() + ENTRY_DISCOUNT_HOURS * 60 * 60 * 1000).toISOString();
-  const discount = {
-    percent: CONTEST_DISCOUNT_PERCENT,
-    email: submission.email,
-    expiresAt: discountExpiresAt,
-    token: discountToken.tokenFor(submission.email, discountExpiresAt),
-  };
+  const discount = issueDiscount(submission.email, ENTRY_DISCOUNT_HOURS);
 
   res.json({
     catName: submission.cat_name,
@@ -2094,6 +2262,7 @@ app.get('/api/thanks', async (req, res) => {
     voteUrl: `${BASE_URL}/vote.html?cat=${submission.id}`,
     statusUrl: `${BASE_URL}/status.html?cat=${submission.id}&email=${encodeURIComponent(submission.email)}&token=${statusToken.tokenFor(submission.id, submission.email)}`,
     closesAt: contest && contest.status === 'open' ? contest.closes_at : null,
+    closesLabel: contest && contest.status === 'open' ? formatContestClose(contest.closes_at) : null,
     disqualified: Boolean(submission.disqualified),
     offers,
     discount,
@@ -2195,6 +2364,9 @@ app.get('/api/config', (req, res) => {
     // Conversions API access token (server-side, metaConversions.js) is a
     // real secret and never reaches the client.
     metaPixelId: process.env.META_PIXEL_ID || null,
+    // Lets the shop drop a discount stored in the browser from an earlier
+    // entry once discounting is off, instead of claiming one is applied.
+    contestDiscountPercent: CONTEST_DISCOUNT_PERCENT > 0 ? CONTEST_DISCOUNT_PERCENT : 0,
   });
 });
 
@@ -3892,6 +4064,25 @@ app.get('/api/cron/daily', async (req, res) => {
 // so a warning gated on app.listen() (which never runs there) would never
 // print anywhere, local dev included. These print once per cold start on
 // every environment instead.
+// Upload rejections (a wrong file type, a photo over the size limit) happen
+// inside multer, before any route handler runs, so they used to fall through
+// to Express's default handler — an HTML stack trace that leaked server file
+// paths, which the entry/order forms then failed to parse and showed the
+// customer as gibberish. Every form here expects JSON { error }.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  if (err instanceof multer.MulterError) {
+    const message =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? 'That photo is too large — please choose one under 8MB.'
+        : 'That upload could not be read — please try a different photo.';
+    return res.status(400).json({ error: message });
+  }
+  if (err && err.uploadRejected) return res.status(400).json({ error: err.message });
+  console.error(err);
+  res.status(500).json({ error: 'Something went wrong.' });
+});
+
 if (!stripe) console.warn('[stripe] STRIPE_SECRET_KEY not set — checkout endpoint disabled.');
 if (stripe && !process.env.STRIPE_WEBHOOK_SECRET) {
   console.warn('[stripe] STRIPE_WEBHOOK_SECRET not set — paid orders will never be marked paid.');
@@ -3917,7 +4108,7 @@ if (require.main === module) {
   // pointless and never reached.
   app.listen(PORT, () => {
     console.log(`Whiskr server running on ${BASE_URL}`);
-    console.log(`Contest length: ${CONTEST_LENGTH_DAYS} days | Winners per contest: ${CONTEST_WINNERS_COUNT}`);
+    console.log(`Contest rounds: calendar months (Central time) | Winners per contest: ${CONTEST_WINNERS_COUNT}`);
   });
 }
 

@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS votes (
 );
 CREATE INDEX IF NOT EXISTS votes_ip_hash_created_idx ON votes(ip_hash, created_at);
 CREATE INDEX IF NOT EXISTS votes_voter_token_created_idx ON votes(voter_token, created_at);
+CREATE INDEX IF NOT EXISTS votes_ip_hash_submission_idx ON votes(ip_hash, submission_id);
 -- Soft referral signal, not a fraud control: which cat's share link brought
 -- this voter to the site this browser session (see the ?via=share&cat= URL
 -- built in shareCat()/shareEntryCard() in the front end, and the

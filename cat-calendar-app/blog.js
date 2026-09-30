@@ -230,6 +230,9 @@ function jsonLdScript(payload) {
 // any of it. Links are absolute because these pages live one path segment
 // deep (/blog/:slug) and relative hrefs would resolve inside /blog/.
 function layout({ title, description, canonical, ogType, ogImage, ogImageAlt, jsonLd, robots, main }) {
+  // No post image → the site's default card, so a shared post never
+  // previews as bare text.
+  if (!ogImage) ogImage = 'https://whiskr.lol/og-default.png';
   const desc = seo.escapeHtml(description);
   const ogTags = [
     '<meta property="og:type" content="' + seo.escapeHtml(ogType) + '" />',
@@ -246,6 +249,7 @@ function layout({ title, description, canonical, ogType, ogImage, ogImageAlt, js
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 <title>${seo.escapeHtml(title)}</title>
 <meta name="robots" content="${seo.escapeHtml(robots || 'index, follow')}" />
 <meta name="description" content="${desc}" />

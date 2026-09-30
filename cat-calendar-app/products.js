@@ -115,7 +115,9 @@ const PRODUCTS = [
     // and boxed on its own, so a second one costs nearly a second parcel.
     // At $47.99 two canvases were $95.98 of revenue against $43.86 of goods
     // and $20.38 of shipping we absorb at the free-shipping line: 33.1%.
-    priceUsd: 53.99,
+    // Was 53.99. 2026-09-30: the margin check now counts Stripe's card fee (2.9% + $0.30), which put a
+    // two-canvas free-shipping order at 37.3%; clears at $56.52, rounded up (owner approved).
+    priceUsd: 56.99,
     printfulVariantId: 823, // Canvas 12"x12" — cost $21.93
     mockupAspect: '1/1',
   },
@@ -123,7 +125,7 @@ const PRODUCTS = [
     id: 'phone-case',
     name: 'Custom Pet Phone Case',
     species: 'both',
-    description: "Your pet on a durable phone case. Tell us your phone model at checkout.",
+    description: "Your pet on a durable phone case. Pick your phone model when you order.",
     // Was $24.99, set before any device's cost was known. The iPhone 11
     // case came back at $14.23 on 2026-09-28, against a ceiling of $12.77,
     // so it was underwater: 43.1% on a single sale but 34.2% on a
@@ -134,7 +136,9 @@ const PRODUCTS = [
     // priced — a newer or larger phone may cost more, and this price has
     // to carry the most expensive of them. Price every device before
     // trusting this number.
-    priceUsd: 27.99,
+    // Was 27.99. 2026-09-30: the margin check now counts Stripe's card fee (2.9% + $0.30), which put a
+    // three-case free-shipping order at 37.3%; clears at $29.30, rounded up (owner approved).
+    priceUsd: 29.99,
     // Unlike every other product here, this one has no single fixed
     // variant — Printful sizes cases per exact device. The real variant ID
     // is chosen by the customer's phone-model selection at checkout (see
@@ -162,7 +166,9 @@ const PRODUCTS = [
     // $29.00 was underwater; $33.99 was set against an estimated $7.99 first
     // / $4.00 additional. Real rates are $10.89 / $4.50, which put a
     // three-pillow free-shipping order at 37.6%.
-    priceUsd: 35.99,
+    // Was 35.99. 2026-09-30: the margin check now counts Stripe's card fee (2.9% + $0.30), which put a
+    // three-pillow free-shipping order at 37.9%; clears at $37.34, rounded up (owner approved).
+    priceUsd: 37.99,
     printfulVariantId: 49854, // All-Over Print Basic Pillow 16"x16" — cost $14.59
     mockupAspect: '1/1',
   },
@@ -193,7 +199,9 @@ const PRODUCTS = [
     // / $2.20 additional. Apparel shipping was the worst of the estimates —
     // real rates are $8.79 / $2.50 — leaving a two-shirt free-shipping order
     // at 36.9%.
-    priceUsd: 54.99,
+    // Was 54.99. 2026-09-30: the margin check now counts Stripe's card fee (2.9% + $0.30), which put a
+    // two-shirt free-shipping order at 37.2%; clears at $57.74, rounded up (owner approved).
+    priceUsd: 57.99,
     // Unlike every other product here, this one has no single fixed
     // variant — it's sized S–5XL. The real variant ID is chosen by the
     // customer's size selection at checkout (see sweatshirtSizes.js,

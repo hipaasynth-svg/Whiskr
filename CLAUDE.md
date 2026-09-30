@@ -78,7 +78,8 @@ $160; that number is wrong and appeared in the official rules for weeks.
 
 ### The margin floor
 
-The owner's rule is a **minimum 40% gross margin after shipping, with no
+The owner's rule is a **minimum 40% gross margin after shipping and Stripe's
+card fee (2.9% + $0.30, added to the check 2026-09-30), with no
 discounting to reach it** (raised from 35% on 2026-09-28, when the whole
 catalog was repriced to it). `orderEconomics.js` is the one place that knows
 what an order costs us; run `node orderEconomics.js` after changing any

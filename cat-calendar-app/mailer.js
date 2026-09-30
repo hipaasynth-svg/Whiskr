@@ -5,6 +5,21 @@ const { tokenFor } = require('./unsubscribe');
 const BASE_URL = process.env.PUBLIC_BASE_URL || 'http://localhost:3000';
 const MAILING_ADDRESS = process.env.BUSINESS_MAILING_ADDRESS || '[Add your business mailing address to .env — required by CAN-SPAM]';
 
+// Same wording as formatContestClose in server.js (duplicated rather than
+// required, since server.js requires this module): "October 31 at 11:59
+// p.m. CT", with a midnight close shown as 11:59 p.m. the day before.
+// Without an explicit time zone this used the server's (UTC on Vercel), so
+// emails and pages named different days for the same close.
+function formatClose(closesAtIso) {
+  const tz = 'America/Chicago';
+  let when = new Date(closesAtIso);
+  const hm = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).format(when);
+  if (hm === '00:00') when = new Date(when.getTime() - 60 * 1000);
+  const day = when.toLocaleDateString('en-US', { timeZone: tz, month: 'long', day: 'numeric' });
+  const time = when.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).replace('AM', 'a.m.').replace('PM', 'p.m.');
+  return `${day} at ${time} CT`;
+}
+
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }
@@ -70,7 +85,7 @@ async function sendMail({ to, subject, html, text }) {
 // showUnsubscribe should be true for any email containing a purchase pitch
 // (CAN-SPAM applies to commercial content even when mixed with transactional
 // content) and can stay false for purely transactional notices.
-function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = 'Cat of the Month Contest' } = {}) {
+function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = 'Cat of the Month Contest', reason = 'contest' } = {}) {
   const footerCompliance = showUnsubscribe
     ? `<p>${escapeHtml(MAILING_ADDRESS)}<br>
         Don't want these emails? <a href="${unsubscribeUrl(email)}">Unsubscribe</a>.</p>`
@@ -86,7 +101,9 @@ function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = '
         ${bodyHtml}
       </div>
       <div style="padding:16px 28px;background:#f3ede0;color:#7a7160;font-size:12px;">
-        You're getting this because a cat photo was submitted to Whiskr with this address.
+        ${reason === 'order'
+          ? "You're getting this because this address was used to place an order with Whiskr."
+          : "You're getting this because a cat photo was submitted to Whiskr with this address."}
         ${footerCompliance}
       </div>
     </div>
@@ -98,7 +115,9 @@ function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = '
 // print shop, verified server-side against discountToken.js (see server.js)
 // at checkout, never trusted from the link alone.
 function discountBlockHtml(discount, catName) {
-  if (!discount) return '';
+  // CONTEST_DISCOUNT_PERCENT defaults to 0 (no discounting — see server.js),
+  // and a boxed "0% off" offer is worse than no offer at all.
+  if (!discount || !(Number(discount.percent) > 0)) return '';
   const expires = new Date(discount.expiresAt).toLocaleString('en-US', {
     month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
   });
@@ -111,14 +130,17 @@ function discountBlockHtml(discount, catName) {
     </p>`;
 }
 function discountBlockText(discount, catName) {
-  if (!discount) return '';
+  // CONTEST_DISCOUNT_PERCENT defaults to 0 (no discounting — see server.js),
+  // and a boxed "0% off" offer is worse than no offer at all.
+  if (!discount || !(Number(discount.percent) > 0)) return '';
   const shopUrl = `${BASE_URL}/?discountEmail=${encodeURIComponent(discount.email)}&discountExpires=${encodeURIComponent(discount.expiresAt)}&discountToken=${discount.token}#shop-custom`;
-  return `\n${discount.percent}% off a print of ${catName}, expires ${discount.expiresAt}: ${shopUrl}`;
+  const expires = new Date(discount.expiresAt).toLocaleString('en-US', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return `\n${discount.percent}% off a print of ${catName}, expires ${expires}: ${shopUrl}`;
 }
 
 async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, closesAt, discount, shareImageUrl }) {
   const safeName = escapeHtml(catName);
-  const closeDate = new Date(closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  const closeDate = formatClose(closesAt);
   const shareImageBlock = shareImageUrl
     ? `<p style="text-align:center;margin:20px 0;"><img src="${shareImageUrl}" alt="Vote for ${safeName}" style="max-width:280px;border-radius:6px;" /></p>
        <p style="font-size:13px;color:#555;text-align:center;">Post that image straight to Stories, WhatsApp, or a group chat — it already has ${safeName}'s vote link on it.</p>`
@@ -154,14 +176,14 @@ async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, close
 // content; it names when the painting ships, not a sculpture.
 async function sendWinnerEmail({ email, catName, sculptureDeadline }) {
   const safeName = escapeHtml(catName);
-  const deadlineText = sculptureDeadline
-    ? new Date(sculptureDeadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
-    : 'in the coming weeks';
+  // A window counted from the winner's reply, not a fixed date: painting
+  // can't start until we have somewhere to send it, and a hand-painted
+  // original takes as long as it takes. Owner's call: 6–8 weeks.
   const html = wrapLayout(
     `
     <p>Hi there,</p>
     <p><strong>${safeName} got the most votes and is this month's Cat of the Month! 🏆</strong></p>
-    <p><strong>${safeName} wins a one-of-a-kind original 11x16 acrylic painting of ${safeName}, hand-painted by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. We're aiming to have it delivered by ${deadlineText}.</p>
+    <p><strong>${safeName} wins a one-of-a-kind original 11x16 acrylic painting of ${safeName}, hand-painted by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. Expect it within 6–8 weeks of sending us your mailing address.</p>
     <p>Reply to this email with a mailing address and we'll get started.</p>
     <p>Congratulations, and thank you for being part of Whiskr.</p>
     <p>— Whiskr</p>
@@ -172,7 +194,7 @@ async function sendWinnerEmail({ email, catName, sculptureDeadline }) {
     to: email,
     subject: `${catName} is Cat of the Month — you're getting an original painting! 🏆`,
     html,
-    text: `${catName} got the most votes and is Cat of the Month! ${catName} wins a one-of-a-kind original 11x16 acrylic painting, hand-painted by Cody Carlson, aiming for delivery by ${deadlineText}. Reply to this email with a mailing address.\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} got the most votes and is Cat of the Month! ${catName} wins a one-of-a-kind original 11x16 acrylic painting, hand-painted by Cody Carlson. Expect it within 6–8 weeks of sending us your mailing address. Reply to this email with a mailing address.\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -239,7 +261,7 @@ async function sendFinalRankEmail({ email, catName, rank, totalEntries, shopUrl,
 // throttle that decides when this actually fires.
 async function sendRankDropEmail({ email, catName, rank, voteUrl, closesAt }) {
   const safeName = escapeHtml(catName);
-  const closeDate = new Date(closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  const closeDate = formatClose(closesAt);
   const html = wrapLayout(
     `
     <p>Hi there,</p>
@@ -280,7 +302,7 @@ async function sendReviewRequest({ email, itemLabel, reviewUrl }) {
     <p>Thanks for being one of our first customers,</p>
     <p>— The Whiskr team</p>
   `,
-    { showUnsubscribe: true, email, tagline: 'Custom Pet Prints & Cat of the Month' }
+    { showUnsubscribe: true, email, tagline: 'Custom Pet Prints & Cat of the Month', reason: 'order' }
   );
   return sendMail({
     to: email,
@@ -313,7 +335,7 @@ async function sendCommissionBooked({ email, petName, sizeLabel, depositUsd, bal
     <p>If Cody needs a clearer reference photo, he will reply to this email and ask. Replying here reaches a person.</p>
     <p>— Whiskr</p>
   `,
-    { tagline: 'Original Acrylic Commission' }
+    { tagline: 'Original Acrylic Commission', reason: 'order' }
   );
   return sendMail({
     to: email,
@@ -345,7 +367,7 @@ async function sendCommissionBalanceDue({ email, petName, balanceUsd, payUrl, pa
     <p style="font-size:13px;color:#555;">Not happy with it? Reply to this email before paying and tell us what is wrong — that is exactly why the balance is not charged automatically.</p>
     <p>— Whiskr</p>
   `,
-    { tagline: 'Original Acrylic Commission' }
+    { tagline: 'Original Acrylic Commission', reason: 'order' }
   );
   return sendMail({
     to: email,
@@ -407,7 +429,7 @@ async function sendShippedEmail({ email, itemLabel, petName, parcels }) {
     <p>If it hasn't turned up when the carrier says it should, reply to this email and we'll sort it out.</p>
     <p>— Whiskr</p>
   `,
-    { tagline: 'Custom Pet Prints' }
+    { tagline: 'Custom Pet Prints', reason: 'order' }
   );
 
   const textLines = list.map((p, i) => {

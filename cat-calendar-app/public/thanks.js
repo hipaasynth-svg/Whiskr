@@ -74,14 +74,11 @@
     }
 
     if (data.closesAt) {
-      const closes = new Date(data.closesAt);
       const line = document.getElementById('closesLine');
-      // Central time, stated explicitly, because "11:59pm" with no zone is
-      // the kind of detail that generates support email.
-      line.textContent =
-        'Voting closes ' +
-        closes.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'America/Chicago' }) +
-        ' at 11:59 p.m. CT';
+      // The server formats this (formatContestClose in server.js) so every
+      // page and email states the same close, in Central time.
+      line.textContent = 'Voting closes ' + (data.closesLabel ||
+        new Date(data.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'America/Chicago' }));
       line.hidden = false;
     }
 
