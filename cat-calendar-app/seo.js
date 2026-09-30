@@ -41,7 +41,7 @@ function productsJsonLd(products, baseUrl) {
   return JSON.stringify({
     '@context': 'https://schema.org',
     '@type': 'ItemList',
-    name: 'Whiskr custom pet print catalog',
+    name: 'Whiskr custom cat print catalog',
     itemListElement,
   });
 }
@@ -54,7 +54,7 @@ function renderProductCards(products) {
         <h4>${escapeHtml(p.name)}</h4>
         <p>${escapeHtml(p.description)}</p>
         <div class="price">$${p.priceUsd.toFixed(2)}</div>
-        <button type="button" class="btn btn-primary">Choose this print</button>
+        <button type="button" class="btn btn-primary">Choose</button>
       </div>`).join('');
 }
 

@@ -49,7 +49,7 @@ function quote({ sizeId, rush = false, extraPets = 0 }) {
   if (rush) lines.push({ label: 'Rush — finished in under 10 days', amountUsd: RUSH_USD });
   if (pets > 0) {
     lines.push({
-      label: `${pets} extra pet${pets === 1 ? '' : 's'} in the same painting`,
+      label: `${pets} extra cat${pets === 1 ? '' : 's'} in the same painting`,
       amountUsd: EXTRA_PET_USD * pets,
     });
   }

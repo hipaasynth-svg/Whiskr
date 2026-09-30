@@ -47,6 +47,20 @@ const FREE_SHIPPING_THRESHOLD_USD = 79;
 // The owner's floor. Not a target — a floor.
 const MARGIN_FLOOR = 0.40;
 
+// Stripe's card fee, which comes out of every order before we see a cent
+// of it. Added 2026-09-30 on the owner's instruction: the floor used to be
+// checked against gross revenue, so a product "at 40%" really cleared about
+// 3-6 points less once Stripe took its cut, most on the cheapest items where
+// the fixed 30 cents is a big share. Standard US online-card pricing; check
+// the Stripe dashboard (Settings > Billing / pricing) if the account is on a
+// different rate. The fee is charged on the whole amount collected,
+// shipping included; sales tax is ignored here since it varies by address.
+const CARD_FEE_PCT = 0.029;
+const CARD_FEE_FIXED_USD = 0.3;
+function cardFeeUsd(chargedUsd) {
+  return chargedUsd * CARD_FEE_PCT + CARD_FEE_FIXED_USD;
+}
+
 // Used for any product with no row below. Deliberately the most expensive
 // profile we carry, so an unlisted product over-collects shipping rather
 // than shipping at a loss. A missing row is a bug, not a pricing decision.
@@ -252,14 +266,7 @@ function marginReport(products) {
       };
     }
 
-    // SMALL: shipping is collected, so it cancels out of both sides.
-    const smallPct = (p.priceUsd - row.itemUsd) / p.priceUsd;
-
-    // FREE: fewest units that reach the threshold, whole parcel on us.
-    const freeQty = Math.max(1, Math.ceil(FREE_SHIPPING_THRESHOLD_USD / p.priceUsd));
-    const freeRevenue = p.priceUsd * freeQty;
-    const freeShipUsd = estimateShippingUsd(p.id, freeQty);
-    const freePct = (freeRevenue - row.itemUsd * freeQty - freeShipUsd) / freeRevenue;
+    const { small: smallPct, free: freePct, freeQty, freeShipUsd } = marginsAt(p.id, p.priceUsd, row.itemUsd);
 
     const worst = Math.min(smallPct, freePct);
     return {
@@ -291,27 +298,38 @@ function marginReport(products) {
 // cent at a time from the SMALL answer upward. The catalog is small and this
 // runs offline; a closed form here would be cleverness nobody can check.
 function requiredPrice(productId, itemUsd) {
+  // A lower bound to start the walk from (the fee only pushes it up).
   const floorPrice = ceilCents(itemUsd / (1 - MARGIN_FLOOR));
   // A ceiling: at some price one unit alone clears the threshold and carries
   // only its own first-item shipping, which is the easiest case there is.
-  const cap = ceilCents(FREE_SHIPPING_THRESHOLD_USD + itemUsd + ratesFor(productId).shipFirstUsd);
+  const cap = ceilCents((FREE_SHIPPING_THRESHOLD_USD + itemUsd + ratesFor(productId).shipFirstUsd) * 1.2);
   for (let cents = Math.round(floorPrice * 100); cents <= Math.round(cap * 100); cents++) {
     const price = cents / 100;
-    const qty = Math.max(1, Math.ceil(FREE_SHIPPING_THRESHOLD_USD / price));
-    const revenue = price * qty;
-    const freeMargin = (revenue - itemUsd * qty - estimateShippingUsd(productId, qty)) / revenue;
-    if (freeMargin >= MARGIN_FLOOR) return price;
+    if (worstMarginAt(productId, price, itemUsd) >= MARGIN_FLOOR) return price;
   }
   return null;
 }
 
+// Both cases' margins at a given price, after the card fee. Every margin
+// in this file comes from here so the report, the required price and the
+// discount check can't disagree.
+//   SMALL: one unit, customer pays shipping — the shipping nets out, but
+//          Stripe's fee is taken on price + shipping, so it doesn't.
+//   FREE:  fewest units reaching the threshold, whole parcel on us.
+function marginsAt(productId, priceUsd, itemUsd) {
+  const smallShip = estimateShippingUsd(productId, 1);
+  const small = (priceUsd - itemUsd - cardFeeUsd(priceUsd + smallShip)) / priceUsd;
+  const freeQty = Math.max(1, Math.ceil(FREE_SHIPPING_THRESHOLD_USD / priceUsd));
+  const revenue = priceUsd * freeQty;
+  const freeShipUsd = estimateShippingUsd(productId, freeQty);
+  const free = (revenue - itemUsd * freeQty - freeShipUsd - cardFeeUsd(revenue)) / revenue;
+  return { small, free, freeQty, freeShipUsd };
+}
+
 // The worst margin this product shows at a given price, across both cases.
 function worstMarginAt(productId, priceUsd, itemUsd) {
-  const small = (priceUsd - itemUsd) / priceUsd;
-  const qty = Math.max(1, Math.ceil(FREE_SHIPPING_THRESHOLD_USD / priceUsd));
-  const revenue = priceUsd * qty;
-  const free = (revenue - itemUsd * qty - estimateShippingUsd(productId, qty)) / revenue;
-  return Math.min(small, free);
+  const m = marginsAt(productId, priceUsd, itemUsd);
+  return Math.min(m.small, m.free);
 }
 
 // The largest whole-percent discount the whole catalog survives.
@@ -353,8 +371,8 @@ function printReport() {
   const { listProducts } = require('./products');
   const rows = marginReport(listProducts('all'));
   console.log(
-    `\nMargin floor ${(MARGIN_FLOOR * 100).toFixed(0)}%. Free shipping at $${FREE_SHIPPING_THRESHOLD_USD}+.` +
-      ` Shipping quoted from Printful except where the file says otherwise.`
+    `\nMargin floor ${(MARGIN_FLOOR * 100).toFixed(0)}%, after Stripe's ${(CARD_FEE_PCT * 100).toFixed(1)}% + $${CARD_FEE_FIXED_USD.toFixed(2)} card fee.` +
+      ` Free shipping at $${FREE_SHIPPING_THRESHOLD_USD}+. Shipping quoted from Printful except where the file says otherwise.`
   );
   console.log('SMALL = under the threshold, customer pays shipping.');
   console.log('FREE  = smallest order that reaches the threshold, we pay the parcel.\n');

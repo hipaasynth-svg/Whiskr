@@ -3,22 +3,25 @@
 > A free "Cat of the Month" photo contest decided by real public vote — no
 > purchase necessary to enter or win. Entry is free and always open; each
 > round's top vote-getter wins an original hand-painted portrait. Plus
-> custom print-on-demand cat and dog photo products (mugs, posters, canvas
-> prints, phone cases, totes, pillows, magnets), printed and shipped on demand.
+> custom print-on-demand cat photo products (framed prints, canvas prints,
+> posters, mugs, phone cases, totes, pillows, magnets, sweatshirts), printed
+> and shipped on demand.
 
-Whiskr is a small pet-products business at https://whiskr.lol. Cat owners
+Whiskr is a small cat-products business at https://whiskr.lol. Cat owners
 enter free at any time; anyone can vote for any entered cat, once per cat,
 at https://whiskr.lol/vote.html — vote totals are hidden until a round
-closes to keep the count honest. When a round closes, the #1 vote-getter
+closes to keep the count honest. Rounds run by calendar month and close at
+11:59 p.m. Central Time on the month's last day. When a round closes, the
+#1 vote-getter
 ("Cat of the Month") wins a one-of-a-kind original 11x16 acrylic painting
 of their own cat, hand-painted by artist Cody Carlson, and every entrant
 is told their final placement. Full mechanics and eligibility are at
 https://whiskr.lol/rules.html. Whiskr has partnered with Cody Carlson
-(codycarlson.art) for the prize paintings; the homepage shows a couple
-of his completed originals and a link to commission one directly, for
-anyone who doesn't want to wait on the contest. Separately, anyone can
-order a custom print of their own cat or dog photo — no inventory, no
-waiting, unrelated to the contest.
+(codycarlson.art) for the prize paintings, and anyone who doesn't want to
+wait on the contest can commission an original directly at
+https://whiskr.lol/commission. Separately, anyone can order a custom print
+of their own cat photo — no inventory, no waiting, unrelated to the
+contest.
 
 Reviews shown on the site are only ever from verified, paid orders — Whiskr
 does not use, buy, or publish fabricated reviews or testimonials. Votes are
@@ -27,7 +30,7 @@ entries found to be using purchased or bot-generated votes (see rules.html).
 
 ## Key pages
 
-- [Homepage](https://whiskr.lol/): enter the free contest, shop custom pet
+- [Homepage](https://whiskr.lol/): enter the free contest, shop custom cat
   prints, and read verified customer reviews.
 - [Vote](https://whiskr.lol/vote.html): the current round's entrants — vote
   free, once per cat.

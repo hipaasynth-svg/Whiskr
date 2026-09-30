@@ -1,4 +1,4 @@
-// Custom cat/dog print-on-demand catalog. Fulfilled through Printful
+// Custom cat print-on-demand catalog (cats only since 2026-09-30). Fulfilled through Printful
 // (see printful.js) — no inventory, no local printing.
 //
 // Every printfulVariantId below is a real Printful catalog variant_id
@@ -57,8 +57,8 @@ const PRODUCTS = [
   {
     id: 'framed-poster-luster-12x18',
     name: 'Framed Gallery Print',
-    species: 'both',
-    description: "Your pet's photo on luster photo paper, framed in solid wood — the finish Printful itself compares to a real photo-lab print, not a print-on-demand one. Ready to hang, no glass to crack in shipping.",
+    species: 'cat',
+    description: "Your cat's photo on luster photo paper — the finish of a real photo-lab print — in a solid wood frame. Ready to hang, no glass to crack in shipping.",
     priceUsd: 89.99,
     printfulVariantId: 6887, // Premium Luster Photo Paper Framed Poster (in), product 172, 12"x18" — cost $37.45
     mockupAspect: '2/3',
@@ -67,7 +67,7 @@ const PRODUCTS = [
   {
     id: 'framed-poster-matte-12x18',
     name: 'Framed Matte Print',
-    species: 'both',
+    species: 'cat',
     description: 'Museum-quality matte paper in a real wood frame — quieter and more understated than the luster finish, straight out of the box and onto the wall.',
     priceUsd: 74.99,
     printfulVariantId: 4398, // Enhanced Matte Paper Framed Poster (in), product 2, 12"x18" — cost $32.77
@@ -77,7 +77,7 @@ const PRODUCTS = [
   {
     id: 'canvas-18x24',
     name: 'Large Gallery Canvas',
-    species: 'both',
+    species: 'cat',
     description: "An 18x24\" gallery-wrapped canvas — the statement piece. Same real canvas texture as our smaller size, built for a wall that means it.",
     priceUsd: 89.0,
     printfulVariantId: 7, // Canvas (in), product 3, 18"x24" — cost $33.66
@@ -86,18 +86,18 @@ const PRODUCTS = [
   },
   {
     id: 'mug-11oz',
-    name: 'Custom Pet Mug',
-    species: 'both',
-    description: "Your pet's photo on an 11oz ceramic mug. Dishwasher and microwave safe.",
+    name: 'Custom Cat Mug',
+    species: 'cat',
+    description: "Your cat's photo on an 11oz ceramic mug. Dishwasher and microwave safe.",
     priceUsd: 19.99,
     printfulVariantId: 1320, // White Glossy Mug 11oz — cost $6.07
     mockupAspect: '1/1',
   },
   {
     id: 'poster-12x16',
-    name: 'Custom Pet Poster',
-    species: 'both',
-    description: 'A 12x16" matte poster print of your pet, ready to frame.',
+    name: 'Custom Cat Poster',
+    species: 'cat',
+    description: 'A 12x16" matte poster print of your cat, ready to frame.',
     // Was $22.00: fine on a single sale, 37.0% on a four-poster free-
     // shipping order.
     priceUsd: 23.99,
@@ -106,8 +106,8 @@ const PRODUCTS = [
   },
   {
     id: 'canvas-12x12',
-    name: 'Custom Pet Canvas',
-    species: 'both',
+    name: 'Custom Cat Canvas',
+    species: 'cat',
     description: '12x12" gallery-wrapped canvas print, ready to hang.',
     // The most-corrected price here, and a lesson in guessing shipping.
     // $39.00 was underwater; $47.99 was set against an ESTIMATED $4.50 per
@@ -115,15 +115,17 @@ const PRODUCTS = [
     // and boxed on its own, so a second one costs nearly a second parcel.
     // At $47.99 two canvases were $95.98 of revenue against $43.86 of goods
     // and $20.38 of shipping we absorb at the free-shipping line: 33.1%.
-    priceUsd: 53.99,
+    // Was 53.99. 2026-09-30: the margin check now counts Stripe's card fee (2.9% + $0.30), which put a
+    // two-canvas free-shipping order at 37.3%; clears at $56.52, rounded up (owner approved).
+    priceUsd: 56.99,
     printfulVariantId: 823, // Canvas 12"x12" — cost $21.93
     mockupAspect: '1/1',
   },
   {
     id: 'phone-case',
-    name: 'Custom Pet Phone Case',
-    species: 'both',
-    description: "Your pet on a durable phone case. Tell us your phone model at checkout.",
+    name: 'Custom Cat Phone Case',
+    species: 'cat',
+    description: "Your cat on a durable phone case. Pick your phone model when you order.",
     // Was $24.99, set before any device's cost was known. The iPhone 11
     // case came back at $14.23 on 2026-09-28, against a ceiling of $12.77,
     // so it was underwater: 43.1% on a single sale but 34.2% on a
@@ -134,7 +136,9 @@ const PRODUCTS = [
     // priced — a newer or larger phone may cost more, and this price has
     // to carry the most expensive of them. Price every device before
     // trusting this number.
-    priceUsd: 27.99,
+    // Was 27.99. 2026-09-30: the margin check now counts Stripe's card fee (2.9% + $0.30), which put a
+    // three-case free-shipping order at 37.3%; clears at $29.30, rounded up (owner approved).
+    priceUsd: 29.99,
     // Unlike every other product here, this one has no single fixed
     // variant — Printful sizes cases per exact device. The real variant ID
     // is chosen by the customer's phone-model selection at checkout (see
@@ -144,9 +148,9 @@ const PRODUCTS = [
   },
   {
     id: 'tote-bag',
-    name: 'Custom Pet Tote Bag',
-    species: 'both',
-    description: 'A sturdy canvas tote printed with your pet\'s photo.',
+    name: 'Custom Cat Tote Bag',
+    species: 'cat',
+    description: 'A sturdy canvas tote printed with your cat\'s photo.',
     // Was $21 against a $17.95 Printful cost — a loss once shipping was
     // added. Raised to restore real margin (owner's call, 2026-09-11), and
     // already clears 40% both ways, so the 2026-09-28 repricing left it.
@@ -156,30 +160,32 @@ const PRODUCTS = [
   },
   {
     id: 'throw-pillow',
-    name: 'Custom Pet Throw Pillow',
-    species: 'both',
+    name: 'Custom Cat Throw Pillow',
+    species: 'cat',
     description: '16x16" throw pillow, insert included.',
     // $29.00 was underwater; $33.99 was set against an estimated $7.99 first
     // / $4.00 additional. Real rates are $10.89 / $4.50, which put a
     // three-pillow free-shipping order at 37.6%.
-    priceUsd: 35.99,
+    // Was 35.99. 2026-09-30: the margin check now counts Stripe's card fee (2.9% + $0.30), which put a
+    // three-pillow free-shipping order at 37.9%; clears at $37.34, rounded up (owner approved).
+    priceUsd: 37.99,
     printfulVariantId: 49854, // All-Over Print Basic Pillow 16"x16" — cost $14.59
     mockupAspect: '1/1',
   },
   {
     id: 'fridge-magnet',
-    name: 'Custom Pet Fridge Magnet',
-    species: 'both',
-    description: 'A durable 4x4" magnet of your pet — a low-cost way to keep them on your fridge.',
+    name: 'Custom Cat Fridge Magnet',
+    species: 'cat',
+    description: 'A durable 4x4" magnet of your cat — a low-cost way to keep them on your fridge.',
     priceUsd: 9.99,
     printfulVariantId: 16367, // Die-Cut Magnets 4"x4" — cost $3.91
     mockupAspect: '1/1',
   },
   {
     id: 'crewneck-sweatshirt',
-    name: 'Custom Pet Crewneck Sweatshirt',
-    species: 'both',
-    description: "Your pet's photo on a soft, pre-shrunk Gildan 18000 crewneck sweatshirt. Black, sized S–5XL.",
+    name: 'Custom Cat Crewneck Sweatshirt',
+    species: 'cat',
+    description: "Your cat's photo on a soft, pre-shrunk Gildan 18000 crewneck sweatshirt. Black, sized S–5XL.",
     // Flat price regardless of size — standard for POD apparel, and
     // simpler than per-size pricing. Printful's cost runs $19.17 (S–XL) up
     // to $27.17 (5XL), confirmed against the catalog API.
@@ -193,7 +199,9 @@ const PRODUCTS = [
     // / $2.20 additional. Apparel shipping was the worst of the estimates —
     // real rates are $8.79 / $2.50 — leaving a two-shirt free-shipping order
     // at 36.9%.
-    priceUsd: 54.99,
+    // Was 54.99. 2026-09-30: the margin check now counts Stripe's card fee (2.9% + $0.30), which put a
+    // two-shirt free-shipping order at 37.2%; clears at $57.74, rounded up (owner approved).
+    priceUsd: 57.99,
     // Unlike every other product here, this one has no single fixed
     // variant — it's sized S–5XL. The real variant ID is chosen by the
     // customer's size selection at checkout (see sweatshirtSizes.js,
@@ -207,7 +215,7 @@ const PRODUCTS = [
 
 function listProducts(species) {
   if (!species || species === 'all') return PRODUCTS;
-  return PRODUCTS.filter((p) => p.species === 'both' || p.species === species);
+  return PRODUCTS.filter((p) => p.species === species);
 }
 
 function getProduct(id) {

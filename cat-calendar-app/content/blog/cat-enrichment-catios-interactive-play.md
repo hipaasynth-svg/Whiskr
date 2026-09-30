@@ -14,7 +14,7 @@ removed almost everything a cat's brain is built to spend the day doing. The
 instinct didn't go anywhere. It just has nowhere to land, so it lands on you,
 at 4am, or on the sofa.
 
-The good news is that this is one of the few pet problems with a genuinely
+The good news is that this is one of the few cat problems with a genuinely
 well-documented fix, and most of it costs less than a vet visit for a
 stress-related cystitis flare-up.
 

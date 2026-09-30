@@ -1,8 +1,8 @@
-# Whiskr — custom cat/dog prints, verified reviews, and a real-public-vote contest
+# Whiskr — custom cat prints, verified reviews, and a real-public-vote contest
 
 A real, runnable Node/Express site with two things going on:
 
-- **Evergreen storefront**: upload a photo of your cat or dog, pick a
+- **Evergreen storefront**: upload a photo of your cat, pick a
   product (mug, poster, canvas, phone case, tote, pillow), pay, and it's
   printed and shipped through **Printful** — no inventory, always open,
   doesn't depend on the contest running.
@@ -220,7 +220,7 @@ relying on this for real orders, verify against your own account: that
 works via the plain `owner/name` API path without a pinned version hash,
 and that a real low-res test photo actually comes back sharper. `GFPGAN`
 face restoration (`PHOTO_ENHANCE_FACE=true`) is off by default — it's
-trained on human faces and may distort a cat or dog's face in ways you
+trained on human faces and may distort a cat's face in ways you
 won't want; only turn it on after eyeballing real results yourself.
 
 If you're on Vercel's **Hobby** plan (10s function timeout by default),
@@ -240,7 +240,7 @@ immediately entered, no batch to wait for), then vote for it at
 `http://localhost:3000/vote.html`.
 
 To see a round actually close and a calendar get created without waiting
-for `CONTEST_LENGTH_DAYS`, force-close the current contest from
+for the end of the month, force-close the current contest from
 `http://localhost:3000/admin.html` (enter your `ADMIN_KEY`, "Force-close
 now" in the Current contest section), or directly:
 
@@ -383,7 +383,11 @@ not just a trust problem.
 - *Submissions, custom orders, and votes are all rate-limited per IP per
   day* (see `SUBMISSION_LIMIT_PER_IP_PER_DAY`, `CUSTOM_ORDER_LIMIT_PER_IP_PER_DAY`,
   `VOTE_LIMIT_PER_IP_PER_DAY` in `.env.example`) — tune these if real
-  traffic needs different thresholds.
+  traffic needs different thresholds. Votes also have a per-cat cap for the
+  whole round, `VOTE_LIMIT_PER_IP_PER_CAT` (default 3), which is what stops
+  one person clearing cookies and re-voting for the same cat. Set
+  `TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY` before running ads to turn on
+  the bot check as well.
 
 ## 10. Replacing the placeholder content
 

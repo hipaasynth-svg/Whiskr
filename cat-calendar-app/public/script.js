@@ -257,6 +257,9 @@ window.fbq = window.fbq || function () { (window.fbq.queue = window.fbq.queue ||
       });
       grid.hidden = false;
       empty.hidden = true;
+      // landing.html hides the whole section until there's something in it.
+      const section = grid.closest('section');
+      if (section) section.hidden = false;
     })
     .catch((err) => console.error('originals showcase load failed', err));
 })();
@@ -468,6 +471,7 @@ async function loadStatus() {
       if (ribbonEl) ribbonEl.textContent = 'Most recent Cat of the Month';
       nameEl.textContent = data.lastWinner.cat_name;
       photoEl.src = data.lastWinner.photo_path;
+      photoEl.hidden = false;
       photoEl.alt = `${data.lastWinner.cat_name}, Cat of the Month`;
       if (blurbEl) blurbEl.textContent = 'Chosen as Cat of the Month by real public vote.';
     } else if (data.contestId) {
@@ -595,6 +599,10 @@ async function loadReviews() {
       return;
     }
 
+    // landing.html hides the whole section until real reviews exist.
+    const reviewsSection = grid.closest('section');
+    if (reviewsSection) reviewsSection.hidden = false;
+
     grid.innerHTML = '';
     reviews.forEach((r) => {
       const card = document.createElement('div');
@@ -630,13 +638,20 @@ async function loadReviews() {
 }
 loadReviews();
 
-// ---------- custom pet product shop ----------
+// ---------- post-checkout confirmation ----------
+(function orderBanner() {
+  const banner = document.getElementById('orderBanner');
+  if (!banner || new URLSearchParams(window.location.search).get('order') !== 'success') return;
+  banner.hidden = false;
+  // Drop the query so a refresh or a shared link doesn't show it again.
+  history.replaceState(null, '', window.location.pathname + window.location.hash);
+})();
+
+// ---------- custom cat print shop ----------
 (function customShop() {
   const grid = document.getElementById('customGrid');
-  const toggle = document.getElementById('speciesToggle');
-  if (!grid || !toggle) return;
+  if (!grid) return;
 
-  const speciesField = document.getElementById('customSpecies');
   const productField = document.getElementById('customProductId');
   const selectedNote = document.getElementById('customSelectedNote');
   const submitBtn = document.getElementById('customSubmitBtn');
@@ -651,7 +666,8 @@ loadReviews();
   const sweatshirtSizeLabel = document.getElementById('customSweatshirtSizeLabel');
   const sweatshirtSizeSelect = document.getElementById('customSweatshirtSize');
 
-  let currentSpecies = 'cat';
+  // Whiskr is cats only (owner's call, 2026-09-30) — no species switch.
+  const currentSpecies = 'cat';
   let products = [];
 
   // Phone cases are sized per exact device (see phoneCases.js server-side)
@@ -730,7 +746,19 @@ loadReviews();
   }
 
   const activeDiscount = loadActiveDiscount();
+  // Only claim a discount once the server confirms discounting is on — a
+  // link or a stored entry from before it was switched off would otherwise
+  // show "a discount is applied" for an order that gets 0% off.
   if (activeDiscount && discountBanner) {
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (cfg && cfg.contestDiscountPercent > 0) applyDiscount(activeDiscount);
+        else try { localStorage.removeItem('whiskr_discount'); } catch (_) {}
+      })
+      .catch(() => {});
+  }
+  function applyDiscount(activeDiscount) {
     setHiddenField('discountEmail', activeDiscount.email);
     setHiddenField('discountExpires', activeDiscount.expiresAt);
     setHiddenField('discountToken', activeDiscount.token);
@@ -799,7 +827,7 @@ loadReviews();
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-primary';
-      btn.textContent = p.id === productField.value ? 'Selected' : 'Choose this print';
+      btn.textContent = p.id === productField.value ? 'Selected' : 'Choose';
       btn.addEventListener('click', () => selectProduct(p));
       card.appendChild(btn);
 
@@ -827,29 +855,6 @@ loadReviews();
     renderGrid();
   }
 
-  toggle.querySelectorAll('button').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      toggle.querySelectorAll('button').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentSpecies = btn.dataset.species;
-      speciesField.value = currentSpecies;
-      productField.value = '';
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Choose a product first';
-      selectedNote.textContent = 'Pick a product above to get started.';
-      if (phoneModelLabel && phoneModelSelect) {
-        phoneModelLabel.hidden = true;
-        phoneModelSelect.required = false;
-        phoneModelSelect.value = '';
-      }
-      if (sweatshirtSizeLabel && sweatshirtSizeSelect) {
-        sweatshirtSizeLabel.hidden = true;
-        sweatshirtSizeSelect.required = false;
-        sweatshirtSizeSelect.value = '';
-      }
-      loadProducts(currentSpecies);
-    });
-  });
 
   if (photoInput) {
     photoInput.addEventListener('change', () => {

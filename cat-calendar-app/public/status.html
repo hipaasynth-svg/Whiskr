@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 <meta name="robots" content="noindex, nofollow" />
 <title>Your cat's status — Whiskr</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -78,7 +79,8 @@
       }
 
       if (data.contestStatus === 'open') {
-        const closes = new Date(data.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+        const closes = data.closesLabel ||
+          new Date(data.closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'America/Chicago' });
         const referredLine = data.referredVotes > 0
           ? `<p class="status-sub">${data.referredVotes} vote${data.referredVotes === 1 ? '' : 's'} so far came from people who clicked your share link — nice work!</p>`
           : '';
