@@ -203,11 +203,31 @@ app.use(blog.createRouter({ baseUrl: BASE_URL }));
 // Dynamic sitemap. year-award.html and per-round calendar.html pages are
 // deliberately left out — both are dormant (see the 2026-09-11
 // simplification note in docs/audit-assembly.md), nothing to index.
-app.get('/sitemap.xml', (req, res) => {
+// The products a visitor can actually buy right now: the catalog minus
+// anything switched off in admin. Used by the sitemap and llms.txt, which
+// sit ahead of the /api DB middleware, so this initialises the DB itself.
+async function liveProducts() {
+  await db.initDb();
+  return getProductsWithMedia('all');
+}
+
+app.get('/sitemap.xml', async (req, res) => {
+  // Product pages are listed only while switched on. If the database can't
+  // be reached, fall back to the full catalog rather than drop every
+  // product URL from the sitemap over a blip.
+  let products;
+  try {
+    products = await liveProducts();
+  } catch (err) {
+    console.error('[sitemap] product visibility unavailable:', err.message);
+    products = productCatalog.listProducts('all');
+  }
   const urls = [
     { loc: `${BASE_URL}/`, changefreq: 'daily', priority: '1.0' },
     { loc: `${BASE_URL}/vote.html`, changefreq: 'hourly', priority: '0.9' },
     ...blog.sitemapEntries(BASE_URL),
+    { loc: `${BASE_URL}/shop`, changefreq: 'weekly', priority: '0.8' },
+    ...products.map((p) => ({ loc: `${BASE_URL}/shop/${p.id}`, changefreq: 'weekly', priority: '0.7' })),
     { loc: `${BASE_URL}/commission`, changefreq: 'monthly', priority: '0.8' },
     { loc: `${BASE_URL}/winners`, changefreq: 'monthly', priority: '0.7' },
     { loc: `${BASE_URL}/rules.html`, changefreq: 'monthly', priority: '0.3' },
@@ -226,6 +246,24 @@ ${urls.map((u) => `  <url>
 </urlset>`;
   res.set('Content-Type', 'application/xml; charset=utf-8');
   res.send(body);
+});
+
+// llms.txt — the hand-written public/llms.txt plus a live product list, so
+// AI assistants get each product's own URL and current price, and a product
+// switched off in admin drops out here as soon as it's switched off.
+app.get('/llms.txt', async (req, res) => {
+  let text = fs.readFileSync(path.join(__dirname, 'public', 'llms.txt'), 'utf8');
+  try {
+    const products = await liveProducts();
+    if (products.length) {
+      text = text.trimEnd() + `\n\n## Products\n\nEach is printed to order from the buyer's own cat photo. Free shipping on print orders of $${orderEconomics.FREE_SHIPPING_THRESHOLD_USD}+. All products: ${BASE_URL}/shop\n\n` +
+        products.map((p) => `- [${p.name}](${BASE_URL}/shop/${p.id}): $${p.priceUsd.toFixed(2)}. ${p.description}`).join('\n') + '\n';
+    }
+  } catch (err) {
+    console.error('[llms.txt] product list unavailable:', err.message);
+  }
+  res.set('Content-Type', 'text/plain; charset=utf-8');
+  res.send(text);
 });
 
 // Static assets, served BEFORE the DB-init middleware below.
@@ -1359,6 +1397,37 @@ app.get('/calendar.html', async (req, res, next) => {
   } catch (err) {
     console.error('[render] calendar prerender failed, falling back to static file:', err.message);
     next();
+  }
+});
+
+// One indexable page per product, plus a /shop index — see the /shop
+// section of seo.js. Unknown or switched-off products get a noindex 404.
+app.get('/shop', async (req, res, next) => {
+  try {
+    const products = await liveProducts();
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(seo.renderShopIndex({ products, baseUrl: BASE_URL, freeShippingUsd: orderEconomics.FREE_SHIPPING_THRESHOLD_USD }));
+  } catch (err) {
+    console.error('[render] /shop failed:', err.message);
+    next(err);
+  }
+});
+
+app.get('/shop/:id', async (req, res, next) => {
+  try {
+    const products = await liveProducts();
+    const product = products.find((p) => p.id === req.params.id);
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    if (!product) return res.status(404).send(seo.renderShopNotFound());
+    res.send(seo.renderProductPage({
+      product,
+      others: products.filter((p) => p.id !== product.id),
+      baseUrl: BASE_URL,
+      freeShippingUsd: orderEconomics.FREE_SHIPPING_THRESHOLD_USD,
+    }));
+  } catch (err) {
+    console.error('[render] /shop/:id failed:', err.message);
+    next(err);
   }
 });
 
@@ -4239,24 +4308,40 @@ app.post('/api/admin/products/:id', requireAdmin, upload.single('photo'), async 
   const seoTitle = String(req.body.seoTitle || '').trim().slice(0, 200) || null;
   const seoDescription = String(req.body.seoDescription || '').trim().slice(0, 500) || null;
   const descriptionOverride = String(req.body.description || '').trim().slice(0, 500) || null;
-  // Unchecked checkboxes are simply absent from the submitted form data,
-  // never sent as false — so anything other than the checked value means hide it.
-  const hidden = (req.body.hidden === 'on' || req.body.hidden === 'true') ? 1 : 0;
 
+  // On/off is NOT saved here — it has its own one-click switch (the
+  // /visibility route below). A photo/copy save leaves it exactly as it was,
+  // so saving a form that was loaded before a toggle can't flip it back.
   await db.run(
-    `INSERT INTO product_media (product_id, image_path, image_alt, seo_title, seo_description, description_override, hidden, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO product_media (product_id, image_path, image_alt, seo_title, seo_description, description_override, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (product_id) DO UPDATE SET
        image_path = COALESCE(EXCLUDED.image_path, product_media.image_path),
        image_alt = EXCLUDED.image_alt,
        seo_title = EXCLUDED.seo_title,
        seo_description = EXCLUDED.seo_description,
        description_override = EXCLUDED.description_override,
-       hidden = EXCLUDED.hidden,
        updated_at = EXCLUDED.updated_at`,
-    [product.id, imagePath, imageAlt, seoTitle, seoDescription, descriptionOverride, hidden, new Date().toISOString()]
+    [product.id, imagePath, imageAlt, seoTitle, seoDescription, descriptionOverride, new Date().toISOString()]
   );
   res.json({ ok: true });
+});
+
+// The per-product on/off switch in admin.html. Off pulls the product from
+// everywhere a customer or crawler can find it — shop grid, /shop pages
+// (which then 404), sitemap, llms.txt, JSON-LD — and blocks new orders in
+// POST /api/custom-orders. Past orders, photo and copy are untouched, so
+// switching it back on restores it exactly.
+app.post('/api/admin/products/:id/visibility', requireAdmin, async (req, res) => {
+  const product = productCatalog.getProduct(req.params.id);
+  if (!product) return res.status(404).json({ error: 'Unknown product.' });
+  const hidden = req.body.enabled ? 0 : 1;
+  await db.run(
+    `INSERT INTO product_media (product_id, hidden, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT (product_id) DO UPDATE SET hidden = EXCLUDED.hidden, updated_at = EXCLUDED.updated_at`,
+    [product.id, hidden, new Date().toISOString()]
+  );
+  res.json({ ok: true, enabled: !hidden });
 });
 
 // Clears just the photo, keeping alt/SEO/description text intact — reverts
