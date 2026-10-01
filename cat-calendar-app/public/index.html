@@ -105,7 +105,7 @@
     <li>
       <span class="step-num">1</span>
       <h3>Enter your cat free</h3>
-      <p>One photo, one email address. That's the whole entry — no purchase necessary to enter or win.</p>
+      <p>One photo, plus your name, email and phone number. That's the whole entry — no purchase necessary to enter or win.</p>
     </li>
     <li>
       <span class="step-num">2</span>
@@ -178,7 +178,7 @@
     <div class="enter-copy">
       <p class="ribbon-tag">Contest entry is free</p>
       <h2>Enter your cat</h2>
-      <p>One photo, one email address. We'll send you a shareable vote link the moment you enter — ask friends, family, and followers to vote before this round closes.</p>
+      <p>One photo, plus your name, email and phone number. We'll send you a shareable vote link the moment you enter — ask friends, family, and followers to vote before this round closes.</p>
       <p>Take your time with the photo: good light, a clean background, and a shot you're proud of gives your cat its best chance at winning.</p>
     </div>
     <form id="entryForm" class="entry-form" enctype="multipart/form-data">
@@ -187,8 +187,17 @@
         <input type="text" name="catName" id="catName" maxlength="60" placeholder="Biscuit" required />
       </label>
       <label>
+        Your name
+        <input type="text" name="ownerName" id="entryOwnerName" maxlength="80" autocomplete="name" placeholder="Jane Doe" required />
+      </label>
+      <label>
         Your email
         <input type="email" name="email" id="entryEmail" placeholder="you@example.com" required />
+      </label>
+      <label>
+        Your phone number
+        <input type="tel" name="phone" id="entryPhone" placeholder="(555) 123-4567" autocomplete="tel" required />
+        <span class="field-hint">Only used to reach you about your entry, like if your cat wins. No marketing texts.</span>
       </label>
       <label class="file-label">
         Photo

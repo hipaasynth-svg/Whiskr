@@ -2134,3 +2134,31 @@ a banner on `?order=success`), a supplier name in the framed-print
 description, a lowercase "your pet's painting is finished" email opener,
 two privacy-page lines, and shared vote links now carry the cat's name in
 the page title as well as the preview.
+
+## Update — 2026-09-30: phone number required at entry
+
+Owner's call: an entry now needs a phone number as well as an email, so a
+winner can be reached by phone. `POST /api/submissions` rejects a missing or
+invalid number and stores it normalized (`+17015550142`; a bare 10-digit
+number is taken as US). It's shown with a tap-to-call link next to each
+winner's email in admin → Painting winners. The form, rules ("How to
+enter") and privacy page all say it is used only to reach the entrant about
+their entry and never for marketing texts — keep it that way: texting
+promotions to these numbers without separate consent would be a TCPA
+problem. Older entries have no phone (NULL).
+
+## Update — 2026-09-30: name at entry, and winners can claim their prize
+
+Owner's direction: entry is name + phone + email (plus the cat's name and
+photo); Whiskr tries to reach the winner, and the winner can also check back
+and claim. Entry now requires the entrant's name (`submissions.owner_name`).
+When a round closes, the winner email carries a "Claim your prize" button — a
+signed link (`claimToken.js`) to `/claim`, where the winner gives a mailing
+address. A winner who lost the email can go to `/claim` (linked from
+/winners and their status page) and prove it's them with the email and phone
+they entered with; wrong pairs get the same "couldn't find" answer as a
+non-winner, and lookups are rate-limited per connection. The address is saved
+on the round's `year_awards` row, shown in admin → Painting winners (with
+owner name, tap-to-email and tap-to-call), and emailed to ADMIN_EMAIL. The
+rules' Prize section and the privacy page describe exactly this. No claim
+deadline or forfeit rule exists yet — that's an owner decision.

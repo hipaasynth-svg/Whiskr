@@ -229,7 +229,7 @@
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
         <h2>Painting winners</h2>
-        <p class="sub">Every month's #1 vote-getter wins an original painting automatically the instant the round closes — nothing to open or pick here. This is just the record: reply to each winner's own email thread with a mailing address once they send one.</p>
+        <p class="sub">Every month's #1 vote-getter wins an original painting automatically the instant the round closes — nothing to open or pick here. This is just the record: reach each winner by the email or phone number they entered with. Winners claim at whiskr.lol/claim (linked from their winner email) and their mailing address shows up under Ship to — you're also emailed when one arrives.</p>
       </div>
       <button class="btn btn-ghost refresh-btn" id="refreshYearAward" type="button">Refresh</button>
     </div>
@@ -441,6 +441,16 @@
 
   const yearAwardList = document.getElementById('yearAwardList');
 
+  // The winner's mailing address, once they've claimed at /claim.
+  function shipTo(a) {
+    if (!a.address_submitted_at) return '<em>Not claimed yet</em>';
+    let addr = {};
+    try { addr = JSON.parse(a.shipping_address || '{}'); } catch (_) {}
+    const lines = [a.shipping_name, addr.line1, addr.line2, [addr.city, addr.state, addr.zip].filter(Boolean).join(' '), addr.country]
+      .filter(Boolean).map(escapeHtml).join('<br>');
+    return `${lines}<br><span style="color:#6b6552;font-size:0.8rem;">Claimed ${new Date(a.address_submitted_at).toLocaleDateString()}</span>`;
+  }
+
   async function loadYearAward() {
     yearAwardList.innerHTML = '<p class="empty">Loading…</p>';
     try {
@@ -457,14 +467,17 @@
 
       yearAwardList.innerHTML = `
         <table class="orders">
-          <thead><tr><th>Date</th><th>Round</th><th>Cat</th><th>Email</th><th>Painting target</th></tr></thead>
+          <thead><tr><th>Date</th><th>Round</th><th>Cat</th><th>Owner</th><th>Email</th><th>Phone</th><th>Ship to</th><th>Painting target</th></tr></thead>
           <tbody>
             ${data.awards.map((a) => `
               <tr>
                 <td>${new Date(a.created_at).toLocaleDateString()}</td>
                 <td>${escapeHtml(a.label)}</td>
                 <td>${escapeHtml(a.cat_name || '—')}</td>
-                <td>${escapeHtml(a.email || '—')}</td>
+                <td>${escapeHtml(a.owner_name || '—')}</td>
+                <td>${a.email ? `<a href="mailto:${escapeHtml(a.email)}">${escapeHtml(a.email)}</a>` : '—'}</td>
+                <td>${a.phone ? `<a href="tel:${escapeHtml(a.phone)}">${escapeHtml(a.phone)}</a>` : '—'}</td>
+                <td>${shipTo(a)}</td>
                 <td>${a.sculpture_deadline ? new Date(a.sculpture_deadline).toLocaleDateString() : '—'}</td>
               </tr>
             `).join('')}

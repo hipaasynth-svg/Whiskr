@@ -679,7 +679,8 @@ h1, h2, h3, h4 {
 }
 .entry-form label { font-size: 0.85rem; font-weight: 500; display: flex; flex-direction: column; gap: 6px; }
 .entry-form input[type=text],
-.entry-form input[type=email] {
+.entry-form input[type=email],
+.entry-form input[type=tel] {
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 3px;

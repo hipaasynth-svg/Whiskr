@@ -15,6 +15,7 @@ const unsubscribe = require('./unsubscribe');
 const reviewLink = require('./reviewLink');
 const discountToken = require('./discountToken');
 const statusToken = require('./statusToken');
+const claimToken = require('./claimToken');
 const productCatalog = require('./products');
 const commissionPricing = require('./commissions');
 const orderEconomics = require('./orderEconomics');
@@ -324,6 +325,13 @@ app.get('/commission', (req, res) => {
 
 // The brief's site map calls this /thanks, and it is the page an entrant is
 // sent to the moment they enter — the one that turns an entry into votes.
+// Where a winner claims their painting: either from the signed link in
+// their winner email / status page, or by "checking back" and entering the
+// email + phone they entered with (see POST /api/claim/lookup).
+app.get('/claim', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'claim.html'));
+});
+
 app.get('/thanks', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'thanks.html'));
 });
@@ -1359,6 +1367,18 @@ app.get('/calendar.html', async (req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- helpers ----------
+// Contest entries need a phone number so a winner can be reached (owner's
+// call, 2026-09-30). Returns a normalized +<digits> string, or null if it
+// doesn't look like a real number. A bare 10-digit number is taken as US.
+function normalizePhone(raw) {
+  const s = String(raw || '').trim();
+  const digits = s.replace(/\D/g, '');
+  if (!s.startsWith('+') && digits.length === 10) return `+1${digits}`;
+  if (!s.startsWith('+') && digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  if (s.startsWith('+') && digits.length >= 8 && digits.length <= 15) return `+${digits}`;
+  return null;
+}
+
 function isValidEmail(e) {
   return typeof e === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
@@ -1567,8 +1587,11 @@ async function tallyAndCloseContest(contestId) {
     const rank = i + 1;
     try {
       if (rank === 1) {
-        const { deadline } = await awardPainting(s, `${contest.label} winner`);
-        await mailer.sendWinnerEmail({ email: s.email, catName: s.cat_name, sculptureDeadline: deadline });
+        const { yearAwardId, deadline } = await awardPainting(s, `${contest.label} winner`);
+        await mailer.sendWinnerEmail({
+          email: s.email, catName: s.cat_name, sculptureDeadline: deadline,
+          claimUrl: claimUrlFor(yearAwardId, s.email),
+        });
       } else {
         await mailer.sendFinalRankEmail({
           email: s.email, catName: s.cat_name, rank, totalEntries: ranked.length,
@@ -1794,6 +1817,14 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     if (!isValidEmail(email)) {
       return res.status(400).json({ error: 'A valid email is required.' });
     }
+    const phone = normalizePhone(req.body.phone);
+    if (!phone) {
+      return res.status(400).json({ error: 'A valid phone number is required, so we can reach you if your cat wins.' });
+    }
+    const ownerName = String(req.body.ownerName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 80);
+    if (!ownerName) {
+      return res.status(400).json({ error: 'Please enter your name, so we know who to contact if your cat wins.' });
+    }
     if (!req.file) {
       return res.status(400).json({ error: 'A photo is required.' });
     }
@@ -1827,9 +1858,9 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     const contest = await getOrOpenCurrentContest();
 
     const info = await db.run(
-      `INSERT INTO submissions (email, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution, share_image_path, utm_campaign, ip_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [email, name, photoPath, now, now, contest.id, width, height, lowResolution, shareImagePath, utmCampaign, ipHash]
+      `INSERT INTO submissions (email, phone, owner_name, cat_name, photo_path, created_at, photo_rights_consent_at, contest_id, photo_width, photo_height, low_resolution, share_image_path, utm_campaign, ip_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [email, phone, ownerName, name, photoPath, now, now, contest.id, width, height, lowResolution, shareImagePath, utmCampaign, ipHash]
     );
     const submissionId = info.rows[0].id;
     const voteUrl = `${BASE_URL}/vote.html?cat=${submissionId}`;
@@ -1909,6 +1940,131 @@ app.get('/api/contest/current', async (req, res) => {
 // anyone else's. While the contest is still open this computes a LIVE rank
 // on the fly (final_rank isn't set until close); once closed it reports the
 // permanent final_rank instead.
+// ---------- prize claims ----------
+// A winner claims their painting by giving a mailing address. Two ways in:
+// the signed link (claimUrlFor) in their winner email and on their status
+// page, or checking back at /claim and proving it's them with the email and
+// phone number they entered with. Either way they get the same signed
+// award+token pair, which is all POST /api/claim accepts.
+function claimUrlFor(awardId, email) {
+  return `${BASE_URL}/claim?award=${awardId}&token=${claimToken.tokenFor(awardId, email)}`;
+}
+
+async function loadClaim(awardId) {
+  return db.get(
+    `SELECT ya.id, ya.label, ya.shipping_name, ya.shipping_address, ya.address_submitted_at,
+            s.email, s.phone, s.owner_name, s.cat_name, s.photo_path
+     FROM year_awards ya JOIN submissions s ON s.id = ya.winner_submission_id
+     WHERE ya.id = ?`,
+    [awardId]
+  );
+}
+
+function claimPayload(row) {
+  let address = null;
+  try { address = row.shipping_address ? JSON.parse(row.shipping_address) : null; } catch (_) {}
+  return {
+    award: row.id,
+    token: claimToken.tokenFor(row.id, row.email),
+    catName: row.cat_name,
+    photoPath: row.photo_path,
+    roundLabel: String(row.label || '').replace(/ winner$/, ''),
+    claimed: Boolean(row.address_submitted_at),
+    shippingName: row.shipping_name || row.owner_name || '',
+    address,
+  };
+}
+
+// Checking back: email + phone must both match a winning entry. Rate-limited
+// per connection (per warm instance — a best-effort brake on guessing, on
+// top of needing both values right).
+const claimLookupAttempts = new Map();
+app.post('/api/claim/lookup', async (req, res) => {
+  try {
+    const ipHash = hashIp(req.ip);
+    const now = Date.now();
+    const recent = (claimLookupAttempts.get(ipHash) || []).filter((t) => now - t < 60 * 60 * 1000);
+    if (recent.length >= 10) {
+      return res.status(429).json({ error: 'Too many tries — please wait an hour, or email us and we will sort it out.' });
+    }
+    recent.push(now);
+    claimLookupAttempts.set(ipHash, recent);
+
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const phone = normalizePhone(req.body.phone);
+    if (!isValidEmail(email) || !phone) {
+      return res.status(400).json({ error: 'Enter the email and phone number you used when you entered your cat.' });
+    }
+    const row = await db.get(
+      `SELECT ya.id FROM year_awards ya JOIN submissions s ON s.id = ya.winner_submission_id
+       WHERE LOWER(s.email) = ? AND s.phone = ? ORDER BY ya.id DESC LIMIT 1`,
+      [email, phone]
+    );
+    if (!row) {
+      return res.status(404).json({
+        error: "We couldn't find a winning entry with that email and phone number. Check they're the ones you entered with, or email us.",
+      });
+    }
+    res.json(claimPayload(await loadClaim(row.id)));
+  } catch (err) {
+    console.error('[claim] lookup failed:', err);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
+});
+
+app.get('/api/claim', async (req, res) => {
+  const awardId = Number(req.query.award);
+  const row = Number.isInteger(awardId) && awardId > 0 ? await loadClaim(awardId) : null;
+  if (!row || !claimToken.verify(awardId, row.email, req.query.token)) {
+    return res.status(403).json({ error: 'This claim link is invalid. Use the link from your winner email, or claim with your email and phone below.' });
+  }
+  res.json(claimPayload(row));
+});
+
+app.post('/api/claim', async (req, res) => {
+  try {
+    const awardId = Number(req.body.award);
+    const row = Number.isInteger(awardId) && awardId > 0 ? await loadClaim(awardId) : null;
+    if (!row || !claimToken.verify(awardId, row.email, req.body.token)) {
+      return res.status(403).json({ error: 'This claim link is invalid.' });
+    }
+    const clean = (v, max) => String(v || '').replace(/[\r\n]+/g, ' ').trim().slice(0, max);
+    const name = clean(req.body.name, 80);
+    const address = {
+      line1: clean(req.body.line1, 120),
+      line2: clean(req.body.line2, 120),
+      city: clean(req.body.city, 80),
+      state: clean(req.body.state, 60),
+      zip: clean(req.body.zip, 20),
+      country: clean(req.body.country, 60) || 'United States',
+    };
+    if (!name || !address.line1 || !address.city || !address.state || !address.zip) {
+      return res.status(400).json({ error: 'Please fill in your name, street address, city, state and ZIP code.' });
+    }
+    const now = new Date().toISOString();
+    await db.run(
+      `UPDATE year_awards SET shipping_name = ?, shipping_address = ?, address_submitted_at = ? WHERE id = ?`,
+      [name, JSON.stringify(address), now, awardId]
+    );
+
+    const oneLine = [address.line1, address.line2, `${address.city}, ${address.state} ${address.zip}`, address.country].filter(Boolean).join(', ');
+    if (process.env.ADMIN_EMAIL) {
+      mailer
+        .sendMail({
+          to: process.env.ADMIN_EMAIL,
+          subject: `Prize claimed: ${row.cat_name} (${String(row.label || '').replace(/ winner$/, '')})`,
+          text: `${name} claimed the painting for ${row.cat_name}.\n\nShip to: ${name}, ${oneLine}\nEmail: ${row.email}\nPhone: ${row.phone || 'not given'}\n\nAlso in admin → Painting winners.`,
+          html: `<p><strong>${seo.escapeHtml(name)}</strong> claimed the painting for <strong>${seo.escapeHtml(row.cat_name)}</strong>.</p><p>Ship to: ${seo.escapeHtml(name)}, ${seo.escapeHtml(oneLine)}<br>Email: ${seo.escapeHtml(row.email)}<br>Phone: ${seo.escapeHtml(row.phone || 'not given')}</p><p>Also in admin → Painting winners.</p>`,
+        })
+        .catch((err) => console.error('[claim] admin notify failed:', err.message));
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[claim] save failed:', err);
+    res.status(500).json({ error: 'Something went wrong.' });
+  }
+});
+
 app.get('/api/my-status', async (req, res) => {
   const submissionId = Number(req.query.cat);
   const { email, token } = req.query;
@@ -1946,11 +2102,17 @@ app.get('/api/my-status', async (req, res) => {
     });
   }
 
+  let claimUrl = null;
+  if (submission.final_rank === 1) {
+    const award = await db.get(`SELECT id FROM year_awards WHERE winner_submission_id = ? ORDER BY id DESC LIMIT 1`, [submission.id]);
+    if (award) claimUrl = claimUrlFor(award.id, submission.email);
+  }
   return res.json({
     catName: submission.cat_name,
     contestStatus: 'completed',
     voteCount: submission.vote_count,
     finalRank: submission.final_rank,
+    claimUrl,
   });
 });
 
@@ -3029,7 +3191,7 @@ app.post('/api/admin/contest/force-close', requireAdmin, async (req, res) => {
 // "open a vote" step to manage anymore.
 app.get('/api/admin/year-award', requireAdmin, async (req, res) => {
   const awards = await db.all(
-    `SELECT ya.*, s.cat_name, s.email, s.photo_path
+    `SELECT ya.*, s.cat_name, s.email, s.phone, s.owner_name, s.photo_path
      FROM year_awards ya
      LEFT JOIN submissions s ON s.id = ya.winner_submission_id
      ORDER BY ya.created_at DESC`
