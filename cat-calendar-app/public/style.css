@@ -602,6 +602,8 @@ h1, h2, h3, h4 {
   border-radius: 6px 6px 0 0;
 }
 .custom-card h3 { font-size: 1.15rem; margin-bottom: 0; }
+.custom-card h3 a, .custom-card h4 a { color: inherit; text-decoration: none; }
+.custom-card h3 a:hover, .custom-card h4 a:hover { text-decoration: underline; }
 .custom-card p { font-size: 0.92rem; color: #55503f; flex: 1; margin: 0; }
 .custom-card .price { font-family: var(--font-display); font-size: 1.4rem; }
 .custom-order-form {
