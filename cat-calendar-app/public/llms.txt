@@ -32,6 +32,10 @@ entries found to be using purchased or bot-generated votes (see rules.html).
 
 - [Homepage](https://whiskr.lol/): enter the free contest, shop custom cat
   prints, and read verified customer reviews.
+- [Shop](https://whiskr.lol/shop): every custom cat print product, each
+  with its own page (https://whiskr.lol/shop/<product-id>) carrying
+  Product JSON-LD with the current price. The full live list is at the
+  end of this file.
 - [Vote](https://whiskr.lol/vote.html): the current round's entrants — vote
   free, once per cat.
 - [Official rules](https://whiskr.lol/rules.html): eligibility, how votes

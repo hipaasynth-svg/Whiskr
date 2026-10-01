@@ -43,8 +43,14 @@
   .product-row { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
   .product-row:last-child { border-bottom: none; }
   .product-row.is-hidden { opacity: 0.55; }
-  .product-row .hidden-badge { font-size: 0.68rem; padding: 2px 7px; border-radius: 3px; background: #b3261e; color: #fff; }
-  .product-row .hidden-toggle { flex-direction: row !important; align-items: center; gap: 6px !important; font-size: 0.8rem !important; color: var(--ink) !important; }
+  .product-row .switch { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; cursor: pointer; font: 600 0.78rem var(--font-body); color: #2e7d32; padding: 4px 0; }
+  .product-row .switch .track { width: 38px; height: 22px; border-radius: 11px; background: #2e7d32; position: relative; transition: background .15s; flex-shrink: 0; }
+  .product-row .switch .track::after { content: ''; position: absolute; top: 3px; left: 19px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .product-row .switch[aria-checked="false"] { color: #b3261e; }
+  .product-row .switch[aria-checked="false"] .track { background: #b8b2a2; }
+  .product-row .switch[aria-checked="false"] .track::after { left: 3px; }
+  .product-row .switch:disabled { opacity: .5; cursor: wait; }
+  .product-row .shop-link { font-size: 0.74rem; }
   .product-row .preview { width: 90px; flex-shrink: 0; }
   .product-row .preview img { width: 100%; aspect-ratio: 1/1; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
   .product-row .preview .none { width: 100%; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.68rem; color: #6b6552; border: 1px dashed var(--line); border-radius: 4px; padding: 4px; }
@@ -203,8 +209,8 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
-        <h2>Shop product photos</h2>
-        <p class="sub">One fixed spot per product — not a free-add list. Upload a real photo of that product (recommended aspect ratio shown per row, matching what actually ships) plus its alt text, SEO title/description, and an optional description override. Empty = the card shows text only, same as today — never a placeholder image.</p>
+        <h2>Shop products</h2>
+        <p class="sub">Each product's switch turns it on or off instantly — off removes it from the shop, its own page, Google's sitemap and AI listings, and blocks new orders (past orders, photo and copy are kept). Below that: one fixed spot per product — not a free-add list. Upload a real photo of that product (recommended aspect ratio shown per row, matching what actually ships) plus its alt text, SEO title/description, and an optional description override. Empty = the card shows text only, same as today — never a placeholder image.</p>
       </div>
       <button class="btn btn-ghost refresh-btn" id="refreshProducts" type="button">Refresh</button>
     </div>
@@ -1411,7 +1417,8 @@
             ${p.imagePath ? `<img src="${p.imagePath}" alt="" />` : `<div class="none">No photo yet</div>`}
           </div>
           <div class="body">
-            <div class="title-line"><strong>${escapeHtml(p.name)}</strong><span class="price">$${p.priceUsd.toFixed(2)}</span>${p.hidden ? '<span class="hidden-badge">Hidden from shop</span>' : ''}</div>
+            <div class="title-line"><strong>${escapeHtml(p.name)}</strong><span class="price">$${p.priceUsd.toFixed(2)}</span><button type="button" class="switch" role="switch" aria-checked="${p.hidden ? 'false' : 'true'}" data-id="${p.id}" aria-label="${escapeHtml(p.name)} in shop"><span class="track"></span><span class="switch-label">${p.hidden ? 'Off' : 'On sale'}</span></button></div>
+            ${p.hidden ? '' : `<a class="shop-link" href="/shop/${encodeURIComponent(p.id)}" target="_blank" rel="noopener">View product page ↗</a>`}
             <div class="aspect-hint">${aspectHint(p.mockupAspect)}</div>
             <form class="product-form" data-id="${p.id}">
               <input type="file" name="photo" accept="image/png,image/jpeg,image/webp,image/gif" class="full" />
@@ -1419,7 +1426,6 @@
               <label>SEO title<input type="text" name="seoTitle" value="${escapeHtml(p.seoTitle || '')}" placeholder="${escapeHtml(p.name)}" maxlength="200" /></label>
               <label class="full">SEO description<textarea name="seoDescription" placeholder="${escapeHtml(p.description)}" maxlength="500">${escapeHtml(p.seoDescription || '')}</textarea></label>
               <label class="full">Description override<textarea name="description" placeholder="${escapeHtml(p.description)}" maxlength="500">${escapeHtml(p.descriptionOverride || '')}</textarea></label>
-              <label class="full hidden-toggle"><input type="checkbox" name="hidden" ${p.hidden ? 'checked' : ''} /> Hidden — pull from the shop (keeps photo/copy, blocks new orders, doesn't touch past ones)</label>
               <div class="row-actions">
                 <button type="submit" class="btn btn-primary">Save</button>
                 ${p.imagePath ? `<button type="button" class="remove-photo" data-id="${p.id}">Remove photo</button>` : ''}
@@ -1454,6 +1460,26 @@
 
       productsList.querySelectorAll('.remove-photo').forEach((btn) => {
         btn.addEventListener('click', () => deleteProductPhoto(btn.dataset.id));
+      });
+
+      productsList.querySelectorAll('.switch').forEach((sw) => {
+        sw.addEventListener('click', async () => {
+          const enabled = sw.getAttribute('aria-checked') !== 'true';
+          sw.disabled = true;
+          try {
+            const res = await adminFetch(`/api/admin/products/${sw.dataset.id}/visibility`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Could not change it.');
+            loadProducts();
+          } catch (err) {
+            sw.disabled = false;
+            alert(err.message);
+          }
+        });
       });
     } catch (err) {
       keyStatus.textContent = err.message;

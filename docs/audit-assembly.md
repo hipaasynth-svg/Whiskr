@@ -2162,3 +2162,23 @@ on the round's `year_awards` row, shown in admin → Painting winners (with
 owner name, tap-to-email and tap-to-call), and emailed to ADMIN_EMAIL. The
 rules' Prize section and the privacy page describe exactly this. No claim
 deadline or forfeit rule exists yet — that's an owner decision.
+
+## Update 2026-10-01: per-product on/off switch, product pages for search and AI
+
+- **Admin on/off.** Each product in admin has a one-click switch (`POST /api/admin/products/:id/visibility`). Off removes it from:
+  - the shop grid and `/api/products`;
+  - its `/shop/:id` page, which now returns a noindex 404;
+  - the sitemap, llms.txt and the homepage JSON-LD.
+
+  Switching it off also blocks new orders (the existing check in `/api/custom-orders`). Past orders, the photo and the copy are kept. The old "Hidden" checkbox inside the photo/copy form is gone, and that form's save no longer writes `hidden`, so saving a stale form can't undo a toggle.
+- **One page per product** at `/shop/:id`, plus a `/shop` index, both server-rendered:
+  - Product + Offer JSON-LD, BreadcrumbList, canonical URL and OG tags.
+  - An image only when an admin photo exists; no stock imagery, per CLAUDE.md.
+  - Production and delivery copy uses the same figures as `shipping.html`.
+  - "Make yours" deep-links to `/?product=<id>#shop-custom`, which preselects that product.
+  - Homepage card titles link to their page, and the homepage JSON-LD `url` now points there instead of `/#shop-custom`.
+- **Sitemap** lists `/shop` and every switched-on product. **`/llms.txt`** is now served by a route that appends the live product list (name, URL, price). **robots.txt** explicitly welcomes OAI-SearchBot, Applebot-Extended and Bingbot (all were already allowed under `*`).
+- **Not done, and needed for Google Shopping:**
+  - Product photos: merchant listings require an image, and none have been uploaded.
+  - `shippingDetails` / `hasMerchantReturnPolicy` are deliberately omitted. The returns policy (final sale except defects) doesn't map cleanly onto schema.org's categories, and the tote's shipping rate is still unquoted.
+  - Submit the sitemap in Google Search Console.

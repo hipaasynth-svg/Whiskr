@@ -779,6 +779,7 @@ loadReviews();
       const data = await res.json();
       products = data.products || [];
       renderGrid();
+      preselectFromUrl();
     } catch (err) {
       if (!grid.children.length) grid.innerHTML = '<p style="color:#6b6552;">Could not load products right now.</p>';
     }
@@ -812,7 +813,10 @@ loadReviews();
       // h3, not h4: the section heading above these cards is an h2, and
       // jumping a level leaves a screen reader's heading outline broken.
       const h4 = document.createElement('h3');
-      h4.textContent = p.name;
+      const pageLink = document.createElement('a');
+      pageLink.href = `/shop/${encodeURIComponent(p.id)}`;
+      pageLink.textContent = p.name;
+      h4.appendChild(pageLink);
       card.appendChild(h4);
 
       const desc = document.createElement('p');
@@ -833,6 +837,17 @@ loadReviews();
 
       grid.appendChild(card);
     });
+  }
+
+  // A product page's "Make yours" button lands here as /?product=<id>#shop-custom.
+  // Preselect it once, so the visitor goes straight to uploading a photo.
+  let preselected = false;
+  function preselectFromUrl() {
+    if (preselected) return;
+    preselected = true;
+    const wanted = new URLSearchParams(window.location.search).get('product');
+    const match = wanted && products.find((p) => p.id === wanted);
+    if (match) selectProduct(match);
   }
 
   function selectProduct(p) {
