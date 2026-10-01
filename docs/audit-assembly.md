@@ -2162,3 +2162,19 @@ on the round's `year_awards` row, shown in admin → Painting winners (with
 owner name, tap-to-email and tap-to-call), and emailed to ADMIN_EMAIL. The
 rules' Prize section and the privacy page describe exactly this. No claim
 deadline or forfeit rule exists yet — that's an owner decision.
+
+## Update — 2026-10-01: 30-day claim deadline
+
+Owner's call: a winner has 30 days from the round closing to claim the
+painting (`year_awards.claim_deadline`; older rows fall back to created_at +
+30 days). The winner email states the claim-by date; the claim page shows it
+and refuses a new claim after it (a winner who already claimed can still fix
+their address). The daily cron (`passUnclaimedPrizes`) emails a reminder 7
+days before the deadline, and once it passes, offers the painting to the
+next-highest non-disqualified vote-getter in that round with a fresh 30 days
+(`offered_submission_ids` tracks who has had it), emails them
+(`sendPrizePassedEmail`) and emails ADMIN_EMAIL. If nobody is left, the award
+is marked `unclaimed`. The "Cat of the Month" title stays with the vote
+winner — only the prize moves — and rules.html says exactly this. Admin →
+Painting winners shows "Claim by" (or Overdue/Claimed) and an "Open claim
+form" link so an address taken by phone can be entered before the deadline.
