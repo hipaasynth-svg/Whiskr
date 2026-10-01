@@ -93,12 +93,12 @@ numbers. Two of those four were underwater against prices that had been
 guessed from market rates: the luster framed print (cost $37.45 against a
 $74 price) and the phone case (cost $14.23 against $24.99).
 
-Two costs are a FLOOR rather than the cost, because one flat price covers
-many variants and only one variant has been priced: the sweatshirt is
-checked against 5XL ($27.17, not the $19.17 small) and the phone case
-against the iPhone 11 ($14.23). A newer or larger phone may cost more, and
-the flat price has to carry the most expensive one — price every device
-before trusting that margin.
+Two products carry one flat price over many variants, so each is checked
+against its MOST EXPENSIVE variant, not its cheapest: the sweatshirt against
+5XL ($27.17, not the $19.17 small) and the phone case against the dearest
+device ($14.77, every device priced 2026-10-01 — not the iPhone 11's
+$14.23). Adding a phone model or size means pricing it first; if it costs
+more, it becomes the number the flat price has to carry.
 
 **No discounts.** Prices sit at the floor, so any discount at all lands
 under it — the report prints the largest the catalog survives, and that
@@ -120,12 +120,11 @@ Two things that are easy to get wrong here:
   nearly $18 of shipping. Checking only one number is how you end up
   confidently wrong.
 - Shipping figures are now **real quotes** from `POST /shipping/rates`,
-  taken 2026-09-28, except three the file flags on their own rows: the tote
-  bag (Printful returns 400 for its rate request at every quantity, though
-  it prices the variant fine — worth checking they will actually fulfil it)
-  and the additional-unit rate for the luster framed poster and the 18x24
-  canvas, where one unit already clears the threshold so only a single-unit
-  quote exists. Printful is unreachable from this environment, so any new
+  taken 2026-09-28 (two-unit framed-luster and 18x24-canvas quotes added
+  2026-10-01), except one: the tote bag. Printful returns 400 for its rate
+  request at every quantity, though it prices the variant fine, so its
+  shipping is still an estimate and it is not confirmed they will fulfil
+  it. Printful is unreachable from this environment, so any new
   rate has to be quoted from a machine that can reach it and pasted in.
 
   **Never guess a shipping rate.** The estimates these replaced were wrong

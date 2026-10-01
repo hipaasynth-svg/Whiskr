@@ -117,37 +117,32 @@ const ECONOMICS = {
   // apparel shipping was badly underestimated.
   'crewneck-sweatshirt': { itemUsd: 27.17, shipFirstUsd: 8.79, shipAdditionalUsd: 2.5 },
 
-  // Tough Case, iPhone 11 (variant 15381). Like the sweatshirt this is one
-  // flat price over many variants, and only this one device has been
-  // priced - a newer, larger phone may well cost more, and the flat price
-  // has to carry the worst of them. Treat 14.23 as a FLOOR on the cost,
-  // not the cost.
+  // Tough Case. One flat price over every device in phoneCases.js, so this
+  // is the MOST EXPENSIVE device's cost, not the iPhone 11's $14.23: the
+  // owner priced every device on 2026-10-01 and the highest is $14.77.
+  // The flat price has to carry the worst of them.
   // Real shipping: $5.19 first, $1.00 each additional.
-  'phone-case': { itemUsd: 14.23, shipFirstUsd: 5.19, shipAdditionalUsd: 1.0 },
+  'phone-case': { itemUsd: 14.77, shipFirstUsd: 5.19, shipAdditionalUsd: 1.0 },
 
   // The Gallery Series, confirmed 2026-09-28 against the catalog API and
   // far more expensive than the market rates their prices were guessed
   // from. Shipping is still an estimate; framed pieces go in oversized
   // boxes, hence the high figure.
   // Premium Luster Photo Paper Framed Poster (in), product 172, 12x18.
-  // First rate is real ($10.89). The ADDITIONAL rate is INFERRED, not
-  // quoted: at $89.99 a single one already clears the free-shipping
-  // threshold, so the quote script only asked for one. $4.50 is the matte
-  // framed poster's real additional rate - same physical product, same
-  // $10.89 first rate, different paper - which makes it the best available
-  // stand-in. Quote it directly before leaning on it.
+  // Real: $10.89 first; a two-unit quote on 2026-10-01 came back $15.39,
+  // so $4.50 each additional (it had been inferred from the matte print and
+  // was right). Frame colour confirmed Black for this variant.
   'framed-poster-luster-12x18': { itemUsd: 37.45, shipFirstUsd: 10.89, shipAdditionalUsd: 4.5 },
-  // Enhanced Matte Paper Framed Poster (in), product 2, 12x18.
+  // Enhanced Matte Paper Framed Poster (in), product 2, 12x18. Frame
+  // colour confirmed Black for this variant (2026-10-01).
   // Real: $10.89 first, $4.50 each additional. The $15.99/$8.00 estimate
   // assumed framed art shipped like furniture; it does not.
   'framed-poster-matte-12x18': { itemUsd: 32.77, shipFirstUsd: 10.89, shipAdditionalUsd: 4.5 },
   // Canvas (in), product 3, 18x24 - the one Gallery item whose guessed
   // price was already high enough to carry its real cost.
-  // First rate is real ($10.39). The ADDITIONAL rate is INFERRED and is the
-  // weakest number in this file: one at $89 already clears the threshold so
-  // only a single-unit quote was taken. $9.99 is the 12x12 canvas's real
-  // additional rate, and an 18x24 is larger, so the truth is probably
-  // HIGHER. Quote it before selling these in pairs.
+  // Real: $10.39 first; a two-unit quote on 2026-10-01 came back $20.38,
+  // so $9.99 each additional (it had been inferred from the 12x12 canvas
+  // and was right).
   'canvas-18x24': { itemUsd: 33.66, shipFirstUsd: 10.39, shipAdditionalUsd: 9.99 },
 };
 
