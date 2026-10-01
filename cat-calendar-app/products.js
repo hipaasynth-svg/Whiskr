@@ -50,6 +50,8 @@ const PRODUCTS = [
   // Frame colour: each framed product has several same-cost variants that
   // differ only by frame colour. Both ids below were confirmed on
   // 2026-10-01 to be the BLACK frame, so a catalog photo should show black.
+  // Both have an "Acrylite front protector" (acrylic) per Printful's own
+  // product description, read 2026-10-01 — so "no glass to crack" is true.
   {
     id: 'framed-poster-luster-12x18',
     name: 'Framed Gallery Print',
