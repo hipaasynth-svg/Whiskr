@@ -114,7 +114,7 @@
     lookupCard.hidden = true;
     addressCard.hidden = false;
     document.getElementById('claimRound').textContent = data.roundLabel ? `Cat of the Month · ${data.roundLabel}` : 'Cat of the Month';
-    document.getElementById('claimTitle').textContent = `Congratulations — ${data.catName} won!`;
+    document.getElementById('claimTitle').textContent = `Congratulations — ${data.catName} gets the painting!`;
     if (data.photoPath) {
       const img = document.getElementById('claimPhoto');
       img.src = data.photoPath;
@@ -130,6 +130,14 @@
       document.getElementById('shipState').value = a.state || '';
       document.getElementById('shipZip').value = a.zip || '';
       document.getElementById('shipCountry').value = a.country || 'United States';
+    }
+    if (data.expired) {
+      document.getElementById('claimIntro').textContent =
+        `The 30-day claim period for this prize ended on ${data.claimDeadlineLabel}, so under the contest rules it has passed to the runner-up. Email contest@whiskr.lol if you think this is a mistake.`;
+      document.getElementById('addressForm').hidden = true;
+    } else if (!data.claimed) {
+      document.getElementById('claimIntro').textContent =
+        `Your cat won an original 11x16 acrylic portrait, hand-painted by Cody Carlson. Please tell us where to send it by ${data.claimDeadlineLabel} — after that, it goes to the runner-up. It arrives within 6–8 weeks.`;
     }
     if (data.claimed) {
       document.getElementById('claimIntro').textContent =

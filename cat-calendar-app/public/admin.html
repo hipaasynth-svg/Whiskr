@@ -235,7 +235,7 @@
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
         <h2>Painting winners</h2>
-        <p class="sub">Every month's #1 vote-getter wins an original painting automatically the instant the round closes — nothing to open or pick here. This is just the record: reach each winner by the email or phone number they entered with. Winners claim at whiskr.lol/claim (linked from their winner email) and their mailing address shows up under Ship to — you're also emailed when one arrives.</p>
+        <p class="sub">Every month's #1 vote-getter wins an original painting automatically the instant the round closes — nothing to open or pick here. This is just the record: reach each winner by the email or phone number they entered with. Winners claim at whiskr.lol/claim (linked from their winner email) and their mailing address shows up under Ship to — you're also emailed when one arrives. Winners have 30 days to claim: they're reminded a week before, and an unclaimed painting passes automatically to the next-highest vote-getter (you're emailed). Got an address by phone? Use "Open claim form" and enter it for them.</p>
       </div>
       <button class="btn btn-ghost refresh-btn" id="refreshYearAward" type="button">Refresh</button>
     </div>
@@ -447,6 +447,18 @@
 
   const yearAwardList = document.getElementById('yearAwardList');
 
+  // Claim status: deadline, overdue, or done — plus the winner's own claim
+  // link, so an address taken over the phone can be entered before the
+  // deadline (open it and fill in the form for them).
+  function claimBy(a) {
+    if (a.status === 'unclaimed') return '<em>Unclaimed — no runner-up left</em>';
+    if (!a.claimDeadline) return '—';
+    if (a.address_submitted_at) return 'Claimed';
+    const date = new Date(a.claimDeadline).toLocaleDateString();
+    const link = a.claimUrl ? `<br><a href="${escapeHtml(a.claimUrl)}" target="_blank" rel="noopener">Open claim form</a>` : '';
+    return (a.claimExpired ? `<strong style="color:#b3261e;">Overdue (${date})</strong> — passes to the runner-up at the next daily run` : date) + link;
+  }
+
   // The winner's mailing address, once they've claimed at /claim.
   function shipTo(a) {
     if (!a.address_submitted_at) return '<em>Not claimed yet</em>';
@@ -473,7 +485,7 @@
 
       yearAwardList.innerHTML = `
         <table class="orders">
-          <thead><tr><th>Date</th><th>Round</th><th>Cat</th><th>Owner</th><th>Email</th><th>Phone</th><th>Ship to</th><th>Painting target</th></tr></thead>
+          <thead><tr><th>Date</th><th>Round</th><th>Cat</th><th>Owner</th><th>Email</th><th>Phone</th><th>Ship to</th><th>Claim by</th><th>Painting target</th></tr></thead>
           <tbody>
             ${data.awards.map((a) => `
               <tr>
@@ -484,6 +496,7 @@
                 <td>${a.email ? `<a href="mailto:${escapeHtml(a.email)}">${escapeHtml(a.email)}</a>` : '—'}</td>
                 <td>${a.phone ? `<a href="tel:${escapeHtml(a.phone)}">${escapeHtml(a.phone)}</a>` : '—'}</td>
                 <td>${shipTo(a)}</td>
+                <td>${claimBy(a)}</td>
                 <td>${a.sculpture_deadline ? new Date(a.sculpture_deadline).toLocaleDateString() : '—'}</td>
               </tr>
             `).join('')}
