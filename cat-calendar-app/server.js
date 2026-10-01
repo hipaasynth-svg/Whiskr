@@ -1587,10 +1587,10 @@ async function tallyAndCloseContest(contestId) {
     const rank = i + 1;
     try {
       if (rank === 1) {
-        const { yearAwardId, deadline } = await awardPainting(s, `${contest.label} winner`);
+        const { yearAwardId, deadline, claimDeadline } = await awardPainting(s, `${contest.label} winner`);
         await mailer.sendWinnerEmail({
           email: s.email, catName: s.cat_name, sculptureDeadline: deadline,
-          claimUrl: claimUrlFor(yearAwardId, s.email),
+          claimUrl: claimUrlFor(yearAwardId, s.email), claimDeadline,
         });
       } else {
         await mailer.sendFinalRankEmail({
@@ -1626,16 +1626,17 @@ async function awardPainting(winnerSubmission, label) {
   // (8 weeks from the round closing) and is only an admin tracking date —
   // the winner email states the 6–8 week window, not this date.
   const deadline = new Date(Date.now() + 8 * 7 * 24 * 60 * 60 * 1000).toISOString();
+  const claimDeadline = new Date(Date.now() + CLAIM_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const info = await db.run(
-    `INSERT INTO year_awards (label, opens_at, closes_at, status, winner_submission_id, sculpture_deadline, created_at)
-     VALUES (?, ?, ?, 'completed', ?, ?, ?) RETURNING id`,
-    [label, now, now, winnerSubmission.id, deadline, now]
+    `INSERT INTO year_awards (label, opens_at, closes_at, status, winner_submission_id, sculpture_deadline, created_at, claim_deadline, offered_submission_ids)
+     VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?) RETURNING id`,
+    [label, now, now, winnerSubmission.id, deadline, now, claimDeadline, JSON.stringify([winnerSubmission.id])]
   );
   await db.run(
     `INSERT INTO year_award_finalists (year_award_id, submission_id, vote_count) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
     [info.rows[0].id, winnerSubmission.id, winnerSubmission.vote_count]
   );
-  return { yearAwardId: info.rows[0].id, deadline };
+  return { yearAwardId: info.rows[0].id, deadline, claimDeadline };
 }
 
 // DORMANT as of the 2026-09-11 simplification: every contest's #1 now
@@ -1680,6 +1681,83 @@ async function tallyAndCloseYearAward(yearAwardId) {
 
   console.log(`[year-award] #${yearAwardId} closed. Cat of the Year: ${winnerSubmission.cat_name} (submission ${winnerSubmission.id}).`);
   return winnerSubmission.id;
+}
+
+// Daily: remind a winner a week before their claim deadline, and pass an
+// unclaimed prize to the next-highest vote-getter in that round once the
+// deadline is gone (rules.html, Prize). Each new holder gets a fresh 30
+// days. If nobody is left to offer it to, the award is marked 'unclaimed'.
+// ADMIN_EMAIL hears about every pass.
+async function passUnclaimedPrizes() {
+  const awards = await db.all(
+    `SELECT ya.*, s.email, s.cat_name, s.contest_id
+       FROM year_awards ya JOIN submissions s ON s.id = ya.winner_submission_id
+      WHERE ya.status = 'completed' AND ya.address_submitted_at IS NULL AND ya.label LIKE '% winner'`
+  );
+  for (const a of awards) {
+    try {
+      const deadline = claimDeadlineOf(a);
+      const msLeft = new Date(deadline) - Date.now();
+
+      if (msLeft > 0) {
+        if (!a.claim_reminder_sent_at && msLeft <= CLAIM_REMINDER_DAYS_BEFORE * 24 * 60 * 60 * 1000) {
+          await mailer.sendClaimReminderEmail({
+            email: a.email, catName: a.cat_name, claimUrl: claimUrlFor(a.id, a.email), claimDeadlineLabel: formatClaimDate(deadline),
+          });
+          await db.run(`UPDATE year_awards SET claim_reminder_sent_at = ? WHERE id = ?`, [new Date().toISOString(), a.id]);
+        }
+        continue;
+      }
+
+      let offered = [];
+      try { offered = JSON.parse(a.offered_submission_ids || '[]'); } catch (_) {}
+      if (!offered.includes(a.winner_submission_id)) offered.push(a.winner_submission_id);
+      const ranked = await db.all(
+        `SELECT * FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY vote_count DESC, created_at ASC`,
+        [a.contest_id]
+      );
+      const next = ranked.find((r) => !offered.includes(r.id));
+      const roundLabel = String(a.label || '').replace(/ winner$/, '');
+
+      if (!next) {
+        await db.run(`UPDATE year_awards SET status = 'unclaimed' WHERE id = ?`, [a.id]);
+        if (process.env.ADMIN_EMAIL) {
+          await mailer.sendMail({
+            to: process.env.ADMIN_EMAIL,
+            subject: `Prize unclaimed: ${roundLabel}`,
+            text: `Nobody claimed the ${roundLabel} painting before their deadline, and there is no one left in that round to offer it to.`,
+            html: `<p>Nobody claimed the ${seo.escapeHtml(roundLabel)} painting before their deadline, and there is no one left in that round to offer it to.</p>`,
+          }).catch(() => {});
+        }
+        continue;
+      }
+
+      const newDeadline = new Date(Date.now() + CLAIM_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      offered.push(next.id);
+      await db.run(
+        `UPDATE year_awards SET winner_submission_id = ?, claim_deadline = ?, claim_reminder_sent_at = NULL, offered_submission_ids = ? WHERE id = ?`,
+        [next.id, newDeadline, JSON.stringify(offered), a.id]
+      );
+      await db.run(`INSERT INTO year_award_finalists (year_award_id, submission_id, vote_count) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, [
+        a.id, next.id, next.vote_count,
+      ]);
+      await mailer.sendPrizePassedEmail({
+        email: next.email, catName: next.cat_name, rank: next.final_rank || ranked.indexOf(next) + 1, roundLabel,
+        claimUrl: claimUrlFor(a.id, next.email), claimDeadlineLabel: formatClaimDate(newDeadline),
+      });
+      console.log(`[claim] ${roundLabel}: unclaimed by ${a.cat_name}, passed to ${next.cat_name} (submission ${next.id}).`);
+      if (process.env.ADMIN_EMAIL) {
+        await mailer.sendMail({
+          to: process.env.ADMIN_EMAIL,
+          subject: `Prize passed to runner-up: ${roundLabel}`,
+          text: `${a.cat_name}'s owner didn't claim the ${roundLabel} painting by ${formatClaimDate(deadline)}, so it was offered to ${next.cat_name} (${next.email}${next.phone ? ', ' + next.phone : ''}), who now has until ${formatClaimDate(newDeadline)} to claim it.`,
+          html: `<p>${seo.escapeHtml(a.cat_name)}'s owner didn't claim the ${seo.escapeHtml(roundLabel)} painting by ${formatClaimDate(deadline)}, so it was offered to <strong>${seo.escapeHtml(next.cat_name)}</strong> (${seo.escapeHtml(next.email)}${next.phone ? ', ' + seo.escapeHtml(next.phone) : ''}), who now has until ${formatClaimDate(newDeadline)} to claim it.</p>`,
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.error(`[claim] pass/reminder failed for award ${a.id}:`, err.message);
+    }
+  }
 }
 
 // Daily cron entry point — closes any contest whose closes_at has passed.
@@ -1950,9 +2028,25 @@ function claimUrlFor(awardId, email) {
   return `${BASE_URL}/claim?award=${awardId}&token=${claimToken.tokenFor(awardId, email)}`;
 }
 
+const CLAIM_WINDOW_DAYS = 30;
+const CLAIM_REMINDER_DAYS_BEFORE = 7;
+
+// The deadline for the award's current holder. Rows from before the claim
+// window existed have none stored; they get created_at + 30 days.
+function claimDeadlineOf(row) {
+  if (row.claim_deadline) return row.claim_deadline;
+  return new Date(new Date(row.created_at).getTime() + CLAIM_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+}
+function claimExpired(row) {
+  return !row.address_submitted_at && new Date(claimDeadlineOf(row)) <= new Date();
+}
+function formatClaimDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/Chicago', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
 async function loadClaim(awardId) {
   return db.get(
-    `SELECT ya.id, ya.label, ya.shipping_name, ya.shipping_address, ya.address_submitted_at,
+    `SELECT ya.id, ya.label, ya.shipping_name, ya.shipping_address, ya.address_submitted_at, ya.claim_deadline, ya.created_at,
             s.email, s.phone, s.owner_name, s.cat_name, s.photo_path
      FROM year_awards ya JOIN submissions s ON s.id = ya.winner_submission_id
      WHERE ya.id = ?`,
@@ -1970,6 +2064,9 @@ function claimPayload(row) {
     photoPath: row.photo_path,
     roundLabel: String(row.label || '').replace(/ winner$/, ''),
     claimed: Boolean(row.address_submitted_at),
+    claimDeadline: claimDeadlineOf(row),
+    claimDeadlineLabel: formatClaimDate(claimDeadlineOf(row)),
+    expired: claimExpired(row),
     shippingName: row.shipping_name || row.owner_name || '',
     address,
   };
@@ -2015,6 +2112,21 @@ app.post('/api/claim/lookup', async (req, res) => {
 app.get('/api/claim', async (req, res) => {
   const awardId = Number(req.query.award);
   const row = Number.isInteger(awardId) && awardId > 0 ? await loadClaim(awardId) : null;
+  if (row && !claimToken.verify(awardId, row.email, req.query.token)) {
+    // A link sent to an earlier holder whose 30 days ran out: say so plainly
+    // instead of calling their own email link "invalid".
+    const award = await db.get(`SELECT offered_submission_ids, claim_deadline, created_at FROM year_awards WHERE id = ?`, [awardId]);
+    let offered = [];
+    try { offered = JSON.parse((award && award.offered_submission_ids) || '[]'); } catch (_) {}
+    for (const sid of offered) {
+      const prior = await db.get(`SELECT email FROM submissions WHERE id = ?`, [sid]);
+      if (prior && prior.email !== row.email && claimToken.verify(awardId, prior.email, req.query.token)) {
+        return res.status(410).json({
+          error: "The 30-day claim period for this prize has ended, so under the contest rules it passed to the runner-up. Email contest@whiskr.lol if you think this is a mistake.",
+        });
+      }
+    }
+  }
   if (!row || !claimToken.verify(awardId, row.email, req.query.token)) {
     return res.status(403).json({ error: 'This claim link is invalid. Use the link from your winner email, or claim with your email and phone below.' });
   }
@@ -2027,6 +2139,14 @@ app.post('/api/claim', async (req, res) => {
     const row = Number.isInteger(awardId) && awardId > 0 ? await loadClaim(awardId) : null;
     if (!row || !claimToken.verify(awardId, row.email, req.body.token)) {
       return res.status(403).json({ error: 'This claim link is invalid.' });
+    }
+    // Past the 30-day window with no address on file: the prize has passed
+    // (or is about to pass) to the runner-up, so a late claim can't take it
+    // back. A winner who already claimed can still correct their address.
+    if (claimExpired(row)) {
+      return res.status(410).json({
+        error: `The 30-day claim period for this prize ended on ${formatClaimDate(claimDeadlineOf(row))}. Email contest@whiskr.lol if you think this is a mistake.`,
+      });
     }
     const clean = (v, max) => String(v || '').replace(/[\r\n]+/g, ' ').trim().slice(0, max);
     const name = clean(req.body.name, 80);
@@ -2102,11 +2222,14 @@ app.get('/api/my-status', async (req, res) => {
     });
   }
 
+  // Whoever currently holds the painting — the #1 vote-getter, or a
+  // runner-up it passed to after an unclaimed 30 days — gets the link.
   let claimUrl = null;
-  if (submission.final_rank === 1) {
-    const award = await db.get(`SELECT id FROM year_awards WHERE winner_submission_id = ? ORDER BY id DESC LIMIT 1`, [submission.id]);
-    if (award) claimUrl = claimUrlFor(award.id, submission.email);
-  }
+  const award = await db.get(
+    `SELECT id FROM year_awards WHERE winner_submission_id = ? AND status = 'completed' AND label LIKE '% winner' ORDER BY id DESC LIMIT 1`,
+    [submission.id]
+  );
+  if (award) claimUrl = claimUrlFor(award.id, submission.email);
   return res.json({
     catName: submission.cat_name,
     contestStatus: 'completed',
@@ -3191,12 +3314,21 @@ app.post('/api/admin/contest/force-close', requireAdmin, async (req, res) => {
 // "open a vote" step to manage anymore.
 app.get('/api/admin/year-award', requireAdmin, async (req, res) => {
   const awards = await db.all(
-    `SELECT ya.*, s.cat_name, s.email, s.phone, s.owner_name, s.photo_path
+    `SELECT ya.*, s.cat_name, s.email, s.phone, s.owner_name, s.photo_path, s.final_rank
      FROM year_awards ya
      LEFT JOIN submissions s ON s.id = ya.winner_submission_id
      ORDER BY ya.created_at DESC`
   );
-  res.json({ awards });
+  res.json({
+    awards: awards.map((a) => ({
+      ...a,
+      // Monthly prize rows only (label "<Month> winner"); the dormant Cat of
+      // the Year rows have no claim flow.
+      claimDeadline: / winner$/.test(a.label || '') ? claimDeadlineOf(a) : null,
+      claimExpired: / winner$/.test(a.label || '') ? claimExpired(a) : false,
+      claimUrl: / winner$/.test(a.label || '') && a.email ? claimUrlFor(a.id, a.email) : null,
+    })),
+  });
 });
 
 // DORMANT as of the 2026-09-11 simplification (see tallyAndCloseYearAward
@@ -4195,6 +4327,7 @@ app.get('/api/cron/daily', async (req, res) => {
 
   try {
     await runDueContestClose();
+    await passUnclaimedPrizes();
     await sendRankDropAlerts();
     await sendDueReviewRequests();
     // Delivery is polled because Printful publishes no "delivered" event.

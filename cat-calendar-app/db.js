@@ -180,6 +180,14 @@ CREATE TABLE IF NOT EXISTS year_awards (
 ALTER TABLE year_awards ADD COLUMN IF NOT EXISTS shipping_name TEXT;
 ALTER TABLE year_awards ADD COLUMN IF NOT EXISTS shipping_address TEXT;
 ALTER TABLE year_awards ADD COLUMN IF NOT EXISTS address_submitted_at TEXT;
+-- 30-day claim window (owner's call, 2026-10-01). If the current holder
+-- doesn't claim by claim_deadline, the painting passes to the next-highest
+-- vote-getter in that round with a fresh 30 days (see passUnclaimedPrizes).
+-- offered_submission_ids is a JSON array of everyone it has been offered to.
+-- NULL deadline on older rows means created_at + 30 days.
+ALTER TABLE year_awards ADD COLUMN IF NOT EXISTS claim_deadline TEXT;
+ALTER TABLE year_awards ADD COLUMN IF NOT EXISTS claim_reminder_sent_at TEXT;
+ALTER TABLE year_awards ADD COLUMN IF NOT EXISTS offered_submission_ids TEXT;
 -- One row per (year_award, that year's Cat-of-the-Month winner) — the
 -- finalist ballot. Auto-populated from the groups table when an admin
 -- opens an award (see the /api/admin/year-award/open handler).

@@ -174,7 +174,57 @@ async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, close
 // is kept as the param name for continuity with the (now dormant)
 // tallyAndCloseYearAward path that also calls this same shape of email
 // content; it names when the painting ships, not a sculpture.
-async function sendWinnerEmail({ email, catName, sculptureDeadline, claimUrl }) {
+// A week before a winner's claim deadline, if they still haven't given an
+// address (see passUnclaimedPrizes in server.js).
+async function sendClaimReminderEmail({ email, catName, claimUrl, claimDeadlineLabel }) {
+  const safeName = escapeHtml(catName);
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p>${safeName}'s original painting is still waiting for a mailing address. <strong>Please claim it by ${escapeHtml(claimDeadlineLabel)}</strong> — after that, it goes to the runner-up.</p>
+    <p style="text-align:center;margin:24px 0;"><a href="${claimUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">Claim your prize</a></p>
+    <p>It takes a minute: just tell us where to send it. Or reply to this email with your address.</p>
+    <p>— Whiskr</p>
+  `,
+    { showUnsubscribe: true, email, tagline: 'Cat of the Month' }
+  );
+  return sendMail({
+    to: email,
+    subject: `Reminder: claim ${catName}'s painting by ${claimDeadlineLabel}`,
+    html,
+    text: `${catName}'s original painting is still waiting for a mailing address. Please claim it by ${claimDeadlineLabel} — after that, it goes to the runner-up. Claim here: ${claimUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+  });
+}
+
+// The Cat of the Month winner didn't claim within 30 days, so the painting
+// is offered to the next-highest vote-getter (rules.html, Prize). They are
+// not "Cat of the Month" — the title stays with the vote — only the prize
+// passes on.
+async function sendPrizePassedEmail({ email, catName, rank, roundLabel, claimUrl, claimDeadlineLabel }) {
+  const safeName = escapeHtml(catName);
+  const html = wrapLayout(
+    `
+    <p>Hi there,</p>
+    <p><strong>Good news: ${safeName} is getting an original painting!</strong></p>
+    <p>${safeName} placed #${rank} in the ${escapeHtml(roundLabel)} round. This round's winner didn't claim their prize within 30 days, so under the contest rules the one-of-a-kind 11x16 acrylic portrait, hand-painted by artist Cody Carlson, now goes to ${safeName} — no cost to you.</p>
+    <p style="text-align:center;margin:24px 0;"><a href="${claimUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">Claim your prize</a></p>
+    <p><strong>Please claim by ${escapeHtml(claimDeadlineLabel)}.</strong> The painting arrives within 6–8 weeks of getting your mailing address. You can also claim at ${BASE_URL}/claim with the email and phone number you entered with, or reply to this email.</p>
+    <p>— Whiskr</p>
+  `,
+    { showUnsubscribe: true, email, tagline: 'Cat of the Month' }
+  );
+  return sendMail({
+    to: email,
+    subject: `${catName} is getting an original painting! 🎨`,
+    html,
+    text: `${catName} placed #${rank} in the ${roundLabel} round. The winner didn't claim their prize within 30 days, so the original painting now goes to ${catName}. Claim by ${claimDeadlineLabel}: ${claimUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+  });
+}
+
+async function sendWinnerEmail({ email, catName, sculptureDeadline, claimUrl, claimDeadline }) {
+  const claimBy = claimDeadline
+    ? new Date(claimDeadline).toLocaleDateString('en-US', { timeZone: 'America/Chicago', month: 'long', day: 'numeric', year: 'numeric' })
+    : null;
   const safeName = escapeHtml(catName);
   // A window counted from the winner's reply, not a fixed date: painting
   // can't start until we have somewhere to send it, and a hand-painted
@@ -185,6 +235,7 @@ async function sendWinnerEmail({ email, catName, sculptureDeadline, claimUrl }) 
     <p><strong>${safeName} got the most votes and is this month's Cat of the Month! 🏆</strong></p>
     <p><strong>${safeName} wins a one-of-a-kind original 11x16 acrylic painting of ${safeName}, hand-painted by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. Expect it within 6–8 weeks of sending us your mailing address.</p>
     ${claimUrl ? `<p style="text-align:center;margin:24px 0;"><a href="${claimUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">Claim your prize</a></p>
+    ${claimBy ? `<p><strong>Please claim by ${claimBy}.</strong> If the prize isn't claimed within 30 days, it goes to the runner-up.</p>` : ''}
     <p>That button takes you to a short form for your mailing address. You can also claim any time at ${BASE_URL}/claim with the email and phone number you entered with, or just reply to this email.</p>` : `<p>Reply to this email with a mailing address and we'll get started.</p>`}
     <p>We'll also try to reach you by phone. Congratulations, and thank you for being part of Whiskr.</p>
     <p>— Whiskr</p>
@@ -195,7 +246,7 @@ async function sendWinnerEmail({ email, catName, sculptureDeadline, claimUrl }) 
     to: email,
     subject: `${catName} is Cat of the Month — you're getting an original painting! 🏆`,
     html,
-    text: `${catName} got the most votes and is Cat of the Month! ${catName} wins a one-of-a-kind original 11x16 acrylic painting, hand-painted by Cody Carlson. Expect it within 6–8 weeks of sending us your mailing address.${claimUrl ? ` Claim your prize (send your address) here: ${claimUrl}` : ' Reply to this email with a mailing address.'}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} got the most votes and is Cat of the Month! ${catName} wins a one-of-a-kind original 11x16 acrylic painting, hand-painted by Cody Carlson. Expect it within 6–8 weeks of sending us your mailing address.${claimUrl ? ` Claim your prize (send your address) by ${claimBy || 'within 30 days'} here: ${claimUrl} — if it isn't claimed within 30 days, it goes to the runner-up.` : ' Reply to this email with a mailing address.'}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -449,6 +500,8 @@ async function sendShippedEmail({ email, itemLabel, petName, parcels }) {
 module.exports = {
   sendEntryConfirmation,
   sendWinnerEmail,
+  sendClaimReminderEmail,
+  sendPrizePassedEmail,
   sendCatOfYearEmail,
   sendFinalRankEmail,
   sendRankDropEmail,
