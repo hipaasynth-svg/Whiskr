@@ -2197,3 +2197,10 @@ form" link so an address taken by phone can be entered before the deadline.
   - Product photos: merchant listings require an image, and none have been uploaded.
   - `shippingDetails` / `hasMerchantReturnPolicy` are deliberately omitted. The returns policy (final sale except defects) doesn't map cleanly onto schema.org's categories, and the tote's shipping rate is still unquoted.
   - Submit the sitemap in Google Search Console.
+
+## Update 2026-10-01: Printful numbers from the owner's machine
+
+- **Phone case:** every device was priced; the most expensive is $14.77, up from the iPhone 11's $14.23. At $29.99 that put a three-case free-shipping order at 39.5%, under the 40% floor. The report says it clears at $30.24, so the price is now **$30.99** (rounded up, per the floor rule). It's now 41.4%.
+- **Shipping quotes:** two-unit quotes confirmed the inferred additional-unit rates. The framed luster print is $15.39 for two ($4.50 extra), and the 18x24 canvas is $20.38 for two ($9.99 extra). No margins changed.
+- **Frames:** both framed variants (6887 and 4398) are the Black frame, in ayous wood with an **Acrylite (acrylic) front protector**, per Printful's product descriptions for products 172 and 2. So the site's "no glass to crack" claim is accurate.
+- **Tote bag (16287):** `/shipping/rates` still returns 400. It stays flagged as an estimate, and it's unconfirmed whether Printful will fulfil it.

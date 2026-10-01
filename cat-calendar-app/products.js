@@ -47,13 +47,11 @@ const PRODUCTS = [
   //   Large Gallery Canvas  cost $33.66, was $89 and already cleared at
   //                         47.6% -> unchanged
   //
-  // ONE THING STILL UNCONFIRMED: each framed product has several variants
-  // at the same size and the same cost, which are frame colours. The ids
-  // below are the first of each set and the colour has NOT been checked.
-  // Cost and therefore margin are identical across them, and neither
-  // product description names a colour, so nothing here is mis-sold — but
-  // confirm which colour ships before relying on a catalog photo that
-  // shows a particular frame.
+  // Frame colour: each framed product has several same-cost variants that
+  // differ only by frame colour. Both ids below were confirmed on
+  // 2026-10-01 to be the BLACK frame, so a catalog photo should show black.
+  // Both have an "Acrylite front protector" (acrylic) per Printful's own
+  // product description, read 2026-10-01 — so "no glass to crack" is true.
   {
     id: 'framed-poster-luster-12x18',
     name: 'Framed Gallery Print',
@@ -131,14 +129,14 @@ const PRODUCTS = [
     // so it was underwater: 43.1% on a single sale but 34.2% on a
     // four-case free-shipping order.
     //
-    // $14.23 is a FLOOR on the cost, not the cost. Like the sweatshirt,
-    // one flat price covers many variants and only one device has been
-    // priced — a newer or larger phone may cost more, and this price has
-    // to carry the most expensive of them. Price every device before
-    // trusting this number.
+    // One flat price covers every device, so it has to carry the most
+    // expensive one — see the 2026-10-01 note below.
     // Was 27.99. 2026-09-30: the margin check now counts Stripe's card fee (2.9% + $0.30), which put a
     // three-case free-shipping order at 37.3%; clears at $29.30, rounded up (owner approved).
-    priceUsd: 29.99,
+    // Was 29.99. 2026-10-01: every device was priced and the most expensive
+    // is $14.77, not the iPhone 11's $14.23, which put a three-case
+    // free-shipping order at 39.5%; clears at $30.24, rounded up.
+    priceUsd: 30.99,
     // Unlike every other product here, this one has no single fixed
     // variant — Printful sizes cases per exact device. The real variant ID
     // is chosen by the customer's phone-model selection at checkout (see
