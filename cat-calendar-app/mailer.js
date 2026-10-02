@@ -58,7 +58,11 @@ function unsubscribeUrl(email) {
   return `${BASE_URL}/api/unsubscribe?email=${encodeURIComponent(email)}&token=${tokenFor(email)}`;
 }
 
-async function sendMail({ to, subject, html, text }) {
+// An unsubscribe opts someone out of PROMOTIONAL mail only (marketing: true).
+// Transactional mail always goes out: a winner who once unsubscribed still has
+// to hear they won, and a customer still needs their tracking link and the
+// commission balance link.
+async function sendMail({ to, subject, html, text, marketing = false }) {
   const fromName = process.env.ZOHO_FROM_NAME || 'Whiskr';
   // Separate from ZOHO_EMAIL on purpose: if you're sending as a domain
   // alias on a Zoho account rather than a dedicated mailbox (e.g.
@@ -69,7 +73,7 @@ async function sendMail({ to, subject, html, text }) {
   const fromEmail = process.env.ZOHO_FROM_EMAIL || process.env.ZOHO_EMAIL;
   const from = `"${fromName}" <${fromEmail}>`;
 
-  if (await isSuppressed(to)) {
+  if (marketing && (await isSuppressed(to))) {
     console.log(`[mailer] skipped send to ${to} — address has unsubscribed`);
     return { suppressed: true };
   }
@@ -158,7 +162,7 @@ async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, close
     ${discountBlockHtml(discount, catName)}
     <p style="font-size:13px;color:#555;">Curious where ${safeName} stands? <a href="${statusUrl}">Check your status any time</a>.</p>
     <p>— Whiskr</p>
-  `);
+  `, { showUnsubscribe: Boolean(discount), email });
   return sendMail({
     to: email,
     subject: `${catName} is entered! Get votes before ${closeDate}`,
@@ -186,13 +190,13 @@ async function sendClaimReminderEmail({ email, catName, claimUrl, claimDeadlineL
     <p>It takes a minute: just tell us where to send it. Or reply to this email with your address.</p>
     <p>— Whiskr</p>
   `,
-    { showUnsubscribe: true, email, tagline: 'Cat of the Month' }
+    { tagline: 'Cat of the Month' }
   );
   return sendMail({
     to: email,
     subject: `Reminder: claim ${catName}'s painting by ${claimDeadlineLabel}`,
     html,
-    text: `${catName}'s original painting is still waiting for a mailing address. Please claim it by ${claimDeadlineLabel} — after that, it goes to the runner-up. Claim here: ${claimUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName}'s original painting is still waiting for a mailing address. Please claim it by ${claimDeadlineLabel} — after that, it goes to the runner-up. Claim here: ${claimUrl}`,
   });
 }
 
@@ -211,13 +215,13 @@ async function sendPrizePassedEmail({ email, catName, rank, roundLabel, claimUrl
     <p><strong>Please claim by ${escapeHtml(claimDeadlineLabel)}.</strong> The painting arrives within 6–8 weeks of getting your mailing address. You can also claim at ${BASE_URL}/claim with the email and phone number you entered with, or reply to this email.</p>
     <p>— Whiskr</p>
   `,
-    { showUnsubscribe: true, email, tagline: 'Cat of the Month' }
+    { tagline: 'Cat of the Month' }
   );
   return sendMail({
     to: email,
     subject: `${catName} is getting an original painting! 🎨`,
     html,
-    text: `${catName} placed #${rank} in the ${roundLabel} round. The winner didn't claim their prize within 30 days, so the original painting now goes to ${catName}. Claim by ${claimDeadlineLabel}: ${claimUrl}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} placed #${rank} in the ${roundLabel} round. The winner didn't claim their prize within 30 days, so the original painting now goes to ${catName}. Claim by ${claimDeadlineLabel}: ${claimUrl}`,
   });
 }
 
@@ -232,21 +236,21 @@ async function sendWinnerEmail({ email, catName, sculptureDeadline, claimUrl, cl
   const html = wrapLayout(
     `
     <p>Hi there,</p>
-    <p><strong>${safeName} got the most votes and is this month's Cat of the Month! 🏆</strong></p>
+    <p><strong>${safeName} got the most votes and is Cat of the Month! 🏆</strong></p>
     <p><strong>${safeName} wins a one-of-a-kind original 11x16 acrylic painting of ${safeName}, hand-painted by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. Expect it within 6–8 weeks of sending us your mailing address.</p>
     ${claimUrl ? `<p style="text-align:center;margin:24px 0;"><a href="${claimUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">Claim your prize</a></p>
     ${claimBy ? `<p><strong>Please claim by ${claimBy}.</strong> If the prize isn't claimed within 30 days, it goes to the runner-up.</p>` : ''}
-    <p>That button takes you to a short form for your mailing address. You can also claim any time at ${BASE_URL}/claim with the email and phone number you entered with, or just reply to this email.</p>` : `<p>Reply to this email with a mailing address and we'll get started.</p>`}
+    <p>That button takes you to a short form for your mailing address. You can also claim at ${BASE_URL}/claim with the email and phone number you entered with, or just reply to this email.</p>` : `<p>Reply to this email with a mailing address and we'll get started.</p>`}
     <p>We'll also try to reach you by phone. Congratulations, and thank you for being part of Whiskr.</p>
     <p>— Whiskr</p>
   `,
-    { showUnsubscribe: true, email, tagline: 'Cat of the Month' }
+    { tagline: 'Cat of the Month' }
   );
   return sendMail({
     to: email,
     subject: `${catName} is Cat of the Month — you're getting an original painting! 🏆`,
     html,
-    text: `${catName} got the most votes and is Cat of the Month! ${catName} wins a one-of-a-kind original 11x16 acrylic painting, hand-painted by Cody Carlson. Expect it within 6–8 weeks of sending us your mailing address.${claimUrl ? ` Claim your prize (send your address) by ${claimBy || 'within 30 days'} here: ${claimUrl} — if it isn't claimed within 30 days, it goes to the runner-up.` : ' Reply to this email with a mailing address.'}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} got the most votes and is Cat of the Month! ${catName} wins a one-of-a-kind original 11x16 acrylic painting, hand-painted by Cody Carlson. Expect it within 6–8 weeks of sending us your mailing address.${claimUrl ? ` Claim your prize (send your address) by ${claimBy || 'within 30 days'} here: ${claimUrl} — if it isn't claimed within 30 days, it goes to the runner-up.` : ' Reply to this email with a mailing address.'}`,
   });
 }
 
@@ -288,7 +292,7 @@ async function sendFinalRankEmail({ email, catName, rank, totalEntries, shopUrl,
     `
     <p>Hi there,</p>
     <p>Voting's closed — <strong>${safeName} placed #${rank} out of ${totalEntries} entries</strong> this round. Thanks for entering and for every vote you rounded up.</p>
-    <p>This round's original portrait went to another cat, but you can still get a solo print of your own cat — mug, poster, canvas, magnet, and more.</p>
+    <p>This round's original portrait went to another cat, but you can still order a print of your own cat — mug, poster, canvas, magnet, and more.</p>
     <p style="text-align:center;margin:24px 0;">
       <a href="${shopUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Get a print of ${safeName}
@@ -301,10 +305,11 @@ async function sendFinalRankEmail({ email, catName, rank, totalEntries, shopUrl,
     { showUnsubscribe: true, email }
   );
   return sendMail({
+    marketing: true,
     to: email,
     subject: `${catName} placed #${rank} — final results`,
     html,
-    text: `${catName} placed #${rank} out of ${totalEntries} entries. Get a solo print: ${shopUrl}${discountBlockText(discount, catName)}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
+    text: `${catName} placed #${rank} out of ${totalEntries} entries. Order a print of ${catName}: ${shopUrl}${discountBlockText(discount, catName)}\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -329,6 +334,7 @@ async function sendRankDropEmail({ email, catName, rank, voteUrl, closesAt }) {
     { showUnsubscribe: true, email }
   );
   return sendMail({
+    marketing: true,
     to: email,
     subject: `${catName} just fell to #${rank}`,
     html,
@@ -357,6 +363,7 @@ async function sendReviewRequest({ email, itemLabel, reviewUrl }) {
     { showUnsubscribe: true, email, tagline: 'Custom Cat Prints & Cat of the Month', reason: 'order' }
   );
   return sendMail({
+    marketing: true,
     to: email,
     subject: `How's your ${itemLabel}? Leave a quick review`,
     html,
@@ -403,7 +410,7 @@ async function sendCommissionBooked({ email, petName, sizeLabel, depositUsd, bal
 async function sendCommissionBalanceDue({ email, petName, balanceUsd, payUrl, paintingImageUrl }) {
   const who = petName ? escapeHtml(petName) : 'your cat';
   const preview = paintingImageUrl
-    ? `<p style="text-align:center;margin:20px 0;"><img src="${paintingImageUrl}" alt="The finished painting" style="max-width:100%;border-radius:4px;border:1px solid #d8cdb5;"></p>`
+    ? `<p style="text-align:center;margin:20px 0;"><img src="${escapeHtml(paintingImageUrl)}" alt="The finished painting" style="max-width:100%;border-radius:4px;border:1px solid #d8cdb5;"></p>`
     : '';
   const html = wrapLayout(
     `
@@ -412,7 +419,7 @@ async function sendCommissionBalanceDue({ email, petName, balanceUsd, payUrl, pa
     ${preview}
     <p>The remaining balance is <strong>$${escapeHtml(balanceUsd)}</strong>. Once that is paid it gets varnished, packed and shipped to the address you gave at booking.</p>
     <p style="text-align:center;margin:24px 0;">
-      <a href="${payUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
+      <a href="${escapeHtml(payUrl)}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">
         Pay the balance — $${escapeHtml(balanceUsd)}
       </a>
     </p>

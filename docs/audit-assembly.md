@@ -2204,3 +2204,33 @@ form" link so an address taken by phone can be entered before the deadline.
 - **Shipping quotes:** two-unit quotes confirmed the inferred additional-unit rates. The framed luster print is $15.39 for two ($4.50 extra), and the 18x24 canvas is $20.38 for two ($9.99 extra). No margins changed.
 - **Frames:** both framed variants (6887 and 4398) are the Black frame, in ayous wood with an **Acrylite (acrylic) front protector**, per Printful's product descriptions for products 172 and 2. So the site's "no glass to crack" claim is accurate.
 - **Tote bag (16287):** `/shipping/rates` still returns 400. It stays flagged as an estimate, and it's unconfirmed whether Printful will fulfil it.
+
+## Update 2026-10-02: final pre-launch review
+
+A full read of every public page, every email, and the server code.
+
+- **Email opt-outs only stop promotional mail.** An unsubscribe used to block every email. That included winner notices, claim reminders, shipping notices and commission payment links, so a customer who'd opted out of promos would miss their own tracking link. Now only the three promotional emails respect it: final placement, rank drop and review request. `sendMail({ marketing: true })` marks them. The transactional prize emails no longer carry an unsubscribe footer, and the unsubscribe confirmation is a real page instead of bare text.
+- **Commission balance link no longer expires.** The painting-finished email used to carry a Stripe Checkout URL, and those die after 24 hours. It now carries a permanent signed link (`commissionPayToken.js`, `GET /api/commissions/:id/pay`). That link opens a fresh session on each visit, retires the previous one, and won't open a second session if the last one was already paid.
+- **Receipts are guaranteed.** Every checkout now sets `receipt_email`, so Stripe sends a receipt whatever the dashboard setting. The order-success banner and `shipping.html` both promise one.
+- **Payments and contest:**
+  - A partial refund no longer marks the whole order refunded; it only alerts the admin.
+  - A round can't be closed twice if the cron fires concurrently: the close is claimed inside the transaction.
+- **Errors and pages:**
+  - Customers no longer see raw internal error text from checkout or entry.
+  - Unknown URLs get a branded 404 instead of Express's "Cannot GET".
+  - `x-powered-by` is off.
+  - Admin alert emails escape the customer-supplied text they contain.
+- **Copy fixes:**
+  - The vote page showed "Thanks for voting!" before anyone voted (component CSS beat the `hidden` attribute). A global `[hidden]` rule fixes this and any other instance.
+  - The vote header no longer says "0 cats to vote for".
+  - Prices on `/thanks` are always two decimals.
+  - Removed two empty `src=""` images that made browsers re-request the homepage.
+  - Rules: dropped the reference to a footer address that doesn't exist; "claim at any time" contradicted the 30-day deadline; added "next-highest eligible"; reworded the prize-value line and added that taxes are the winner's responsibility.
+  - Shipping: below $79 the shipping charge isn't "flat"; section scope is now marked "(prints)"; US spelling throughout.
+  - Blog: US spelling, and removed wording that implied reader mail and customer reports the business doesn't have yet.
+  - Every page now carries the same footer links.
+- **New post:** "Why Your Cat Sleeps So Much, and What Her Sleep Is Telling You", citing Parker 2019, Piccione 2013, Morrison 1993, Hoffman 2018 and the 2021 AAFP Senior Care Guidelines.
+- **READMEs rewritten** to describe the site as it is now.
+- **Not done:**
+  - Deleting the dormant calendar and Cat of the Year code, the `prototypes/` mock and the 410'd HTML files was attempted and blocked pending the owner's explicit go-ahead.
+  - Admin still has no UI for commissions or for uploading a winner's finished painting; both are API-only.
