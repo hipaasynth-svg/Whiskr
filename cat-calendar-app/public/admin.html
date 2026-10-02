@@ -40,6 +40,17 @@
   table.orders th, table.orders td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
   table.orders th { color: #6b6552; font-weight: 600; }
   .refresh-btn { font-size: 0.8rem; padding: 6px 12px; }
+  .thumb { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); display: block; }
+  .status-pill { display: inline-block; font-size: 0.72rem; padding: 2px 8px; border-radius: 10px; background: #ece5d5; white-space: nowrap; }
+  .status-pill.go { background: #2e7d32; color: #fff; }
+  .status-pill.wait { background: #E8A33D; color: #1B2430; }
+  .status-pill.bad { background: #b3261e; color: #fff; }
+  .row-form { display: flex; flex-direction: column; gap: 6px; font-size: 0.78rem; min-width: 190px; }
+  .row-form input[type=file] { font-size: 0.75rem; max-width: 210px; }
+  .row-form textarea { font-family: var(--font-body); font-size: 0.82rem; padding: 6px; border: 1px solid var(--line); border-radius: 3px; min-height: 44px; }
+  .row-form button { font-size: 0.78rem; padding: 6px 10px; align-self: flex-start; }
+  .small-note { font-size: 0.75rem; color: #6b6552; }
+  .table-scroll { overflow-x: auto; }
   .product-row { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
   .product-row:last-child { border-bottom: none; }
   .product-row.is-hidden { opacity: 0.55; }
@@ -136,13 +147,16 @@
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
         <h2>Featured originals</h2>
-        <p class="sub">A couple of your completed grand-prize paintings, shown on the homepage next to the "commission your own" link. Empty = an honest "first one's still drying" message, never a placeholder.</p>
+        <p class="sub">A couple of your completed paintings, shown on the homepage next to the "commission your own" link. Add the photo each was painted from too, and it also appears on the commission page's before-and-after "Recent work" section. Empty = an honest "first one's still drying" message, never a placeholder.</p>
       </div>
       <button class="btn btn-ghost refresh-btn" id="refreshOriginals" type="button">Refresh</button>
     </div>
     <form id="originalUploadForm" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
       <input type="file" id="originalPhoto" accept="image/png,image/jpeg,image/webp,image/gif" required />
       <input type="text" id="originalCatName" placeholder="Cat's name (optional)" maxlength="60" style="padding:8px;border:1px solid var(--line);border-radius:3px;" />
+      <label class="small-note" style="display:flex;flex-direction:column;gap:2px;">The photo it was painted from (optional)
+        <input type="file" id="originalSourcePhoto" accept="image/png,image/jpeg,image/webp,image/gif" />
+      </label>
       <button class="btn btn-primary" type="submit" style="padding:8px 16px;font-size:0.85rem;">Add photo</button>
       <span class="form-note" id="originalUploadNote"></span>
     </form>
@@ -245,6 +259,17 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
+        <h2>Winners page</h2>
+        <p class="sub">What whiskr.lol/winners shows for each closed round. Until you add a photo of the finished painting, the page shows the winning cat and says the painting is on its way. A short story (optional, up to 300 characters) appears under it.</p>
+      </div>
+      <button class="btn btn-ghost refresh-btn" id="refreshWinnersPage" type="button">Refresh</button>
+    </div>
+    <div id="winnersPageList" class="table-scroll"><p class="empty">Enter your admin key and click Load.</p></div>
+  </div>
+
+  <div class="admin-section">
+    <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
         <h2>Marketing / ad spend (ROAS)</h2>
         <p class="sub">Tag your ad links with <code>?utm_campaign=your-campaign-name</code> (must match a campaign name below, case-insensitive) so real orders get attributed here. Spend can be logged manually below, or pulled automatically once a day from Meta if a campaign's name matches a real Meta campaign — <span id="metaStatus">checking Meta connection…</span> Read-only either way: nothing here can pause a campaign or change its budget.</p>
       </div>
@@ -289,12 +314,12 @@
   <div class="admin-section">
     <div class="group-head" style="display:flex;justify-content:space-between;align-items:center;">
       <div>
-        <h2>Paid calendar orders</h2>
-        <p class="sub">What actually needs printing and shipping.</p>
+        <h2>Commissions</h2>
+        <p class="sub">Original paintings booked at /commission. When a deposit is paid you're also emailed. When the painting is finished, upload a photo of it and press <strong>Request balance</strong>: the customer gets the photo and a payment link that never expires, and you're emailed when they pay. Ship once it says <em>Balance paid</em>.</p>
       </div>
-      <button class="btn btn-ghost refresh-btn" id="refreshOrders" type="button">Refresh</button>
+      <button class="btn btn-ghost refresh-btn" id="refreshCommissions" type="button">Refresh</button>
     </div>
-    <div id="ordersList"><p class="empty">Enter your admin key and click Load.</p></div>
+    <div id="commissionsList" class="table-scroll"><p class="empty">Enter your admin key and click Load.</p></div>
   </div>
 
   <div class="admin-section">
@@ -325,7 +350,8 @@
   const keyInput = document.getElementById('adminKey');
   const keyStatus = document.getElementById('keyStatus');
   const contestList = document.getElementById('contestList');
-  const ordersList = document.getElementById('ordersList');
+  const commissionsList = document.getElementById('commissionsList');
+  const winnersPageList = document.getElementById('winnersPageList');
 
   // Convenience only, for a solo operator's own browser — not a security
   // boundary. The server still requires the key on every request.
@@ -781,40 +807,158 @@
     }
   });
 
-  async function loadOrders() {
-    ordersList.innerHTML = '<p class="empty">Loading…</p>';
+  const COMMISSION_STATUS = {
+    deposit_pending: ['Checkout not finished', ''],
+    deposit_paid: ['Deposit paid — painting', 'wait'],
+    balance_pending: ['Balance requested', 'wait'],
+    balance_paid: ['Balance paid — ship it', 'go'],
+    refunded: ['Refunded', 'bad'],
+    disputed: ['Disputed', 'bad'],
+    cancelled: ['Cancelled', 'bad'],
+  };
+
+  function stripeAddress(json) {
+    let d = null;
+    try { d = JSON.parse(json || 'null'); } catch (_) {}
+    if (!d) return '<em>None yet</em>';
+    const a = d.address || {};
+    return [d.name, a.line1, a.line2, [a.city, a.state, a.postal_code].filter(Boolean).join(' '), a.country]
+      .filter(Boolean).map(escapeHtml).join('<br>');
+  }
+
+  const money = (n) => `$${Number(n).toFixed(2)}`;
+
+  async function loadCommissions() {
+    commissionsList.innerHTML = '<p class="empty">Loading…</p>';
     try {
-      const res = await adminFetch('/api/admin/orders?status=paid');
+      const res = await adminFetch('/api/admin/commissions');
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load orders.');
+      if (!res.ok) throw new Error(data.error || 'Failed to load commissions.');
       keyStatus.textContent = 'Key OK';
       keyStatus.className = 'key-status ok';
 
-      if (data.orders.length === 0) {
-        ordersList.innerHTML = '<p class="empty">No paid orders yet.</p>';
+      // A checkout someone opened and abandoned isn't a booking.
+      const rows = data.commissions.filter((c) => c.status !== 'deposit_pending');
+      if (rows.length === 0) {
+        commissionsList.innerHTML = '<p class="empty">No paid bookings yet.</p>';
         return;
       }
 
-      ordersList.innerHTML = `
+      commissionsList.innerHTML = `
         <table class="orders">
-          <thead><tr><th>Date</th><th>Group</th><th>Email</th><th>Qty</th><th>Amount</th></tr></thead>
+          <thead><tr><th>Booked</th><th>Customer</th><th>Painting</th><th>Reference</th><th>Money</th><th style="min-width:130px;">Ship to</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            ${data.orders.map((o) => `
+            ${rows.map((c) => {
+              const [label, tone] = COMMISSION_STATUS[c.status] || [c.status, ''];
+              const extras = [Number(c.rush) ? 'RUSH (under 10 days)' : '', Number(c.extra_pets) ? `+${c.extra_pets} extra cat${c.extra_pets > 1 ? 's' : ''}` : ''].filter(Boolean).join(', ');
+              const canRequest = c.status === 'deposit_paid' || c.status === 'balance_pending';
+              const action = canRequest ? `
+                <form class="row-form request-balance" data-id="${c.id}">
+                  ${c.painting_photo_path ? `<img class="thumb" src="${escapeHtml(c.painting_photo_path)}" alt="Finished painting" />` : ''}
+                  <label>Photo of the finished painting${c.painting_photo_path ? ' (to replace)' : ''}
+                    <input type="file" name="painting" accept="image/png,image/jpeg,image/webp,image/gif" ${c.painting_photo_path ? '' : 'required'} />
+                  </label>
+                  <button type="submit" class="btn btn-primary">${c.status === 'balance_pending' ? 'Resend balance email' : 'Request balance'}</button>
+                  ${c.payUrl ? `<a href="${escapeHtml(c.payUrl)}" target="_blank" rel="noopener" class="small-note">Customer's payment link ↗</a>` : ''}
+                  ${c.balance_requested_at ? `<span class="small-note">Last sent ${new Date(c.balance_requested_at).toLocaleDateString()}</span>` : ''}
+                  <span class="small-note" data-note></span>
+                </form>` : (c.painting_photo_path ? `<img class="thumb" src="${escapeHtml(c.painting_photo_path)}" alt="Finished painting" />` : '');
+              return `
               <tr>
-                <td>${new Date(o.created_at).toLocaleDateString()}</td>
-                <td>#${o.group_id}</td>
-                <td>${escapeHtml(o.email)}</td>
-                <td>${o.quantity}</td>
-                <td>$${Number(o.amount_usd).toFixed(2)}</td>
+                <td>${new Date(c.created_at).toLocaleDateString()}<br><span class="small-note">#${c.id}</span></td>
+                <td>${escapeHtml(c.customer_name || '—')}<br><a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a></td>
+                <td>${escapeHtml(c.sizeLabel)}${c.pet_name ? ` of ${escapeHtml(c.pet_name)}` : ''}${extras ? `<br><span class="small-note">${escapeHtml(extras)}</span>` : ''}${c.notes ? `<br><span class="small-note">“${escapeHtml(c.notes)}”</span>` : ''}</td>
+                <td><a href="${escapeHtml(c.photo_path)}" target="_blank" rel="noopener"><img class="thumb" src="${escapeHtml(c.photo_path)}" alt="Reference photo" /></a></td>
+                <td>Total ${money(c.total_usd)}<br><span class="small-note">Deposit ${money(c.deposit_usd)}${c.deposit_paid_at ? ' paid' : ''}<br>Balance ${money(c.balance_usd)}${c.balance_paid_at ? ' paid' : ''}</span></td>
+                <td>${stripeAddress(c.shipping_address)}</td>
+                <td><span class="status-pill ${tone}">${escapeHtml(label)}</span></td>
+                <td>${action}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+
+      commissionsList.querySelectorAll('.request-balance').forEach((form) => {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const note = form.querySelector('[data-note]');
+          const file = form.painting.files[0];
+          if (!confirm('Email this customer the balance payment link now?')) return;
+          note.textContent = 'Sending…';
+          const body = new FormData();
+          if (file) body.append('painting', await resizeImageForUpload(file));
+          try {
+            const res = await adminFetch(`/api/admin/commissions/${form.dataset.id}/request-balance`, { method: 'POST', body });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Could not send.');
+            loadCommissions();
+          } catch (err) {
+            note.textContent = err.message;
+          }
+        });
+      });
+    } catch (err) {
+      keyStatus.textContent = err.message;
+      keyStatus.className = 'key-status err';
+      commissionsList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+    }
+  }
+
+  async function loadWinnersPage() {
+    winnersPageList.innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const res = await adminFetch('/api/admin/winners');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load.');
+      if (data.winners.length === 0) {
+        winnersPageList.innerHTML = '<p class="empty">No round has closed yet.</p>';
+        return;
+      }
+      winnersPageList.innerHTML = `
+        <table class="orders">
+          <thead><tr><th>Round</th><th>Winning photo</th><th>Finished painting</th><th>Update</th></tr></thead>
+          <tbody>
+            ${data.winners.map((w) => `
+              <tr>
+                <td>${escapeHtml(w.label)}<br><span class="small-note">${escapeHtml(w.cat_name)}</span></td>
+                <td><img class="thumb" src="${escapeHtml(w.photo_path)}" alt="${escapeHtml(w.cat_name)}" /></td>
+                <td>${w.painting_photo_path ? `<img class="thumb" src="${escapeHtml(w.painting_photo_path)}" alt="Finished painting" />` : '<em>Not added yet</em>'}</td>
+                <td>
+                  <form class="row-form winner-form" data-id="${w.id}">
+                    <label>Photo of the painting${w.painting_photo_path ? ' (to replace)' : ''}
+                      <input type="file" name="painting" accept="image/png,image/jpeg,image/webp,image/gif" />
+                    </label>
+                    <textarea name="story" maxlength="300" placeholder="A line about the cat or the painting (optional)">${escapeHtml(w.winner_story || '')}</textarea>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <span class="small-note" data-note></span>
+                  </form>
+                </td>
               </tr>
             `).join('')}
           </tbody>
         </table>
       `;
+      winnersPageList.querySelectorAll('.winner-form').forEach((form) => {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const note = form.querySelector('[data-note]');
+          note.textContent = 'Saving…';
+          const body = new FormData();
+          if (form.painting.files[0]) body.append('painting', await resizeImageForUpload(form.painting.files[0]));
+          body.append('story', form.story.value);
+          try {
+            const res = await adminFetch(`/api/admin/winners/${form.dataset.id}`, { method: 'POST', body });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Save failed.');
+            loadWinnersPage();
+          } catch (err) {
+            note.textContent = err.message;
+          }
+        });
+      });
     } catch (err) {
-      keyStatus.textContent = err.message;
-      keyStatus.className = 'key-status err';
-      ordersList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
+      winnersPageList.innerHTML = '<p class="empty">Could not load — check your admin key.</p>';
     }
   }
 
@@ -1074,7 +1218,7 @@
       originalsList.innerHTML = data.originals.map((o) => `
         <div class="pick-cell" data-original="${o.id}">
           <img src="${o.image_path}" alt="${escapeHtml(o.cat_name || '')}" />
-          <div class="name">${escapeHtml(o.cat_name || '—')}</div>
+          <div class="name">${escapeHtml(o.cat_name || '—')}${o.source_photo_path ? '' : '<br><span class="small-note">No "before" photo</span>'}</div>
           <button type="button" class="original-delete" data-id="${o.id}">Remove</button>
         </div>
       `).join('');
@@ -1112,6 +1256,8 @@
     const formData = new FormData();
     formData.append('photo', await resizeImageForUpload(file));
     formData.append('catName', catName.value);
+    const sourceInput = document.getElementById('originalSourcePhoto');
+    if (sourceInput.files[0]) formData.append('sourcePhoto', await resizeImageForUpload(sourceInput.files[0]));
     try {
       const res = await adminFetch('/api/admin/originals', { method: 'POST', body: formData });
       const data = await res.json();
@@ -1119,6 +1265,7 @@
       note.textContent = 'Added.';
       fileInput.value = '';
       catName.value = '';
+      sourceInput.value = '';
       loadOriginals();
     } catch (err) {
       note.textContent = err.message;
@@ -1524,7 +1671,8 @@
     loadYearAward();
     loadMarketing();
     loadSubscribers();
-    loadOrders();
+    loadCommissions();
+    loadWinnersPage();
     loadCustomOrders();
     loadPendingReviews();
   }
@@ -1538,7 +1686,8 @@
   document.getElementById('refreshLiveStream').addEventListener('click', loadLiveStream);
   document.getElementById('refreshProducts').addEventListener('click', loadProducts);
   document.getElementById('refreshContest').addEventListener('click', loadContest);
-  document.getElementById('refreshOrders').addEventListener('click', loadOrders);
+  document.getElementById('refreshCommissions').addEventListener('click', loadCommissions);
+  document.getElementById('refreshWinnersPage').addEventListener('click', loadWinnersPage);
   document.getElementById('refreshCustomOrders').addEventListener('click', loadCustomOrders);
   document.getElementById('refreshReviews').addEventListener('click', loadPendingReviews);
   keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadAll(); });

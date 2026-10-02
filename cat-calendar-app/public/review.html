@@ -99,7 +99,7 @@
     itemLabelEl.textContent = 'This review link looks incomplete — use the link from your email.';
     form.style.display = 'none';
   } else {
-    itemLabelEl.textContent = `Reviewing your ${orderType === 'calendar' ? 'Whiskr calendar' : 'custom Whiskr print'} order.`;
+    itemLabelEl.textContent = 'Reviewing your custom Whiskr print order.';
   }
 
   form.addEventListener('submit', async (e) => {

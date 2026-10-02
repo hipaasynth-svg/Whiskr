@@ -144,14 +144,16 @@ Everything is in `/admin.html`. Enter `ADMIN_KEY` and press Load.
   footer photo wall, and live painting sessions.
 - **Marketing.** Campaign spend and ROAS, and the opt-in email list.
 
-**Not in the admin UI yet** (API only, with the `x-admin-key` header):
-
-- `GET /api/admin/commissions` lists bookings.
-- `POST /api/admin/commissions/:id/request-balance` emails the customer a
-  permanent signed payment link. Optional JSON body:
-  `{"paintingImageUrl": "https://..."}`.
-- `POST /api/admin/winners/:contestId` uploads the finished painting photo
-  (`painting` field) and an optional `story` for `/winners`.
+- **Commissions.** Paid bookings, with the reference photo, notes, money
+  and ship-to address. When a painting is finished, upload a photo of it and
+  press **Request balance**. The customer is emailed the photo and a payment
+  link that never expires, and you can resend it. Ship once the booking
+  shows *Balance paid*.
+- **Winners page.** For each closed round, upload a photo of the finished
+  painting and an optional short story for `/winners`.
+- **Featured originals.** Paintings shown on the homepage. Add the photo
+  each was painted from too, and it also appears in the before-and-after
+  "Recent work" section of `/commission`.
 
 ## Publishing a blog post
 
@@ -183,10 +185,11 @@ search URLs (`/s?k=...`) over specific listings. Cite sources for factual
 claims, and don't imply reader mail, sales or experience the business
 doesn't have.
 
-## Known leftovers
+## Retired features
 
-The retired calendar product and the old Cat of the Year vote are still in
-the code, switched off: `CALENDAR_CHECKOUT_ENABLED` and
-`YEAR_AWARD_MANUAL_VOTE_ENABLED` default to off. Their old URLs return
-410 Gone. The `year_awards` table is **not** a leftover: it holds the
-monthly painting winners and their claims.
+The calendar product and the separate Cat of the Year vote were deleted on
+2026-10-02. Their old URLs return 410 Gone. Their database tables (`orders`,
+`year_award_votes`) are left in place, since dropping tables is
+irreversible and they cost nothing. The `year_awards` table is **not**
+retired: despite its name, it holds each month's painting winner and their
+claim.

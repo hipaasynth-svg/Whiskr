@@ -31,10 +31,13 @@ check.
 ## What this repo is
 
 `cat-calendar-app/` is the whole product — a Node/Express app on Vercel
-(Postgres + Vercel Blob + Vercel Cron). Everything else is history:
+(Postgres + Vercel Blob + Vercel Cron). The folder name is historical — the
+calendar product was retired and its code deleted on 2026-10-02, along with
+the separate Cat of the Year vote. Old `/calendar.html` and
+`/year-award.html` links answer 410 Gone. Don't bring either back without
+the owner asking: the contest's photo-rights grant doesn't cover selling
+products made from entry photos.
 
-- `prototypes/` — a dead client-only design mock. Not deployed. Don't wire
-  anything to it, don't take its simulated voting as a reference.
 - `docs/audit-assembly.md` — the running decision log. Read the *last*
   update section for current direction; earlier sections describe decisions
   that have since been reversed (e.g. it says winners are judged by a human

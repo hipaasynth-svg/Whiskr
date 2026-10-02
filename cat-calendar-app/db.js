@@ -517,6 +517,10 @@ CREATE TABLE IF NOT EXISTS commissions (
   balance_paid_at TEXT
 );
 CREATE INDEX IF NOT EXISTS commissions_status_idx ON commissions(status, created_at);
+-- The finished painting's photo, uploaded from admin when the balance is
+-- requested, and when that request (or the latest resend) went out.
+ALTER TABLE commissions ADD COLUMN IF NOT EXISTS painting_photo_path TEXT;
+ALTER TABLE commissions ADD COLUMN IF NOT EXISTS balance_requested_at TEXT;
 
 -- The /commission gallery shows each finished painting beside the photo it
 -- was painted from -- that pairing is the whole proof, so a row needs both
