@@ -3,7 +3,10 @@ const db = require('./db');
 const { tokenFor } = require('./unsubscribe');
 
 const BASE_URL = process.env.PUBLIC_BASE_URL || 'http://localhost:3000';
-const MAILING_ADDRESS = process.env.BUSINESS_MAILING_ADDRESS || '[Add your business mailing address to .env — required by CAN-SPAM]';
+// CAN-SPAM requires a real postal address in every promotional email. With
+// none set, promotional email doesn't send at all (see sendMail) rather than
+// going out with a placeholder in it.
+const MAILING_ADDRESS = (process.env.BUSINESS_MAILING_ADDRESS || '').trim();
 
 // Same wording as formatContestClose in server.js (duplicated rather than
 // required, since server.js requires this module): "October 31 at 11:59
@@ -73,6 +76,10 @@ async function sendMail({ to, subject, html, text, marketing = false }) {
   const fromEmail = process.env.ZOHO_FROM_EMAIL || process.env.ZOHO_EMAIL;
   const from = `"${fromName}" <${fromEmail}>`;
 
+  if (marketing && !MAILING_ADDRESS) {
+    console.warn(`[mailer] promotional email to ${to} not sent — BUSINESS_MAILING_ADDRESS is not set (CAN-SPAM).`);
+    return { skipped: 'no-mailing-address' };
+  }
   if (marketing && (await isSuppressed(to))) {
     console.log(`[mailer] skipped send to ${to} — address has unsubscribed`);
     return { suppressed: true };
@@ -91,7 +98,7 @@ async function sendMail({ to, subject, html, text, marketing = false }) {
 // content) and can stay false for purely transactional notices.
 function wrapLayout(bodyHtml, { showUnsubscribe = false, email = '', tagline = 'Cat of the Month Contest', reason = 'contest' } = {}) {
   const footerCompliance = showUnsubscribe
-    ? `<p>${escapeHtml(MAILING_ADDRESS)}<br>
+    ? `<p>${MAILING_ADDRESS ? `${escapeHtml(MAILING_ADDRESS)}<br>` : ''}
         Don't want these emails? <a href="${unsubscribeUrl(email)}">Unsubscribe</a>.</p>`
     : '';
   return `

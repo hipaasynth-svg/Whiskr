@@ -464,6 +464,7 @@ h1, h2, h3, h4 {
   background: #fff;
 }
 .form-note { font-size: 0.85rem; min-height: 1.2em; color: var(--forest); }
+.form-note.order-terms { color: #6b6552; font-size: 0.8rem; margin-top: 4px; }
 .form-note.error { color: var(--blush); }
 
 /* ---------- trust badges ---------- */
