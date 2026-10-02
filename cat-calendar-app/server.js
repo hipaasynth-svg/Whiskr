@@ -1867,6 +1867,12 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     if (photoRights !== 'on' && photoRights !== 'true') {
       return res.status(400).json({ error: 'You must confirm you own the rights to this photo.' });
     }
+    // The contest is open to legal U.S. residents 18+ (public/rules.html,
+    // Eligibility). The prize only ships to a U.S. address, and the claim
+    // form enforces that too; this is the entrant's own confirmation.
+    if (req.body.eligible !== 'on' && req.body.eligible !== 'true') {
+      return res.status(400).json({ error: 'The contest is open to legal U.S. residents 18 and older. Please confirm you are one.' });
+    }
     const ipHash = hashIp(req.ip);
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const ipCount = await db.get(`SELECT COUNT(*) AS c FROM submissions WHERE ip_hash = ? AND created_at >= ?`, [
@@ -2108,7 +2114,8 @@ app.post('/api/claim', async (req, res) => {
       city: clean(req.body.city, 80),
       state: clean(req.body.state, 60),
       zip: clean(req.body.zip, 20),
-      country: clean(req.body.country, 60) || 'United States',
+      // The prize ships to U.S. addresses only (rules.html, Eligibility).
+      country: 'United States',
     };
     if (!name || !address.line1 || !address.city || !address.state || !address.zip) {
       return res.status(400).json({ error: 'Please fill in your name, street address, city, state and ZIP code.' });

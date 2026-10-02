@@ -87,7 +87,8 @@
       </div>
       <label>
         Country
-        <input type="text" name="country" id="shipCountry" autocomplete="country-name" maxlength="60" value="United States" />
+        <input type="text" name="country" id="shipCountry" autocomplete="country-name" maxlength="60" value="United States" readonly aria-describedby="shipCountryHint" />
+        <span class="field-hint" id="shipCountryHint">The prize ships within the United States only.</span>
       </label>
       <button type="submit" class="btn btn-primary" id="addressBtn">Send my address</button>
       <p class="form-note" id="addressNote" role="status" aria-live="polite"></p>
@@ -129,7 +130,7 @@
       document.getElementById('shipCity').value = a.city || '';
       document.getElementById('shipState').value = a.state || '';
       document.getElementById('shipZip').value = a.zip || '';
-      document.getElementById('shipCountry').value = a.country || 'United States';
+      document.getElementById('shipCountry').value = 'United States';
     }
     if (data.expired) {
       document.getElementById('claimIntro').textContent =
