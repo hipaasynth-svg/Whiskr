@@ -92,7 +92,9 @@ these events:
 - `charge.dispute.created`
 
 Put its signing secret in `STRIPE_WEBHOOK_SECRET`. Without it, no order is
-ever marked paid or sent to Printful. Stripe Tax must be enabled, because
+ever marked paid or sent to Printful, so checkout stays closed (customers see
+"opening very soon") until it and, for prints, `PRINTFUL_API_KEY` are set.
+`ALLOW_UNFULFILLED_CHECKOUT=true` overrides that for local development only. Stripe Tax must be enabled, because
 every checkout uses automatic tax. Receipts are sent automatically: each
 checkout sets `receipt_email`.
 

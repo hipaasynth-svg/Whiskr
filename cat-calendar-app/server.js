@@ -5,7 +5,8 @@ const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
 const { put: putBlob } = require('@vercel/blob');
-const { v4: uuid } = require('uuid');
+// Random file names for uploads (Node's built-in; the uuid package isn't needed).
+const uuid = () => crypto.randomUUID();
 
 const sharp = require('sharp');
 
@@ -187,6 +188,19 @@ if (process.env.STRIPE_SECRET_KEY) {
   stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 }
 
+// Never take money for something that can't be fulfilled. Without the
+// webhook secret no payment is ever marked paid; without Printful a paid
+// print order is only "dry-run" submitted and sits at 'paid' forever, never
+// printed and never alerted on. Local development can opt out.
+const ALLOW_UNFULFILLED_CHECKOUT = process.env.ALLOW_UNFULFILLED_CHECKOUT === 'true';
+function checkoutBlocker({ needsPrintful }) {
+  if (ALLOW_UNFULFILLED_CHECKOUT) return null;
+  const missing = [];
+  if (!process.env.STRIPE_WEBHOOK_SECRET) missing.push('STRIPE_WEBHOOK_SECRET');
+  if (needsPrintful && !printful.configured()) missing.push('PRINTFUL_API_KEY');
+  return missing.length ? missing : null;
+}
+
 // ---------- blog + sitemap (no database) ----------
 // Both are mounted ahead of the DB-init middleware below on purpose. The
 // blog renders straight from the Markdown files in content/blog, and the
@@ -283,6 +297,11 @@ app.get('/llms.txt', async (req, res) => {
 // to the late express.static as the prerender's fallback).
 // Browsers still ask for /favicon.ico on some pages; the icon is an SVG.
 app.get('/favicon.ico', (req, res) => res.redirect(301, '/favicon.svg'));
+// Where to report a security problem (RFC 9116). express.static skips
+// dot-folders, so it's served explicitly.
+app.get('/.well-known/security.txt', (req, res) => {
+  res.type('text/plain').sendFile(path.join(__dirname, 'public', '.well-known', 'security.txt'));
+});
 
 // (/year-award.html is here too: it's served as a 410 below — see YEAR_AWARD_GONE_HTML.)
 const SERVER_RENDERED_PATHS = new Set(['/', '/index.html', '/calendar.html', '/year-award.html']);
@@ -439,21 +458,44 @@ const BLOB_CONFIGURED = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 // working without needing a Blob store just to hack on the app. On Vercel
 // itself BLOB_READ_WRITE_TOKEN must be set — the local-disk fallback would
 // silently fail there since that filesystem isn't writable/persistent.
+// Every upload is decoded and re-encoded before it's stored. That proves it
+// really is an image (not just a file claiming an image Content-Type), turns
+// it the right way up, and drops ALL metadata: phone photos usually carry
+// the GPS position they were taken at, and contest entries are public.
+// Quality is kept high (JPEG q95, no chroma subsampling) because these are
+// also what gets printed.
+async function sanitizeImage(file) {
+  try {
+    const img = sharp(file.buffer, { failOn: 'error' }).rotate();
+    if (file.mimetype === 'image/png' || file.mimetype === 'image/gif') {
+      return { buffer: await img.png().toBuffer(), mimetype: 'image/png' };
+    }
+    if (file.mimetype === 'image/webp') {
+      return { buffer: await img.webp({ quality: 95 }).toBuffer(), mimetype: 'image/webp' };
+    }
+    return { buffer: await img.jpeg({ quality: 95, chromaSubsampling: '4:4:4' }).toBuffer(), mimetype: 'image/jpeg' };
+  } catch (err) {
+    console.warn('[upload] rejected a file that could not be decoded as an image:', err.message);
+    throw Object.assign(new Error("That file couldn't be read as a photo — please try a different one."), { uploadRejected: true });
+  }
+}
+
 async function storePhoto(file) {
-  const ext = EXT_FOR_MIME[file.mimetype] || '.jpg';
+  const clean = await sanitizeImage(file);
+  const ext = EXT_FOR_MIME[clean.mimetype] || '.jpg';
   const filename = `${uuid()}${ext}`;
 
   if (BLOB_CONFIGURED) {
-    const blob = await putBlob(`uploads/${filename}`, file.buffer, {
+    const blob = await putBlob(`uploads/${filename}`, clean.buffer, {
       access: 'public',
-      contentType: file.mimetype,
+      contentType: clean.mimetype,
     });
     return blob.url;
   }
 
   const uploadDir = path.join(__dirname, 'public', 'uploads');
   fs.mkdirSync(uploadDir, { recursive: true });
-  fs.writeFileSync(path.join(uploadDir, filename), file.buffer);
+  fs.writeFileSync(path.join(uploadDir, filename), clean.buffer);
   return `/uploads/${filename}`;
 }
 
@@ -2069,6 +2111,7 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
       metaEventId: leadEventId,
     });
   } catch (err) {
+    if (err.uploadRejected) return res.status(400).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Something went wrong on our end — please try again, or email contest@whiskr.lol.' });
   }
@@ -2815,8 +2858,10 @@ app.get('/api/business-info', (req, res) => {
 // through Printful once Stripe confirms payment via the webhook above.
 app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
   try {
-    if (!stripe) {
-      return res.status(400).json({ error: 'Stripe is not configured on this server yet.' });
+    const blocked = !stripe ? ['STRIPE_SECRET_KEY'] : checkoutBlocker({ needsPrintful: true });
+    if (blocked) {
+      console.error(`[checkout] print order refused — not configured: ${blocked.join(', ')}`);
+      return res.status(503).json({ error: "Print orders open very soon — we're finishing setup. Please check back shortly." });
     }
     const { email, productId, petName, photoRights, quantity } = req.body;
     // Cats only since 2026-09-30 (owner's call). The column stays for older
@@ -2958,6 +3003,7 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
 
     res.json({ ok: true, url: session.url, lowResolution, width, height, discountPercent, amount, metaEventId: checkoutEventId });
   } catch (err) {
+    if (err.uploadRejected) return res.status(400).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Something went wrong on our end — please try again, or email contest@whiskr.lol.' });
   }
@@ -2994,8 +3040,10 @@ app.get('/api/commissions/quote', (req, res) => {
 // never up front, because the customer is paying for work not yet done.
 app.post('/api/commissions', upload.single('photo'), async (req, res) => {
   try {
-    if (!stripe) {
-      return res.status(400).json({ error: 'Stripe is not configured on this server yet.' });
+    const blocked = !stripe ? ['STRIPE_SECRET_KEY'] : checkoutBlocker({ needsPrintful: false });
+    if (blocked) {
+      console.error(`[checkout] commission refused — not configured: ${blocked.join(', ')}`);
+      return res.status(503).json({ error: "Commission booking opens very soon — we're finishing setup. Email contest@whiskr.lol to reserve a spot." });
     }
     const { email, customerName, petName, sizeId, notes, photoRights } = req.body;
 
@@ -3087,6 +3135,7 @@ app.post('/api/commissions', upload.single('photo'), async (req, res) => {
 
     res.json({ ok: true, url: session.url, quote, lowResolution, width, height });
   } catch (err) {
+    if (err.uploadRejected) return res.status(400).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Something went wrong on our end — please try again, or email contest@whiskr.lol.' });
   }
@@ -4566,6 +4615,9 @@ app.use((err, req, res, next) => {
 });
 
 if (!stripe) console.warn('[stripe] STRIPE_SECRET_KEY not set — checkout endpoint disabled.');
+if (checkoutBlocker({ needsPrintful: true })) {
+  console.warn(`[checkout] print checkout is CLOSED — missing ${checkoutBlocker({ needsPrintful: true }).join(', ')}. (ALLOW_UNFULFILLED_CHECKOUT=true overrides, for local dev only.)`);
+}
 if (stripe && !process.env.STRIPE_WEBHOOK_SECRET) {
   console.warn('[stripe] STRIPE_WEBHOOK_SECRET not set — paid orders will never be marked paid.');
 }
