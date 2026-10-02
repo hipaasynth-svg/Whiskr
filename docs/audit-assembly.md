@@ -2234,3 +2234,15 @@ A full read of every public page, every email, and the server code.
 - **Not done:**
   - Deleting the dormant calendar and Cat of the Year code, the `prototypes/` mock and the 410'd HTML files was attempted and blocked pending the owner's explicit go-ahead.
   - Admin still has no UI for commissions or for uploading a winner's finished painting; both are API-only.
+
+## Update 2026-10-02: dead code removed, admin sections for commissions and the winners page
+
+- **Deleted, on the owner's go-ahead:**
+  - The retired calendar product: checkout, `/api/calendar`, the calendar page renderer, its webhook, refund and review branches, `calendarShippingOptions`, and the env vars.
+  - The separate Cat of the Year vote: public and admin routes, the tally, `sendCatOfYearEmail`, and the env vars.
+  - The admin "Paid calendar orders" panel.
+  - `public/calendar.html`, `public/year-award.html` and `prototypes/`.
+  - `/calendar.html` and `/year-award.html` now share one 410 page. Database tables are left alone, since dropping them is irreversible and costs nothing to skip; `year_awards` is live (monthly painting winners and claims).
+- **Admin → Commissions** replaces the calendar panel. It shows paid bookings with the reference photo, notes, money, ship-to and status. **Request balance** uploads a photo of the finished painting and emails it with the permanent payment link. It can be re-sent, and the panel links straight to the customer's payment page. New columns: `commissions.painting_photo_path`, `balance_requested_at`.
+- **Admin → Winners page**: per closed round, upload the finished painting and a short story for `/winners`. The API existed but had no UI.
+- **Featured originals** take an optional "photo it was painted from". `/commission`'s before-and-after "Recent work" section only shows originals that have one, and admin had no way to set it, so that section could never appear.

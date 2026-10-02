@@ -146,10 +146,6 @@ const ECONOMICS = {
   'canvas-18x24': { itemUsd: 33.66, shipFirstUsd: 10.39, shipAdditionalUsd: 9.99 },
 };
 
-// Calendars are not a Printful product and not in products.js — they are
-// printed and mailed by the owner, so this is real postage plus packaging
-// rather than a supplier quote. Same treatment: the customer pays it.
-const CALENDAR_ECONOMICS = { shipFirstUsd: 5.95, shipAdditionalUsd: 2.5 };
 
 function round2(n) {
   return Math.round(n * 100) / 100;
@@ -212,10 +208,6 @@ function shippingOptionsFor({ productId, quantity = 1, subtotalUsd, rates }) {
   ];
 }
 
-// Shipping options for a calendar order, which has no products.js entry.
-function calendarShippingOptions({ quantity = 1, subtotalUsd }) {
-  return shippingOptionsFor({ productId: null, quantity, subtotalUsd, rates: CALENDAR_ECONOMICS });
-}
 
 // ---------------------------------------------------------------------
 // The margin check.
@@ -436,7 +428,6 @@ module.exports = {
   MARGIN_FLOOR,
   estimateShippingUsd,
   shippingOptionsFor,
-  calendarShippingOptions,
   marginReport,
   printReport,
 };

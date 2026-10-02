@@ -178,13 +178,6 @@ async function sendEntryConfirmation({ email, catName, voteUrl, statusUrl, close
   });
 }
 
-// Sent the instant a contest closes and its #1 vote-getter is decided —
-// this now carries the actual grand-prize win directly (see awardPainting
-// in server.js's tallyAndCloseContest): no separate second vote, the
-// round's own real public vote already made the decision. sculptureDeadline
-// is kept as the param name for continuity with the (now dormant)
-// tallyAndCloseYearAward path that also calls this same shape of email
-// content; it names when the painting ships, not a sculpture.
 // A week before a winner's claim deadline, if they still haven't given an
 // address (see passUnclaimedPrizes in server.js).
 async function sendClaimReminderEmail({ email, catName, claimUrl, claimDeadlineLabel }) {
@@ -232,7 +225,9 @@ async function sendPrizePassedEmail({ email, catName, rank, roundLabel, claimUrl
   });
 }
 
-async function sendWinnerEmail({ email, catName, sculptureDeadline, claimUrl, claimDeadline }) {
+// Sent when a round closes, to its #1 vote-getter (see tallyAndCloseContest
+// in server.js).
+async function sendWinnerEmail({ email, catName, claimUrl, claimDeadline }) {
   const claimBy = claimDeadline
     ? new Date(claimDeadline).toLocaleDateString('en-US', { timeZone: 'America/Chicago', month: 'long', day: 'numeric', year: 'numeric' })
     : null;
@@ -258,34 +253,6 @@ async function sendWinnerEmail({ email, catName, sculptureDeadline, claimUrl, cl
     subject: `${catName} is Cat of the Month — you're getting an original painting! 🏆`,
     html,
     text: `${catName} got the most votes and is Cat of the Month! ${catName} wins a one-of-a-kind original 11x16 acrylic painting, hand-painted by Cody Carlson. Expect it within 6–8 weeks of sending us your mailing address.${claimUrl ? ` Claim your prize (send your address) by ${claimBy || 'within 30 days'} here: ${claimUrl} — if it isn't claimed within 30 days, it goes to the runner-up.` : ' Reply to this email with a mailing address.'}`,
-  });
-}
-
-// Sent when the dormant tallyAndCloseYearAward manual-override path (see
-// server.js) is used to hand-correct a past round — not part of the
-// normal flow, which sends sendWinnerEmail above instead. Kept only so
-// that override path still has a real email to send.
-async function sendCatOfYearEmail({ email, catName, sculptureDeadline }) {
-  const safeName = escapeHtml(catName);
-  const deadlineText = sculptureDeadline
-    ? new Date(sculptureDeadline).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
-    : 'in the coming weeks';
-  const html = wrapLayout(
-    `
-    <p>Hi there,</p>
-    <p><strong>${safeName} is Cat of the Year!</strong> Out of the recent Cat of the Month winners up for it, ${safeName} got the most votes.</p>
-    <p><strong>${safeName} wins a one-of-a-kind original 11x16 acrylic painting of ${safeName}, hand-painted by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. We're aiming to have it delivered by ${deadlineText}.</p>
-    <p>Reply to this email with a mailing address and we'll get started.</p>
-    <p>Congratulations, and thank you for being part of Whiskr.</p>
-    <p>— Whiskr</p>
-  `,
-    { showUnsubscribe: true, email, tagline: 'Cat of the Year' }
-  );
-  return sendMail({
-    to: email,
-    subject: `${catName} is Cat of the Year!`,
-    html,
-    text: `${catName} is Cat of the Year! ${catName} wins a one-of-a-kind original 11x16 acrylic painting of ${catName}, hand-painted by Cody Carlson, aiming for delivery by ${deadlineText}. Reply to this email with a mailing address.\n\nUnsubscribe: ${unsubscribeUrl(email)}`,
   });
 }
 
@@ -516,7 +483,6 @@ module.exports = {
   sendWinnerEmail,
   sendClaimReminderEmail,
   sendPrizePassedEmail,
-  sendCatOfYearEmail,
   sendFinalRankEmail,
   sendRankDropEmail,
   sendReviewRequest,

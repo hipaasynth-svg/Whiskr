@@ -145,16 +145,6 @@ const MIN_PRINT_DIMENSION_PX = Number(process.env.MIN_PRINT_DIMENSION_PX || 2000
 // the winner zone) before sendRankDropAlerts emails them again.
 const RANK_DROP_THRESHOLD = Number(process.env.RANK_DROP_THRESHOLD || 5);
 
-// Cat of the Year: DORMANT as of the 2026-09-11 simplification (see
-// awardPainting/tallyAndCloseYearAward above) — every contest's #1 now gets
-// the painting directly from that month's real vote, so this second ballot
-// among monthly winners is a manual-override path only. Off by default —
-// set YEAR_AWARD_MANUAL_VOTE_ENABLED=true to re-enable the routes below,
-// rather than leaving them silently reachable the moment an 'open' row
-// exists (e.g. via the admin override further down this file).
-const YEAR_AWARD_VOTE_LIMIT_PER_IP = Number(process.env.YEAR_AWARD_VOTE_LIMIT_PER_IP || 5);
-const YEAR_AWARD_MANUAL_VOTE_ENABLED = process.env.YEAR_AWARD_MANUAL_VOTE_ENABLED === 'true';
-
 // Marketing ledger: below this ROAS, an active campaign with real spend
 // logged gets an alert email — never an automatic pause or budget change,
 // by design (see metaAds.js and docs/audit-assembly.md). Cooldown keeps a
@@ -167,17 +157,7 @@ const ROAS_ALERT_COOLDOWN_DAYS = Number(process.env.ROAS_ALERT_COOLDOWN_DAYS || 
 // a signal of anything yet).
 const ROAS_ALERT_MIN_SPEND = Number(process.env.ROAS_ALERT_MIN_SPEND || 25);
 const BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
-const PRICE_ONE = Number(process.env.CALENDAR_PRICE_USD || 24.99);
-const PRICE_MULTI = Number(process.env.CALENDAR_2PLUS_PRICE_USD || 19.99);
-// The calendar product itself is retired — the site no longer mentions or
-// links to it anywhere — but the checkout/fulfillment code is kept as a
-// dormant, flaggable feature rather than deleted, same treatment as the
-// Cat of the Year vote above. Off by default: a real, unauthenticated
-// Stripe checkout for a product nothing on the site sells shouldn't be
-// reachable just because nothing links to it. Set CALENDAR_CHECKOUT_ENABLED
-// =true only if this product is deliberately brought back.
-const CALENDAR_CHECKOUT_ENABLED = process.env.CALENDAR_CHECKOUT_ENABLED === 'true';
-// Physical products (calendars, custom prints) need a real ship-to address.
+// Physical products (prints, commissioned paintings) need a real ship-to address.
 // Keep this list short by default — every country you add is one you're
 // committing to handle customs/duties questions for.
 const SHIPPING_COUNTRIES = (process.env.SHIPPING_COUNTRIES || 'US').split(',').map((c) => c.trim());
@@ -216,9 +196,7 @@ function checkoutBlocker({ needsPrintful }) {
 // public/, same as the server-rendered pages below.
 app.use(blog.createRouter({ baseUrl: BASE_URL }));
 
-// Dynamic sitemap. year-award.html and per-round calendar.html pages are
-// deliberately left out — both are dormant (see the 2026-09-11
-// simplification note in docs/audit-assembly.md), nothing to index.
+// Dynamic sitemap.
 // The products a visitor can actually buy right now: the catalog minus
 // anything switched off in admin. Used by the sitemap and llms.txt, which
 // sit ahead of the /api DB middleware, so this initialises the DB itself.
@@ -291,10 +269,10 @@ app.get('/llms.txt', async (req, res) => {
 // sent, so they no longer wait on one.
 //
 // index:false plus the explicit skip below is what the earlier comment
-// worried about: the server-rendered /, /index.html and /calendar.html
-// routes further down must keep winning over the raw files of the same
-// name, so those three paths alone fall through to their own handlers (and
-// to the late express.static as the prerender's fallback).
+// worried about: the server-rendered / and /index.html routes further down
+// must keep winning over the raw file of the same name, so those paths
+// alone fall through to their own handler (and to the late express.static
+// as the prerender's fallback).
 // Browsers still ask for /favicon.ico on some pages; the icon is an SVG.
 app.get('/favicon.ico', (req, res) => res.redirect(301, '/favicon.svg'));
 // Where to report a security problem (RFC 9116). express.static skips
@@ -303,8 +281,7 @@ app.get('/.well-known/security.txt', (req, res) => {
   res.type('text/plain').sendFile(path.join(__dirname, 'public', '.well-known', 'security.txt'));
 });
 
-// (/year-award.html is here too: it's served as a 410 below — see YEAR_AWARD_GONE_HTML.)
-const SERVER_RENDERED_PATHS = new Set(['/', '/index.html', '/calendar.html', '/year-award.html']);
+const SERVER_RENDERED_PATHS = new Set(['/', '/index.html']);
 // A shared vote link (vote.html?cat=N) is how the contest spreads — it's the
 // link every entrant posts and texts. Served as a plain file, every one of
 // those previewed as a generic "Vote for a cat" with no picture. This gives
@@ -357,23 +334,21 @@ app.use((req, res, next) => {
   return staticAssets(req, res, next);
 });
 
-// The Cat of the Year vote was folded into the monthly win on 2026-09-11 and
-// the rules no longer offer it, but the page still loaded and described an
-// award that doesn't exist. Gone unless the manual-override flag that still
-// drives its API is switched on.
-const YEAR_AWARD_GONE_HTML = `<!DOCTYPE html>
+// Pages for two retired features — the calendar product and the separate
+// Cat of the Year vote. A 410 tells crawlers to drop any old indexed link,
+// and gives anyone following an old bookmark somewhere useful to go.
+const RETIRED_PAGE_HTML = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 <title>No longer available — Whiskr</title><meta name="robots" content="noindex, nofollow" />
 <link rel="stylesheet" href="/style.css" /></head>
 <body><main style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;">
 <h1>This page is no longer available.</h1>
-<p>There's no separate Cat of the Year vote anymore: each month's winner gets an original hand-painted portrait directly.</p>
+<p>Each month's contest winner now gets an original hand-painted portrait directly — there's no separate calendar or Cat of the Year vote.</p>
 <p><a href="/">Back to Whiskr</a></p>
 </main></body></html>`;
-app.get('/year-award.html', (req, res, next) => {
-  if (process.env.YEAR_AWARD_MANUAL_VOTE_ENABLED === 'true') return next();
-  res.status(410).set('Content-Type', 'text/html; charset=utf-8').send(YEAR_AWARD_GONE_HTML);
+app.get(['/calendar.html', '/year-award.html'], (req, res) => {
+  res.status(410).set('Content-Type', 'text/html; charset=utf-8').send(RETIRED_PAGE_HTML);
 });
 
 // The commission page is a clean URL over a plain file — no database, so it
@@ -944,21 +919,10 @@ async function fulfillCheckoutSession(session) {
   const orderId = session.metadata && Number(session.metadata.orderId);
   const shippingJson = extractShippingJson(session);
 
-  if (orderType === 'calendar' && orderId) {
+  if (orderType === 'custom' && orderId) {
     // Scoped to status='pending' so a retried webhook delivery (Stripe
-    // resends on any non-2xx or slow response) can't re-mark an
-    // already-paid order and re-trigger anything downstream of it.
-    const info = await db.run(
-      `UPDATE orders SET status = 'paid', shipping_address = ? WHERE id = ? AND status = 'pending'`,
-      [shippingJson, orderId]
-    );
-    console.log(
-      info.changes > 0
-        ? `[stripe webhook] calendar order #${orderId} marked paid.`
-        : `[stripe webhook] checkout.session.completed for unknown or already-processed calendar order #${orderId}`
-    );
-  } else if (orderType === 'custom' && orderId) {
-    // Same idempotency guard — without it, a retried delivery resets an
+    // resends on any non-2xx or slow response) can't re-mark it — without
+    // that guard, a retried delivery resets an
     // already-'submitted_to_printful' order back to 'paid', which defeats
     // submitCustomOrderToPrintful's own status check and re-submits the
     // same order to Printful a second time.
@@ -1160,12 +1124,6 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
             `Custom order #${orderId} was ${newStatus}`,
             `Custom order #${orderId} was marked ${newStatus} in Stripe. If it already shipped or was submitted to Printful, it needs manual attention.`
           );
-        } else if (orderType === 'calendar' && orderId) {
-          await db.run(`UPDATE orders SET status = ? WHERE id = ?`, [newStatus, orderId]);
-          await alertAdmin(
-            `Order #${orderId} was ${newStatus}`,
-            `Order #${orderId} was marked ${newStatus} in Stripe. It needs manual attention.`
-          );
         } else if ((orderType === 'commission_deposit' || orderType === 'commission_balance') && orderId) {
           // Not scoped to a prior status: a refund or dispute is terminal
           // regardless of where the booking had got to, and a painting in
@@ -1190,8 +1148,8 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
 app.use(express.json());
 
 // ---------- server-rendered pages (must come before express.static below,
-// so these routes intercept /, /index.html and /calendar.html instead of
-// the static files of the same name) ----------
+// so these routes intercept / and /index.html instead of the static file of
+// the same name) ----------
 
 // Same query the /api/status JSON endpoint answers, shared so the
 // server-rendered homepage and the client's live re-check never disagree.
@@ -1248,8 +1206,6 @@ async function getContestStatus() {
 }
 
 const INDEX_PATH = path.join(__dirname, 'public', 'index.html');
-const CALENDAR_PATH = path.join(__dirname, 'public', 'calendar.html');
-
 // Bakes real contest status, the last winner, the full product catalog
 // (with JSON-LD), and any admin-uploaded background photos into the HTML
 // the server sends — so a crawler that never runs script.js still sees the
@@ -1375,60 +1331,6 @@ async function renderIndexHtml() {
   return html;
 }
 
-// Served for /calendar.html while CALENDAR_CHECKOUT_ENABLED is off — a 410
-// (permanently gone) tells crawlers to drop any old indexed link rather
-// than leave them re-crawling a stale page, and gives a human who followed
-// an old bookmark somewhere useful instead of a bare error.
-const CALENDAR_GONE_HTML = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-<title>No longer available — Whiskr</title><meta name="robots" content="noindex, nofollow" />
-<link rel="stylesheet" href="/style.css" /></head>
-<body><main style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;">
-<h1>This page is no longer available.</h1>
-<p>Whiskr's contest now gives an original hand-painted portrait straight to each round's winner — there's no separate calendar to order.</p>
-<p><a href="/">Back to Whiskr</a></p>
-</main></body></html>`;
-
-async function renderCalendarHtml(groupIdRaw) {
-  let html = fs.readFileSync(CALENDAR_PATH, 'utf8');
-  const groupId = Number(groupIdRaw);
-  if (!groupId) return html;
-
-  const group = await db.get(`SELECT * FROM groups WHERE id = ?`, [groupId]);
-  if (!group) return html;
-
-  const title = `Round #${groupId} calendar — Whiskr`;
-  const description = group.status === 'completed'
-    ? `This round's top vote-getters from Whiskr's free cat photo contest, decided by real public vote. Order this calendar as a print.`
-    : `Whiskr contest round #${groupId} — voting still open. Check back once it closes.`;
-  html = html.replace(/<title>.*?<\/title>/, `<title>${seo.escapeHtml(title)}</title>`);
-  html = seo.injectIntoHead(html, `<meta name="description" content="${seo.escapeHtml(description)}" />
-<meta property="og:title" content="${seo.escapeHtml(title)}" />
-<meta property="og:description" content="${seo.escapeHtml(description)}" />
-<meta property="og:type" content="product.group" />
-<link rel="canonical" href="${BASE_URL}/calendar.html?group=${groupId}" />`);
-
-  if (group.status === 'completed') {
-    const jsonLd = JSON.stringify({
-      '@context': 'https://schema.org',
-      '@type': 'Product',
-      name: title,
-      description,
-      offers: {
-        '@type': 'Offer',
-        price: PRICE_ONE.toFixed(2),
-        priceCurrency: 'USD',
-        availability: 'https://schema.org/InStock',
-        url: `${BASE_URL}/calendar.html?group=${groupId}`,
-      },
-    });
-    html = seo.injectIntoHead(html, `<script type="application/ld+json">${jsonLd}</script>`);
-  }
-
-  return html;
-}
-
 app.get(['/', '/index.html'], async (req, res, next) => {
   try {
     res.set('Content-Type', 'text/html; charset=utf-8');
@@ -1436,20 +1338,6 @@ app.get(['/', '/index.html'], async (req, res, next) => {
   } catch (err) {
     console.error('[render] index prerender failed, falling back to static file:', err.message);
     next(); // let express.static below serve the plain file
-  }
-});
-
-app.get('/calendar.html', async (req, res, next) => {
-  if (!CALENDAR_CHECKOUT_ENABLED) {
-    res.status(410).set('Content-Type', 'text/html; charset=utf-8').send(CALENDAR_GONE_HTML);
-    return;
-  }
-  try {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(await renderCalendarHtml(req.query.group));
-  } catch (err) {
-    console.error('[render] calendar prerender failed, falling back to static file:', err.message);
-    next();
   }
 });
 
@@ -1683,8 +1571,8 @@ async function tallyAndCloseContest(contestId) {
   // Internal record of "this round's results" — kept exactly as before
   // (top CONTEST_WINNERS_COUNT grouped together, #1 as winner_submission_id)
   // since /api/status's homepage "recent winner" lookup still reads it.
-  // Not a calendar product anymore — nothing public promotes or sells
-  // this grouping; it's just how a round's outcome is stored.
+  // Nothing public promotes or sells this grouping; it's just how a round's
+  // outcome is stored.
   const winnersCount = Math.min(CONTEST_WINNERS_COUNT, ranked.length);
   const winners = ranked.slice(0, winnersCount);
 
@@ -1714,9 +1602,9 @@ async function tallyAndCloseContest(contestId) {
     const rank = i + 1;
     try {
       if (rank === 1) {
-        const { yearAwardId, deadline, claimDeadline } = await awardPainting(s, `${contest.label} winner`);
+        const { yearAwardId, claimDeadline } = await awardPainting(s, `${contest.label} winner`);
         await mailer.sendWinnerEmail({
-          email: s.email, catName: s.cat_name, sculptureDeadline: deadline,
+          email: s.email, catName: s.cat_name,
           claimUrl: claimUrlFor(yearAwardId, s.email), claimDeadline,
         });
       } else {
@@ -1737,15 +1625,10 @@ async function tallyAndCloseContest(contestId) {
   return groupId;
 }
 
-// Records the grand-prize win the instant a contest's #1 is decided —
-// reuses the existing year_awards/year_award_finalists schema unchanged
-// (so admin history and any dormant tooling built against it still work)
-// but creates the row already 'completed' rather than 'open': there is no
-// second vote anymore, the monthly vote that just happened already
-// decided it. See tallyAndCloseYearAward below, kept only as a manual
-// override path (POST /api/admin/year-award/open + /force-close still
-// exist but nothing links to them anymore) in case a past round ever
-// needs a correction.
+// Records the grand-prize win the instant a contest's #1 is decided, as a
+// 'completed' year_awards row. (The table name is historical: it once held a
+// separate Cat of the Year vote. It now holds each month's painting winner,
+// their claim deadline and their shipping address.)
 async function awardPainting(winnerSubmission, label) {
   const now = new Date().toISOString();
   // Owner's call (2026-09-30): winners are promised 6–8 weeks, counted from
@@ -1764,50 +1647,6 @@ async function awardPainting(winnerSubmission, label) {
     [info.rows[0].id, winnerSubmission.id, winnerSubmission.vote_count]
   );
   return { yearAwardId: info.rows[0].id, deadline, claimDeadline };
-}
-
-// DORMANT as of the 2026-09-11 simplification: every contest's #1 now
-// wins the painting automatically via awardPainting (see
-// tallyAndCloseContest above) — there's no separate vote to tally
-// anymore, so nothing calls this function or its /api/admin/year-award/
-// open + force-close routes from any linked UI. Left in place, unchanged,
-// only as a manual override an operator could still reach directly (e.g.
-// curl) if a past round ever needed hand-correcting; never re-link the
-// admin "open a vote" form to it without first confirming that's really
-// wanted, since it would create a confusing second vote alongside the
-// automatic one.
-async function tallyAndCloseYearAward(yearAwardId) {
-  const award = await db.get(`SELECT * FROM year_awards WHERE id = ?`, [yearAwardId]);
-  if (!award || award.status !== 'open') return null;
-
-  const finalists = await db.all(
-    `SELECT * FROM year_award_finalists WHERE year_award_id = ? ORDER BY vote_count DESC, id ASC`,
-    [yearAwardId]
-  );
-  if (finalists.length === 0) {
-    await db.run(`UPDATE year_awards SET status = 'completed' WHERE id = ?`, [yearAwardId]);
-    console.warn(`[year-award] #${yearAwardId} closed with zero finalists — nothing to crown.`);
-    return null;
-  }
-
-  const winner = finalists[0];
-  const winnerSubmission = await db.get(`SELECT * FROM submissions WHERE id = ?`, [winner.submission_id]);
-  await db.run(`UPDATE year_awards SET status = 'completed', winner_submission_id = ? WHERE id = ?`, [
-    winnerSubmission.id, yearAwardId,
-  ]);
-
-  try {
-    await mailer.sendCatOfYearEmail({
-      email: winnerSubmission.email,
-      catName: winnerSubmission.cat_name,
-      sculptureDeadline: award.sculpture_deadline,
-    });
-  } catch (err) {
-    console.error(`[mailer] Cat of the Year email failed for submission ${winnerSubmission.id}:`, err.message);
-  }
-
-  console.log(`[year-award] #${yearAwardId} closed. Cat of the Year: ${winnerSubmission.cat_name} (submission ${winnerSubmission.id}).`);
-  return winnerSubmission.id;
 }
 
 // Daily: remind a winner a week before their claim deadline, and pass an
@@ -1951,21 +1790,6 @@ async function sendRankDropAlerts() {
 async function sendDueReviewRequests() {
   const cutoff = new Date(Date.now() - REVIEW_REQUEST_DELAY_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  const dueCalendar = await db.all(
-    `SELECT * FROM orders WHERE status = 'paid' AND review_requested_at IS NULL AND created_at <= ?`,
-    [cutoff]
-  );
-  for (const o of dueCalendar) {
-    const token = reviewLink.tokenFor('calendar', o.id, o.email);
-    const reviewUrl = `${BASE_URL}/review.html?type=calendar&id=${o.id}&email=${encodeURIComponent(o.email)}&token=${token}`;
-    try {
-      await mailer.sendReviewRequest({ email: o.email, itemLabel: `Whiskr calendar (Group #${o.group_id})`, reviewUrl });
-      await db.run(`UPDATE orders SET review_requested_at = ? WHERE id = ?`, [new Date().toISOString(), o.id]);
-    } catch (err) {
-      console.error(`[mailer] review request failed for order ${o.id}:`, err.message);
-    }
-  }
-
   // Review requests used to run on a timer from ORDER CREATION, which
   // meant a parcel still in transit -- or lost outright -- still got a
   // "how did we do?" email. Now the clock starts at delivery.
@@ -2014,8 +1838,8 @@ async function sendDueReviewRequests() {
 // ---------- API ----------
 
 // Submit a cat photo + email into the current open contest — free, always
-// open, no batch to wait for. Making the calendar now depends entirely on
-// votes from the public, not a queue position.
+// open, no batch to wait for. Winning depends entirely on votes from the
+// public, not a queue position.
 app.post('/api/submissions', upload.single('photo'), async (req, res) => {
   try {
     const { email, catName, photoRights } = req.body;
@@ -2462,80 +2286,6 @@ app.post('/api/vote', async (req, res) => {
     }
     if (err.code === '23505') {
       return res.status(400).json({ error: "You've already voted for this cat." });
-    }
-    console.error(err);
-    res.status(500).json({ error: 'Something went wrong.' });
-  }
-});
-
-// Public: the currently open Cat of the Year award and its finalists (no
-// vote counts — same hidden-tally rule as the monthly vote). Returns
-// award: null most of the year, since this only opens once annually.
-app.get('/api/year-award/current', async (req, res) => {
-  if (!YEAR_AWARD_MANUAL_VOTE_ENABLED) return res.json({ award: null, finalists: [] });
-  const award = await db.get(`SELECT * FROM year_awards WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
-  if (!award) return res.json({ award: null, finalists: [] });
-  const finalists = await db.all(
-    `SELECT yaf.id AS finalist_id, s.id AS submission_id, s.cat_name, s.photo_path, s.share_image_path
-     FROM year_award_finalists yaf JOIN submissions s ON s.id = yaf.submission_id
-     WHERE yaf.year_award_id = ? ORDER BY RANDOM()`,
-    [award.id]
-  );
-  res.json({
-    award: { id: award.id, label: award.label, closesAt: award.closes_at },
-    finalists,
-  });
-});
-
-// Cast one Cat of the Year ballot. Unlike monthly voting, this is a single
-// pick per person for the whole award (UNIQUE on year_award_id+voter_token,
-// not per finalist) — see year_award_votes in db.js.
-app.post('/api/year-award/vote', async (req, res) => {
-  if (!YEAR_AWARD_MANUAL_VOTE_ENABLED) {
-    return res.status(501).json({ error: 'Not available.' });
-  }
-  try {
-    const finalistId = Number(req.body.finalistId);
-    if (!finalistId) return res.status(400).json({ error: 'Missing finalistId.' });
-
-    const finalist = await db.get(
-      `SELECT yaf.*, ya.status AS award_status FROM year_award_finalists yaf
-       JOIN year_awards ya ON ya.id = yaf.year_award_id WHERE yaf.id = ?`,
-      [finalistId]
-    );
-    if (!finalist) return res.status(404).json({ error: 'Finalist not found.' });
-    if (finalist.award_status !== 'open') {
-      return res.status(400).json({ error: 'Voting has closed for this award.' });
-    }
-
-    if (process.env.TURNSTILE_SECRET_KEY) {
-      const captchaOk = await verifyTurnstile(req.body.turnstileToken, req.ip);
-      if (!captchaOk) return res.status(400).json({ error: 'Captcha verification failed — please try again.' });
-    }
-
-    const voterToken = getOrSetVoterToken(req, res);
-    const ipHash = hashIp(req.ip);
-
-    const ipCount = await db.get(
-      `SELECT COUNT(*) AS c FROM year_award_votes WHERE year_award_id = ? AND ip_hash = ?`,
-      [finalist.year_award_id, ipHash]
-    );
-    if (Number(ipCount.c) >= YEAR_AWARD_VOTE_LIMIT_PER_IP) {
-      return res.status(429).json({ error: 'Too many votes from this connection for this award.' });
-    }
-
-    await db.transaction(async (tx) => {
-      await tx.run(
-        `INSERT INTO year_award_votes (year_award_id, finalist_id, voter_token, ip_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
-        [finalist.year_award_id, finalistId, voterToken, ipHash, new Date().toISOString()]
-      );
-      await tx.run(`UPDATE year_award_finalists SET vote_count = vote_count + 1 WHERE id = ?`, [finalistId]);
-    });
-
-    res.json({ ok: true });
-  } catch (err) {
-    if (err.code === '23505') {
-      return res.status(400).json({ error: "You've already voted in this Cat of the Year award." });
     }
     console.error(err);
     res.status(500).json({ error: 'Something went wrong.' });
@@ -3104,7 +2854,7 @@ app.post('/api/commissions', upload.single('photo'), async (req, res) => {
       // A painting is a physical object that has to reach someone, and the
       // address is also what Stripe Tax needs to work out what to charge.
       shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
-      // No shipping_options here, unlike the print and calendar sessions.
+      // No shipping_options here, unlike the print sessions.
       // Commission prices are locked by the owner's brief, and crating and
       // insuring an original acrylic is a real cost that nothing currently
       // collects — but adding a charge on top of a locked four-figure price
@@ -3147,94 +2897,6 @@ app.post('/api/commissions', upload.single('photo'), async (req, res) => {
 // entered right now.
 app.get('/api/status', async (req, res) => {
   res.json(await getContestStatus());
-});
-
-// Calendar landing/checkout page for a specific completed group
-app.get('/api/calendar/:groupId', async (req, res) => {
-  if (!CALENDAR_CHECKOUT_ENABLED) return res.status(410).json({ error: 'No longer available.' });
-  const groupId = Number(req.params.groupId);
-  const group = await db.get(`SELECT * FROM groups WHERE id = ?`, [groupId]);
-  if (!group) return res.status(404).json({ error: 'Not found' });
-  const submissions = await db.all(`SELECT id, cat_name, photo_path FROM submissions WHERE group_id = ?`, [
-    groupId,
-  ]);
-  res.json({
-    groupId,
-    status: group.status,
-    winnerSubmissionId: group.winner_submission_id,
-    cats: submissions,
-    priceOne: PRICE_ONE,
-    priceMulti: PRICE_MULTI,
-  });
-});
-
-// Create a Stripe Checkout session for a calendar order
-app.post('/api/checkout', async (req, res) => {
-  if (!CALENDAR_CHECKOUT_ENABLED) return res.status(410).json({ error: 'No longer available.' });
-  try {
-    if (!stripe) {
-      return res.status(400).json({ error: 'Stripe is not configured on this server yet.' });
-    }
-    const groupId = Number(req.body.groupId);
-    const { quantity, email } = req.body;
-
-    // Don't take payment for a calendar that doesn't exist yet, or one whose
-    // voting is still open (nothing to print until a winner is picked).
-    const group = await db.get(`SELECT id, status FROM groups WHERE id = ?`, [groupId]);
-    if (!group) {
-      return res.status(404).json({ error: 'That batch does not exist.' });
-    }
-    if (group.status !== 'completed') {
-      return res.status(400).json({ error: 'This batch hasn\'t been judged yet — check back once a cover cat is picked.' });
-    }
-
-    const qty = Math.max(1, Math.min(20, Number(quantity) || 1));
-    const unitPrice = qty >= 2 ? PRICE_MULTI : PRICE_ONE;
-    const utmCampaign = cleanUtmCampaign(req.body.utmCampaign);
-
-    const info = await db.run(
-      `INSERT INTO orders (group_id, email, quantity, amount_usd, status, created_at, utm_campaign) VALUES (?, ?, ?, ?, 'pending', ?, ?) RETURNING id`,
-      [groupId, email || '', qty, unitPrice * qty, new Date().toISOString(), utmCampaign]
-    );
-    const orderId = info.rows[0].id;
-
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      customer_email: isValidEmail(email) ? email : undefined,
-      shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
-      // Calendars are mailed by us rather than by Printful, so this is
-      // postage and packaging rather than a supplier quote — but it was
-      // being absorbed the same way, and on a $19.99 second calendar that
-      // is most of the margin.
-      shipping_options: orderEconomics.calendarShippingOptions({
-        quantity: qty,
-        subtotalUsd: unitPrice * qty,
-      }),
-      automatic_tax: { enabled: true },
-      payment_intent_data: { statement_descriptor_suffix: 'WHISKR', ...(isValidEmail(email) ? { receipt_email: email } : {}) },
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: { name: `Whiskr Calendar — Group #${groupId}` },
-            unit_amount: Math.round(unitPrice * 100),
-            tax_behavior: 'exclusive',
-          },
-          quantity: qty,
-        },
-      ],
-      metadata: { orderType: 'calendar', orderId: String(orderId) },
-      success_url: `${BASE_URL}/?order=success`,
-      cancel_url: `${BASE_URL}/calendar.html?group=${groupId}`,
-    });
-
-    await db.run(`UPDATE orders SET stripe_session_id = ? WHERE id = ?`, [session.id, orderId]);
-
-    res.json({ url: session.url });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message || 'Checkout failed.' });
-  }
 });
 
 // Unsubscribe link included in commercial result emails (CAN-SPAM requires
@@ -3329,17 +2991,14 @@ app.post('/api/reviews', async (req, res) => {
     const { orderType, orderId, email, token, rating, body, displayName } = req.body;
     const id = Number(orderId);
 
-    if (orderType !== 'calendar' && orderType !== 'custom') {
+    if (orderType !== 'custom') {
       return res.status(400).json({ error: 'Invalid review link.' });
     }
     if (!reviewLink.verify(orderType, id, email, token)) {
       return res.status(400).json({ error: 'Invalid or expired review link.' });
     }
 
-    const order =
-      orderType === 'calendar'
-        ? await db.get(`SELECT email, status FROM orders WHERE id = ?`, [id])
-        : await db.get(`SELECT email, status FROM custom_orders WHERE id = ?`, [id]);
+    const order = await db.get(`SELECT email, status FROM custom_orders WHERE id = ?`, [id]);
     const paidStatuses = ['paid', 'submitted_to_printful'];
     if (!order || order.email.toLowerCase() !== String(email).toLowerCase() || !paidStatuses.includes(order.status)) {
       return res.status(400).json({ error: 'This order is not eligible for a review.' });
@@ -3486,69 +3145,6 @@ app.get('/api/admin/year-award', requireAdmin, async (req, res) => {
       claimUrl: / winner$/.test(a.label || '') && a.email ? claimUrlFor(a.id, a.email) : null,
     })),
   });
-});
-
-// DORMANT as of the 2026-09-11 simplification (see tallyAndCloseYearAward
-// above) — kept only as a manual override, not linked from any UI.
-// Opens a new Cat of the Year award: auto-populates finalists from every
-// completed monthly Cat-of-the-Month winner (groups.winner_submission_id)
-// sealed within [sinceDate, untilDate] — default sinceDate is "the
-// beginning of time" (covers the first cycle, before any award has ever
-// run) and default untilDate is now.
-app.post('/api/admin/year-award/open', requireAdmin, async (req, res) => {
-  if (!YEAR_AWARD_MANUAL_VOTE_ENABLED) {
-    return res.status(501).json({
-      error: 'Set YEAR_AWARD_MANUAL_VOTE_ENABLED=true to use this manual-override path — it also re-enables the public vote/current routes.',
-    });
-  }
-  const { label, closesAt, sculptureDeadline, sinceDate, untilDate } = req.body;
-  if (!label || !closesAt) return res.status(400).json({ error: 'label and closesAt are required.' });
-
-  const since = sinceDate || '2000-01-01T00:00:00.000Z';
-  const until = untilDate || new Date().toISOString();
-  const winners = await db.all(
-    `SELECT DISTINCT g.winner_submission_id AS submission_id
-     FROM groups g WHERE g.status = 'completed' AND g.winner_submission_id IS NOT NULL
-       AND g.sealed_at >= ? AND g.sealed_at <= ?`,
-    [since, until]
-  );
-  if (winners.length === 0) {
-    return res.status(400).json({ error: 'No completed Cat-of-the-Month winners in that date range.' });
-  }
-
-  const now = new Date().toISOString();
-  const info = await db.run(
-    `INSERT INTO year_awards (label, opens_at, closes_at, status, sculpture_deadline, created_at)
-     VALUES (?, ?, ?, 'open', ?, ?) RETURNING id`,
-    [label, now, closesAt, sculptureDeadline || null, now]
-  );
-  const yearAwardId = info.rows[0].id;
-  for (const w of winners) {
-    await db.run(
-      `INSERT INTO year_award_finalists (year_award_id, submission_id) VALUES (?, ?) ON CONFLICT DO NOTHING`,
-      [yearAwardId, w.submission_id]
-    );
-  }
-  res.json({ ok: true, yearAwardId, finalistCount: winners.length });
-});
-
-app.get('/api/admin/year-award/current', requireAdmin, async (req, res) => {
-  const award = await db.get(`SELECT * FROM year_awards WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
-  if (!award) return res.json({ award: null, finalists: [] });
-  const finalists = await db.all(
-    `SELECT yaf.id AS finalist_id, yaf.vote_count, s.id AS submission_id, s.cat_name, s.photo_path
-     FROM year_award_finalists yaf JOIN submissions s ON s.id = yaf.submission_id
-     WHERE yaf.year_award_id = ? ORDER BY yaf.vote_count DESC`,
-    [award.id]
-  );
-  res.json({ award, finalists });
-});
-
-app.post('/api/admin/year-award/force-close', requireAdmin, async (req, res) => {
-  const award = await db.get(`SELECT * FROM year_awards WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
-  if (!award) return res.status(404).json({ error: 'No open year award.' });
-  const winnerSubmissionId = await tallyAndCloseYearAward(award.id);
-  res.json({ ok: true, yearAwardId: award.id, winnerSubmissionId });
 });
 
 // Marketing/ROAS ledger — spend can come in two ways: manually logged (see
@@ -3880,18 +3476,7 @@ app.get('/api/admin/marketing-subscribers/export.csv', requireAdmin, async (req,
   res.send(lines.join('\n'));
 });
 
-// Orders, for fulfillment. ?status=paid to see what actually needs printing;
-// omit to see everything including still-pending checkout sessions.
-app.get('/api/admin/orders', requireAdmin, async (req, res) => {
-  const status = typeof req.query.status === 'string' ? req.query.status : null;
-  const rows = status
-    ? await db.all(`SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC`, [status])
-    : await db.all(`SELECT * FROM orders ORDER BY created_at DESC`);
-  res.json({ orders: rows });
-});
-
-// Custom (print-on-demand) orders, for fulfillment visibility alongside
-// the calendar orders above.
+// Custom (print-on-demand) orders, for fulfillment visibility.
 app.get('/api/admin/custom-orders', requireAdmin, async (req, res) => {
   const status = typeof req.query.status === 'string' ? req.query.status : null;
   const rows = status
@@ -3956,14 +3541,20 @@ app.get('/api/admin/commissions', requireAdmin, async (req, res) => {
   const rows = status
     ? await db.all(`SELECT * FROM commissions WHERE status = ? ORDER BY created_at DESC`, [status])
     : await db.all(`SELECT * FROM commissions ORDER BY created_at DESC`);
-  res.json({ commissions: rows });
+  res.json({
+    commissions: rows.map((c) => ({
+      ...c,
+      sizeLabel: (commissionPricing.getSize(c.size_id) || {}).label || c.size_id,
+      payUrl: c.status === 'balance_pending' ? commissionPayUrl(c) : null,
+    })),
+  });
 });
 
 // Painting's finished: create a Stripe session for the remaining balance
 // and email it to the customer with a photo of the work. This is a manual
 // step on purpose — the balance is never auto-charged, so the customer
 // always sees the finished painting before paying the rest of it.
-app.post('/api/admin/commissions/:id/request-balance', requireAdmin, async (req, res) => {
+app.post('/api/admin/commissions/:id/request-balance', requireAdmin, upload.single('painting'), async (req, res) => {
   try {
     if (!stripe) {
       return res.status(400).json({ error: 'Stripe is not configured on this server yet.' });
@@ -3975,11 +3566,11 @@ app.post('/api/admin/commissions/:id/request-balance', requireAdmin, async (req,
     if (id === null) return res.status(400).json({ error: 'Invalid commission id.' });
     const booking = await db.get(`SELECT * FROM commissions WHERE id = ?`, [id]);
     if (!booking) return res.status(404).json({ error: 'Commission not found.' });
-    // Only a paid deposit can progress to a balance request. Asking for the
-    // balance on an unpaid, refunded or already-settled booking is always a
-    // mistake, and a wrong payment request to a four-figure customer is a
-    // worse one than a rejected button click.
-    if (booking.status !== 'deposit_paid') {
+    // Only a paid deposit can progress to a balance request (or, once it has,
+    // be re-sent). Asking for the balance on an unpaid, refunded or already-
+    // settled booking is always a mistake, and a wrong payment request to a
+    // customer is a worse one than a rejected button click.
+    if (booking.status !== 'deposit_paid' && booking.status !== 'balance_pending') {
       return res.status(400).json({
         error: `Commission #${id} is '${booking.status}' — a balance can only be requested once the deposit is paid and before the balance is settled.`,
       });
@@ -3989,12 +3580,18 @@ app.post('/api/admin/commissions/:id/request-balance', requireAdmin, async (req,
     // Checkout URL: Stripe Checkout sessions expire after 24 hours, and a
     // customer may open this email days later. The link makes a fresh
     // session each time (GET /api/commissions/:id/pay below).
-    await db.run(`UPDATE commissions SET status = 'balance_pending' WHERE id = ?`, [id]);
+    // The finished painting's photo goes in the email so the customer sees the
+    // work before paying. Uploaded here, or reused from an earlier request.
+    let paintingPath = booking.painting_photo_path || null;
+    if (req.file) paintingPath = await storePhoto(req.file);
+    await db.run(
+      `UPDATE commissions SET status = 'balance_pending', painting_photo_path = ?, balance_requested_at = ? WHERE id = ?`,
+      [paintingPath, new Date().toISOString(), id]
+    );
     const payUrl = commissionPayUrl(booking);
-    const paintingImageUrl =
-      typeof req.body.paintingImageUrl === 'string' && /^https?:\/\//i.test(req.body.paintingImageUrl)
-        ? req.body.paintingImageUrl
-        : null;
+    const paintingImageUrl = paintingPath
+      ? (paintingPath.startsWith('http') ? paintingPath : `${BASE_URL}${paintingPath}`)
+      : null;
     await mailer.sendCommissionBalanceDue({
       email: booking.email,
       petName: booking.pet_name,
@@ -4249,20 +3846,29 @@ app.delete('/api/admin/background/:id', requireAdmin, async (req, res) => {
 // drying" empty state.
 app.get('/api/admin/originals', requireAdmin, async (req, res) => {
   const originals = await db.all(
-    `SELECT id, image_path, cat_name, position FROM featured_originals ORDER BY position ASC, id ASC`
+    `SELECT id, image_path, cat_name, source_photo_path, position FROM featured_originals ORDER BY position ASC, id ASC`
   );
   res.json({ originals });
 });
-app.post('/api/admin/originals', requireAdmin, upload.single('photo'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'A photo is required.' });
+app.post(
+  '/api/admin/originals',
+  requireAdmin,
+  upload.fields([{ name: 'photo', maxCount: 1 }, { name: 'sourcePhoto', maxCount: 1 }]),
+  async (req, res) => {
+  const photo = req.files && req.files.photo && req.files.photo[0];
+  const sourcePhoto = req.files && req.files.sourcePhoto && req.files.sourcePhoto[0];
+  if (!photo) return res.status(400).json({ error: 'A photo of the painting is required.' });
   const catName = (req.body.catName || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60) || null;
-  const imagePath = await storePhoto(req.file);
+  const imagePath = await storePhoto(photo);
+  // The photo it was painted from. Optional, but /commission only shows an
+  // original in its before/after gallery once it has one.
+  const sourcePhotoPath = sourcePhoto ? await storePhoto(sourcePhoto) : null;
   const maxPos = await db.get(`SELECT COALESCE(MAX(position), -1) AS m FROM featured_originals`);
   const info = await db.run(
-    `INSERT INTO featured_originals (image_path, cat_name, position, created_at) VALUES (?, ?, ?, ?) RETURNING id`,
-    [imagePath, catName, Number(maxPos.m) + 1, new Date().toISOString()]
+    `INSERT INTO featured_originals (image_path, cat_name, source_photo_path, position, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+    [imagePath, catName, sourcePhotoPath, Number(maxPos.m) + 1, new Date().toISOString()]
   );
-  res.json({ id: info.rows[0].id, image_path: imagePath, cat_name: catName });
+  res.json({ id: info.rows[0].id, image_path: imagePath, cat_name: catName, source_photo_path: sourcePhotoPath });
 });
 app.delete('/api/admin/originals/:id', requireAdmin, async (req, res) => {
   const info = await db.run(`DELETE FROM featured_originals WHERE id = ?`, [Number(req.params.id)]);
@@ -4527,7 +4133,7 @@ app.get('/healthz', (req, res) => res.send('ok'));
 // replaces the in-process node-cron scheduler that ran on the old always-on
 // host, since a serverless function has no long-lived process to keep a
 // timer running in. Closes any contest whose closes_at has passed (tallying
-// votes and promoting the top CONTEST_WINNERS_COUNT into a calendar — see
+// votes and awarding the #1 vote-getter the painting — see
 // runDueContestClose/tallyAndCloseContest), and sends paid orders' review
 // requests once they're old enough.
 //
