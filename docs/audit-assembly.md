@@ -2246,3 +2246,16 @@ A full read of every public page, every email, and the server code.
 - **Admin → Commissions** replaces the calendar panel. It shows paid bookings with the reference photo, notes, money, ship-to and status. **Request balance** uploads a photo of the finished painting and emails it with the permanent payment link. It can be re-sent, and the panel links straight to the customer's payment page. New columns: `commissions.painting_photo_path`, `balance_requested_at`.
 - **Admin → Winners page**: per closed round, upload the finished painting and a short story for `/winners`. The API existed but had no UI.
 - **Featured originals** take an optional "photo it was painted from". `/commission`'s before-and-after "Recent work" section only shows originals that have one, and admin had no way to set it, so that section could never appear.
+
+## Update 2026-10-02: full audit and operating workflow
+
+A full code, live-site and Stripe audit is in
+[`site-audit-2026-10-02.md`](site-audit-2026-10-02.md), together with the
+daily, weekly and monthly operating workflow. It changes no code. The P0 items:
+
+- Whiskr shares a Stripe account (and checkout branding) with codycarlson.art.
+- Klarna and the Stripe Tax fee aren't in the margin model.
+- The live round's close (Oct 9, 3:23 p.m. CT) contradicts the rules' calendar-month wording.
+- No DMCA agent is registered.
+
+There's also one P1 bug: ROAS counts only `status = 'paid'` orders, which real orders leave within seconds.
