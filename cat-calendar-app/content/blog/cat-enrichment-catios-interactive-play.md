@@ -1,6 +1,6 @@
 ---
 title: "The Bored Cat Problem: Why Enrichment, Catios, and Play Matter"
-description: "Most bad cat behaviour is an unmet need, not a personality flaw. Here's what the AAFP/ISFM feline environmental needs guidelines actually ask for — vertical space, safe outdoor access, two short play sessions a day — and the gear that delivers it."
+description: "Most bad cat behavior is an unmet need, not a personality flaw. Here's what the AAFP/ISFM feline environmental needs guidelines actually ask for — vertical space, safe outdoor access, two short play sessions a day — and the gear that delivers it."
 date: 2026-09-24
 ---
 
@@ -9,7 +9,7 @@ houseplants, or redecorates the sofa arm is usually not being difficult.
 She's being a predator with nothing to hunt.
 
 That's the uncomfortable thing about indoor life. We solved the dangerous
-parts — cars, coyotes, feline leukaemia, antifreeze — and in the process
+parts — cars, coyotes, feline leukemia, antifreeze — and in the process
 removed almost everything a cat's brain is built to spend the day doing. The
 instinct didn't go anywhere. It just has nowhere to land, so it lands on you,
 at 4am, or on the sofa.
@@ -20,7 +20,7 @@ stress-related cystitis flare-up.
 
 ## The predator sequence is the whole explanation
 
-Hunting isn't one behaviour. It's a fixed chain, and cats run it in order:
+Hunting isn't one behavior. It's a fixed chain, and cats run it in order:
 
 **stare → stalk → chase → pounce → grab → bite → eat → groom → sleep**
 
@@ -29,8 +29,8 @@ around dawn and dusk, and most attempts fail. Small, frequent, unsuccessful
 hunts — that's the shape of a normal cat's day. Each link in the chain is
 self-rewarding: the stalk feels good even when the pounce misses.
 
-Two things follow from this, and they explain almost every "behaviour
-problem" people write to us about.
+Two things follow from this, and they explain most of the "behavior
+problems" people run into with indoor cats.
 
 **First, the chain needs somewhere to run.** A cat who never gets to stalk
 anything will stalk what's available, which is your foot at the top of the
@@ -58,7 +58,7 @@ It sets out five pillars of a healthy feline environment:
 1. **A safe place** — a private, elevated, enclosed retreat per cat.
 2. **Multiple and separated key resources** — food, water, litter,
    scratching, play, and resting spots, spread out rather than clustered.
-3. **Opportunity for play and predatory behaviour** — the chain above, daily.
+3. **Opportunity for play and predatory behavior** — the chain above, daily.
 4. **Positive, consistent, predictable human interaction** — on the cat's
    terms, in a rhythm she can anticipate.
 5. **An environment that respects the cat's sense of smell** — her scent
@@ -68,7 +68,7 @@ Note what pillar 3 is doing there. Play isn't filed under enrichment
 extras — it sits alongside food, water, and a safe place to sleep, because
 an unexpressed predatory drive shows up in a clinic as
 stress-related illness, over-grooming, inter-cat aggression, and
-inappropriate elimination. Boredom is a medical issue with a behavioural
+inappropriate elimination. Boredom is a medical issue with a behavioral
 face.
 
 ## Vertical space is not decoration
@@ -192,12 +192,12 @@ new spot a few times a season re-opens a view she'd stopped watching.
 ## A realistic timeline
 
 Give it two weeks of the two-sessions-a-day protocol plus food out of a
-bowl and into something she has to work for, and the usual report is: less
-night activity, fewer ankle ambushes, better sleep for everyone.
+bowl and into something she has to work for. What you can reasonably expect
+is less night activity, fewer ankle ambushes, and better sleep for everyone.
 
 What enrichment won't fix is illness. A sudden change — new night-time
 vocalizing in an older cat, straining in the litter box, new
 over-grooming, appetite swings — needs a vet, not a new toy.
 Hyperthyroidism, pain, cystitis, and cognitive decline all imitate
-behaviour problems, and no amount of play will touch them. Rule those out
+behavior problems, and no amount of play will touch them. Rule those out
 first, then come back to the wand toy.

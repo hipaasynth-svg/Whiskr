@@ -16,6 +16,7 @@ const reviewLink = require('./reviewLink');
 const discountToken = require('./discountToken');
 const statusToken = require('./statusToken');
 const claimToken = require('./claimToken');
+const commissionPayToken = require('./commissionPayToken');
 const productCatalog = require('./products');
 const commissionPricing = require('./commissions');
 const orderEconomics = require('./orderEconomics');
@@ -49,6 +50,7 @@ process.on('uncaughtException', (err) => {
 // which would make the vote rate-limiter below useless (every visitor looks
 // like the same "IP").
 app.set('trust proxy', true);
+app.disable('x-powered-by');
 
 const PORT = process.env.PORT || 3000;
 // Rounds run by calendar month in Central time — see nextRoundWindow.
@@ -574,7 +576,7 @@ async function alertAdmin(subject, message) {
       to: process.env.ADMIN_EMAIL,
       subject,
       text: message,
-      html: `<p>${message}</p>`,
+      html: `<p>${seo.escapeHtml(message).replace(/\n/g, '<br>')}</p>`,
     })
     .catch(() => {});
 }
@@ -984,7 +986,7 @@ async function fulfillCheckoutSession(session) {
           .catch((err) => console.error('[mailer] commission confirmation failed:', err.message));
         await alertAdmin(
           `Commission #${orderId} booked — deposit paid`,
-          `${booking.email} booked a ${booking.size_id} original${Number(booking.rush) ? ' (RUSH, under 10 days)' : ''}. Deposit $${Number(booking.deposit_usd).toFixed(2)} paid, balance $${Number(booking.balance_usd).toFixed(2)} due before shipping. Reference photo and notes are in admin.html.`
+          `${booking.email} booked a ${booking.size_id} original${Number(booking.rush) ? ' (RUSH, under 10 days)' : ''}. Deposit $${Number(booking.deposit_usd).toFixed(2)} paid, balance $${Number(booking.balance_usd).toFixed(2)} due before shipping. Reference photo: ${booking.photo_path && booking.photo_path.startsWith('http') ? booking.photo_path : BASE_URL + booking.photo_path}${booking.notes ? `\nNotes: ${booking.notes}` : ''}\nCustomer: ${booking.customer_name || 'no name given'}, cat: ${booking.pet_name || 'not given'}.`
         );
       }
     } else {
@@ -1095,8 +1097,17 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
     const obj = event.data.object;
     const paymentIntent = obj.payment_intent;
     const newStatus = event.type === 'charge.refunded' ? 'refunded' : 'disputed';
+    // charge.refunded also fires for a PARTIAL refund (a shipping refund, a
+    // goodwill credit). Only a full refund ends an order; a partial one just
+    // tells a human, and the order carries on.
+    const partialRefund = event.type === 'charge.refunded' && obj.refunded === false;
     try {
-      if (paymentIntent) {
+      if (paymentIntent && partialRefund) {
+        await alertAdmin(
+          'Partial refund issued',
+          `Stripe reports a partial refund on payment ${paymentIntent} ($${(Number(obj.amount_refunded || 0) / 100).toFixed(2)} of $${(Number(obj.amount || 0) / 100).toFixed(2)}). The order's status was left as it was.`
+        );
+      } else if (paymentIntent) {
         const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent, limit: 1 });
         const session = sessions.data[0];
         const orderType = session && session.metadata && session.metadata.orderType;
@@ -1636,6 +1647,10 @@ async function tallyAndCloseContest(contestId) {
   const winners = ranked.slice(0, winnersCount);
 
   const groupId = await db.transaction(async (tx) => {
+    // Claim the close first: a second concurrent run finds the round no
+    // longer 'open' and stops here, so nobody is emailed or awarded twice.
+    const claimed = await tx.run(`UPDATE contests SET status = 'closing' WHERE id = ? AND status = 'open'`, [contestId]);
+    if (claimed.changes === 0) return null;
     for (let i = 0; i < ranked.length; i++) {
       await tx.run(`UPDATE submissions SET final_rank = ? WHERE id = ?`, [i + 1, ranked[i].id]);
     }
@@ -1650,6 +1665,7 @@ async function tallyAndCloseContest(contestId) {
     await tx.run(`UPDATE contests SET status = 'completed', group_id = ? WHERE id = ?`, [gid, contestId]);
     return gid;
   });
+  if (!groupId) return null;
 
   for (let i = 0; i < ranked.length; i++) {
     const s = ranked[i];
@@ -2054,7 +2070,7 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message || 'Something went wrong.' });
+    res.status(500).json({ error: 'Something went wrong on our end — please try again, or email contest@whiskr.lol.' });
   }
 });
 
@@ -2911,7 +2927,9 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
         subtotalUsd: amount,
       }),
       automatic_tax: { enabled: true },
-      payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
+      // receipt_email makes Stripe send its receipt even if receipts are off in
+      // the dashboard — the order-success banner and shipping.html promise one.
+      payment_intent_data: { statement_descriptor_suffix: 'WHISKR', receipt_email: email },
       line_items: [
         {
           price_data: {
@@ -2941,7 +2959,7 @@ app.post('/api/custom-orders', upload.single('photo'), async (req, res) => {
     res.json({ ok: true, url: session.url, lowResolution, width, height, discountPercent, amount, metaEventId: checkoutEventId });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message || 'Something went wrong.' });
+    res.status(500).json({ error: 'Something went wrong on our end — please try again, or email contest@whiskr.lol.' });
   }
 });
 
@@ -3045,7 +3063,7 @@ app.post('/api/commissions', upload.single('photo'), async (req, res) => {
       // is a revenue decision, not a bug fix. Left for the owner to price
       // in deliberately rather than bolted on here.
       automatic_tax: { enabled: true },
-      payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
+      payment_intent_data: { statement_descriptor_suffix: 'WHISKR', receipt_email: email },
       line_items: [
         {
           price_data: {
@@ -3070,7 +3088,7 @@ app.post('/api/commissions', upload.single('photo'), async (req, res) => {
     res.json({ ok: true, url: session.url, quote, lowResolution, width, height });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message || 'Something went wrong.' });
+    res.status(500).json({ error: 'Something went wrong on our end — please try again, or email contest@whiskr.lol.' });
   }
 });
 
@@ -3144,7 +3162,7 @@ app.post('/api/checkout', async (req, res) => {
         subtotalUsd: unitPrice * qty,
       }),
       automatic_tax: { enabled: true },
-      payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
+      payment_intent_data: { statement_descriptor_suffix: 'WHISKR', ...(isValidEmail(email) ? { receipt_email: email } : {}) },
       line_items: [
         {
           price_data: {
@@ -3172,10 +3190,28 @@ app.post('/api/checkout', async (req, res) => {
 
 // Unsubscribe link included in commercial result emails (CAN-SPAM requires
 // a working one-click opt-out on any email carrying a purchase pitch).
+// A minimal branded page for one-line outcomes (unsubscribe, payment links).
+function simplePage(heading, body) {
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<title>${seo.escapeHtml(heading)} — Whiskr</title><meta name="robots" content="noindex, nofollow" />
+<link rel="stylesheet" href="/style.css" /></head>
+<body><main style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;">
+<h1>${seo.escapeHtml(heading)}</h1>
+<p>${body}</p>
+<p><a href="/">Back to Whiskr</a></p>
+</main></body></html>`;
+}
+
 app.get('/api/unsubscribe', async (req, res) => {
   const { email, token } = req.query;
+  res.set('Content-Type', 'text/html; charset=utf-8');
   if (!unsubscribe.verify(email, token)) {
-    return res.status(400).send('Invalid or expired unsubscribe link.');
+    return res.status(400).send(simplePage(
+      'This link isn\'t valid',
+      'This unsubscribe link isn\'t valid. Use the link from your most recent Whiskr email, or email <a href="mailto:contest@whiskr.lol">contest@whiskr.lol</a> and we\'ll take you off the list.'
+    ));
   }
   const lowerEmail = String(email).toLowerCase();
   await db.run(`INSERT INTO suppressions (email, created_at) VALUES (?, ?) ON CONFLICT (email) DO NOTHING`, [
@@ -3189,7 +3225,10 @@ app.get('/api/unsubscribe', async (req, res) => {
     new Date().toISOString(),
     lowerEmail,
   ]);
-  res.send('You have been unsubscribed from Whiskr emails.');
+  res.send(simplePage(
+    "You're unsubscribed",
+    "You won't get promotional emails from Whiskr any more. We'll still email you about things you started yourself — an order, a commission, or a prize your cat won."
+  ));
 });
 
 // Standalone newsletter/marketing signup — for a visitor who wants updates
@@ -3897,50 +3936,96 @@ app.post('/api/admin/commissions/:id/request-balance', requireAdmin, async (req,
       });
     }
 
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      customer_email: booking.email,
-      automatic_tax: { enabled: true },
-      payment_intent_data: { statement_descriptor_suffix: 'WHISKR' },
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: `Balance — original acrylic${booking.pet_name ? ` of ${booking.pet_name}` : ''}`,
-              description: `Remaining balance on commission #${id}. Deposit of $${Number(booking.deposit_usd).toFixed(2)} already paid.`,
-            },
-            unit_amount: Math.round(Number(booking.balance_usd) * 100),
-            tax_behavior: 'exclusive',
-          },
-          quantity: 1,
-        },
-      ],
-      metadata: { orderType: 'commission_balance', orderId: String(id) },
-      success_url: `${BASE_URL}/commission?paid=1`,
-      cancel_url: `${BASE_URL}/commission`,
-    });
-
-    // Move to balance_pending before emailing: the webhook only settles a
-    // row that is already in this state, so a send that happens first could
-    // race a fast payment and be ignored.
-    await db.run(`UPDATE commissions SET status = 'balance_pending', balance_session_id = ? WHERE id = ?`, [
-      session.id,
-      id,
-    ]);
-
+    // The balance is billed through a permanent signed link rather than a
+    // Checkout URL: Stripe Checkout sessions expire after 24 hours, and a
+    // customer may open this email days later. The link makes a fresh
+    // session each time (GET /api/commissions/:id/pay below).
+    await db.run(`UPDATE commissions SET status = 'balance_pending' WHERE id = ?`, [id]);
+    const payUrl = commissionPayUrl(booking);
+    const paintingImageUrl =
+      typeof req.body.paintingImageUrl === 'string' && /^https?:\/\//i.test(req.body.paintingImageUrl)
+        ? req.body.paintingImageUrl
+        : null;
     await mailer.sendCommissionBalanceDue({
       email: booking.email,
       petName: booking.pet_name,
       balanceUsd: Number(booking.balance_usd).toFixed(2),
-      payUrl: session.url,
-      paintingImageUrl: typeof req.body.paintingImageUrl === 'string' ? req.body.paintingImageUrl : null,
+      payUrl,
+      paintingImageUrl,
     });
 
-    res.json({ ok: true, url: session.url });
+    res.json({ ok: true, url: payUrl });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Could not request the balance.' });
+  }
+});
+
+function commissionPayUrl(booking) {
+  return `${BASE_URL}/api/commissions/${booking.id}/pay?token=${commissionPayToken.tokenFor(booking.id, booking.email)}`;
+}
+
+// A Checkout session for a commission's remaining balance.
+async function createBalanceSession(booking) {
+  return stripe.checkout.sessions.create({
+    mode: 'payment',
+    customer_email: booking.email,
+    automatic_tax: { enabled: true },
+    payment_intent_data: { statement_descriptor_suffix: 'WHISKR', receipt_email: booking.email },
+    line_items: [
+      {
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: `Balance — original acrylic${booking.pet_name ? ` of ${booking.pet_name}` : ''}`,
+            description: `Remaining balance on commission #${booking.id}. Deposit of $${Number(booking.deposit_usd).toFixed(2)} already paid.`,
+          },
+          unit_amount: Math.round(Number(booking.balance_usd) * 100),
+          tax_behavior: 'exclusive',
+        },
+        quantity: 1,
+      },
+    ],
+    metadata: { orderType: 'commission_balance', orderId: String(booking.id) },
+    success_url: `${BASE_URL}/commission?paid=1`,
+    cancel_url: `${BASE_URL}/commission`,
+  });
+}
+
+// The "Pay the balance" link from the painting-finished email. Signed, and
+// good for as long as the balance is outstanding: each visit retires the
+// previous Checkout session and opens a new one.
+app.get('/api/commissions/:id/pay', async (req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  try {
+    const id = parseRowId(req.params.id);
+    const booking = id === null ? null : await db.get(`SELECT * FROM commissions WHERE id = ?`, [id]);
+    if (!booking || !commissionPayToken.verify(booking.id, booking.email, req.query.token)) {
+      return res.status(403).send(simplePage('This link isn\'t valid', 'Use the payment link from your painting-finished email, or email <a href="mailto:contest@whiskr.lol">contest@whiskr.lol</a> and we\'ll send a new one.'));
+    }
+    if (booking.status === 'balance_paid') {
+      return res.send(simplePage('Already paid — thank you', 'The balance on this painting is paid. It will be varnished, packed and shipped to you. Questions? Email <a href="mailto:contest@whiskr.lol">contest@whiskr.lol</a>.'));
+    }
+    if (booking.status !== 'balance_pending' || !stripe) {
+      return res.status(409).send(simplePage('This payment isn\'t open right now', 'Email <a href="mailto:contest@whiskr.lol">contest@whiskr.lol</a> and we\'ll sort it out.'));
+    }
+    // If the last session was already paid and the webhook hasn't landed yet,
+    // don't open a second one; otherwise retire it so only one can be paid.
+    if (booking.balance_session_id) {
+      const previous = await stripe.checkout.sessions.retrieve(booking.balance_session_id).catch(() => null);
+      if (previous && previous.status === 'complete') {
+        return res.send(simplePage('Payment received', 'Your payment went through and is being confirmed. You\'ll get a receipt by email.'));
+      }
+      if (previous && previous.status === 'open') {
+        await stripe.checkout.sessions.expire(previous.id).catch(() => {});
+      }
+    }
+    const session = await createBalanceSession(booking);
+    await db.run(`UPDATE commissions SET balance_session_id = ? WHERE id = ?`, [session.id, booking.id]);
+    res.redirect(303, session.url);
+  } catch (err) {
+    console.error('[commission pay] failed:', err);
+    res.status(500).send(simplePage('Something went wrong', 'Please try the link again in a minute, or email <a href="mailto:contest@whiskr.lol">contest@whiskr.lol</a>.'));
   }
 });
 
@@ -4438,6 +4523,22 @@ app.get('/api/cron/daily', async (req, res) => {
     console.error('[cron] daily run failed:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Anything no route above answered. API callers parse JSON; people get a
+// real page instead of Express's bare "Cannot GET".
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found.' });
+  res.status(404).set('Content-Type', 'text/html; charset=utf-8').send(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<title>Page not found — Whiskr</title><meta name="robots" content="noindex, nofollow" />
+<link rel="stylesheet" href="/style.css" /></head>
+<body><main style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;">
+<h1>We couldn't find that page.</h1>
+<p>It may have moved, or the link may have been cut short.</p>
+<p><a href="/">Home</a> · <a href="/vote.html">Vote</a> · <a href="/shop">Shop</a></p>
+</main></body></html>`);
 });
 
 // Module scope, not inside app.listen() below — on Vercel this file is

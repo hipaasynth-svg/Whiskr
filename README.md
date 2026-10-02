@@ -1,55 +1,46 @@
 # Whiskr
 
-A pet business, live at **whiskr.lol**, with two things going on:
+**whiskr.lol** is a small cat business with three parts:
 
-- **An evergreen custom print shop** — upload a photo of your cat,
-  pick a product (mug, poster, canvas, phone case, tote, pillow), and it's
-  printed and shipped through Printful. Always open, no batches to wait for.
-- **A free, real-public-vote photo contest** — entry is free and always
-  open; anyone can vote, once per cat, at `vote.html`; when a round closes,
-  the #1 vote-getter ("Cat of the Month") wins a one-of-a-kind original
-  hand-painted portrait, and every entrant is told their final placement.
-  No purchase necessary to enter or win. See `rules.html` for full mechanics.
+- **A free monthly cat photo contest.** Anyone can enter their cat free,
+  and anyone can vote, once per cat. When the month's round closes, the cat
+  with the most votes is Cat of the Month and wins an original 11x16
+  acrylic portrait hand-painted by artist Cody Carlson. No purchase is
+  necessary to enter or win. Full mechanics are in the
+  [official rules](https://whiskr.lol/rules.html).
+- **A custom print shop.** Upload a photo of your cat and order it on a
+  mug, canvas, framed print, poster, phone case, pillow, magnet,
+  sweatshirt and more. Everything is printed to order and shipped by
+  Printful.
+- **Original commissions.** Book an original acrylic painting of your cat
+  directly from Cody Carlson, paid as a 40% deposit and a balance on
+  completion.
 
-Two pieces live here:
+There's also a [blog](https://whiskr.lol/blog) of practical,
+source-cited writing about living with cats.
 
-- **[`cat-calendar-app/`](cat-calendar-app/)** — the real product. A
-  Node/Express backend covering both the print shop and the contest:
-  photo uploads, Printful fulfillment, Stripe checkout + webhook,
-  verified-purchase reviews, an affiliate picks hub, Zoho Mail
-  notifications, anti-fraud vote rate-limiting, and `public/admin.html` for
-  fraud review/fulfillment/review moderation. See its own
-  [README](cat-calendar-app/README.md) for setup, deployment, and
-  before-you-launch notes.
-- **[`prototypes/whisker-cup-landing.html`](prototypes/whisker-cup-landing.html)** —
-  a single-file, client-only design prototype (different visual direction,
-  fully simulated in the browser, no backend). Useful as a design reference;
-  not deployed and not wired to the real app.
+## Where things are
 
-Two things this app deliberately never fabricates:
+- **[`cat-calendar-app/`](cat-calendar-app/)** is the entire product: a
+  Node/Express app deployed on Vercel with Postgres, Vercel Blob and Vercel
+  Cron. Its [README](cat-calendar-app/README.md) covers setup, deployment
+  and day-to-day operation. (The folder name is historical; the site no
+  longer sells calendars. Renaming it would mean changing the Vercel
+  project's root directory at the same time.)
+- **[`CLAUDE.md`](CLAUDE.md)** holds the working rules for anyone, human
+  or AI, changing this code: start from `main`, the pricing floor, and the
+  two legal rules below.
+- **[`docs/audit-assembly.md`](docs/audit-assembly.md)** is the running
+  decision log. Read the most recent sections; older ones describe
+  decisions that have since been reversed.
 
-- **Votes are real, not simulated** — `vote.html` casts a real, rate-limited,
-  one-per-browser-identity vote against a real `votes` row; nothing here
-  fakes a tally with `Math.random()` or a hidden human pick. An earlier
-  version of this app used real human judging specifically to avoid having
-  to build real voting infrastructure — see `docs/audit-assembly.md` for
-  why that changed and what replaced it (rate limits, optional CAPTCHA,
-  hidden live tallies, an admin fraud-review view, disqualification).
-- **Reviews are real or absent, never seeded** — a review can only be
-  created via a signed link tied to an actual paid order, and it stays
-  unapproved until moderated. Fabricated reviews are illegal under the
-  FTC's rule on fake reviews and testimonials (16 CFR Part 465).
+## Two rules that never bend
 
-See `docs/audit-assembly.md` for the full reasoning behind both.
-
-## Start here
-
-If you're setting this up for the first time: go to
-[`cat-calendar-app/README.md`](cat-calendar-app/README.md). In particular,
-don't skip the Stripe webhook setup (orders never get marked paid without
-it) or the Printful setup (custom orders never get printed without it).
-
-If you want to know what was checked and fixed as this app was built —
-security fixes, the judging-vs-voting reversal, the reviews decision, and
-the business/legal items that still need attention before real launch —
-see [`docs/audit-assembly.md`](docs/audit-assembly.md).
+1. **Reviews are real or absent.** A review can only be created through a
+   signed link sent after a real paid order, and it stays hidden until it's
+   approved. There is no seed data and no admin "add review" path.
+   Fabricated reviews are illegal under 16 CFR Part 465.
+2. **The site says what the code does.** Votes are real database rows, rate
+   limited and fraud-checked, and the winner is whoever has the most votes.
+   If the contest mechanics change, the copy, the rules page and the emails
+   change in the same commit.

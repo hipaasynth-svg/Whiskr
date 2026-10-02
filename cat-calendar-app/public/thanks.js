@@ -11,7 +11,7 @@
   const params = new URLSearchParams(window.location.search);
 
   function money(n) {
-    return '$' + Number(n).toFixed(2).replace(/\.00$/, '');
+    return '$' + Number(n).toFixed(2);
   }
 
   function fail(message) {

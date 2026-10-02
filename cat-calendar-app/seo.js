@@ -262,7 +262,7 @@ ${head}
 ${body}
 <footer class="site-footer">
   <div>Whiskr — a free, real-public-vote cat photo contest, plus custom prints of your own cat.</div>
-  <div class="footer-links" style="display:flex;gap:14px;flex-wrap:wrap"><a href="/">Home</a> <a href="/shop">Shop</a> <a href="/shipping.html">Shipping &amp; returns</a> <a href="/privacy.html">Privacy</a> <a href="/terms.html">Terms</a></div>
+  <div class="footer-links"><a href="/">Home</a> · <a href="/shop">Shop</a> · <a href="/vote.html">Vote</a> · <a href="/rules.html">Rules</a> · <a href="/blog">Blog</a> · <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a> · <a href="/shipping.html">Shipping</a></div>
 </footer>
 <script src="/script.js"></script>
 </body>
