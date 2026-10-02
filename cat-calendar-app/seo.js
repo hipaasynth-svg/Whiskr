@@ -1,5 +1,5 @@
 // Server-side rendering helpers so real content — the product catalog, the
-// current contest status, per-batch calendar info — is baked into the HTML
+// current contest status, product pages — is baked into the HTML
 // response instead of arriving only after client JS runs. A crawler (Google,
 // GPTBot, ClaudeBot, PerplexityBot — see robots.txt) that doesn't execute
 // JavaScript sees the same content a real visitor sees; script.js re-fills
