@@ -5,7 +5,7 @@ Blob for uploaded photos, and a daily Vercel Cron job.
 
 What it runs:
 
-- **The contest.** Free entry (photo, name, email, phone), public voting
+- **The contest.** Free entry for U.S. residents 18+ (photo, name, email, phone), public voting
   at `/vote.html`, monthly rounds that close at 11:59 p.m. Central on the
   last day of the month. The #1 vote-getter wins an original 11x16 acrylic.
   The winner has 30 days to claim it at `/claim`; after that it passes to
@@ -142,6 +142,9 @@ Everything is in `/admin.html`. Enter `ADMIN_KEY` and press Load.
   from signed links sent after delivery.
 - **Site alerts.** Failed orders, refunds, disputes and stalled parcels.
   These are also emailed to `ADMIN_EMAIL`.
+- **Daily digest.** Every morning the cron emails `ADMIN_EMAIL` the last
+  24 hours (entries, votes, money taken) and a "needs you" list: failed or
+  stuck print orders, open alerts, reviews to approve, commissions to paint.
 - **Homepage content.** Hero photos, featured originals, promo blocks, the
   footer photo wall, and live painting sessions.
 - **Marketing.** Campaign spend and ROAS, and the opt-in email list.

@@ -242,7 +242,7 @@ async function sendWinnerEmail({ email, catName, claimUrl, claimDeadline }) {
     <p><strong>${safeName} wins a one-of-a-kind original 11x16 acrylic painting of ${safeName}, hand-painted by artist Cody Carlson</strong> (codycarlson.art) — no cost to you. Expect it within 6–8 weeks of sending us your mailing address.</p>
     ${claimUrl ? `<p style="text-align:center;margin:24px 0;"><a href="${claimUrl}" style="background:#E8A33D;color:#1B2430;padding:12px 22px;border-radius:3px;text-decoration:none;font-weight:bold;">Claim your prize</a></p>
     ${claimBy ? `<p><strong>Please claim by ${claimBy}.</strong> If the prize isn't claimed within 30 days, it goes to the runner-up.</p>` : ''}
-    <p>That button takes you to a short form for your mailing address. You can also claim at ${BASE_URL}/claim with the email and phone number you entered with, or just reply to this email.</p>` : `<p>Reply to this email with a mailing address and we'll get started.</p>`}
+    <p>That button takes you to a short form for your U.S. mailing address. You can also claim at ${BASE_URL}/claim with the email and phone number you entered with, or just reply to this email.</p>` : `<p>Reply to this email with a mailing address and we'll get started.</p>`}
     <p>We'll also try to reach you by phone. Congratulations, and thank you for being part of Whiskr.</p>
     <p>— Whiskr</p>
   `,

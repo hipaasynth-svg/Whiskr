@@ -598,6 +598,76 @@ async function alertAdmin(subject, message) {
     .catch(() => {});
 }
 
+// One short email a day to ADMIN_EMAIL from the daily cron: what happened
+// in the last 24 hours, and what is waiting on the owner. The alerts above
+// fire one at a time as things break; this is the summary that confirms
+// the site (and the cron itself) is alive on a quiet day too. Counts and
+// money only, no customer content, so there is nothing to escape.
+async function sendDailyDigest() {
+  if (!process.env.ADMIN_EMAIL) return;
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const count = async (sql, params = []) => Number((await db.get(sql, params)).c || 0);
+  const money = (n) => `$${Number(n || 0).toFixed(2)}`;
+
+  const newEntries = await count(`SELECT COUNT(*) AS c FROM submissions WHERE created_at >= ?`, [since]);
+  const newVotes = await count(`SELECT COUNT(*) AS c FROM votes WHERE created_at >= ?`, [since]);
+  const round = await db.get(`SELECT id, label, closes_at FROM contests WHERE status = 'open' ORDER BY id DESC LIMIT 1`);
+  const roundEntries = round
+    ? await count(`SELECT COUNT(*) AS c FROM submissions WHERE contest_id = ? AND disqualified = 0`, [round.id])
+    : 0;
+
+  // 'pending' is a checkout that was started and never paid; every other
+  // status means Stripe took the money.
+  const orders = await db.get(
+    `SELECT COUNT(*) AS c, COALESCE(SUM(amount_usd), 0) AS total FROM custom_orders WHERE created_at >= ? AND status <> 'pending'`,
+    [since]
+  );
+  const deposits = await db.get(
+    `SELECT COUNT(*) AS c, COALESCE(SUM(deposit_usd), 0) AS total FROM commissions WHERE deposit_paid_at >= ?`,
+    [since]
+  );
+  const balances = await db.get(
+    `SELECT COUNT(*) AS c, COALESCE(SUM(balance_usd), 0) AS total FROM commissions WHERE balance_paid_at >= ?`,
+    [since]
+  );
+  const takings = Number(orders.total) + Number(deposits.total) + Number(balances.total);
+
+  const failedOrders = await count(`SELECT COUNT(*) AS c FROM custom_orders WHERE status = 'failed'`);
+  const stuckOrders = await count(`SELECT COUNT(*) AS c FROM custom_orders WHERE status = 'paid' AND created_at < ?`, [since]);
+  const openAlerts = await count(`SELECT COUNT(*) AS c FROM admin_alerts WHERE resolved = 0`);
+  const reviewQueue = await count(`SELECT COUNT(*) AS c FROM reviews WHERE approved = 0`);
+  const toPaint = await count(`SELECT COUNT(*) AS c FROM commissions WHERE status = 'deposit_paid'`);
+
+  const todo = [];
+  if (failedOrders) todo.push(`${failedOrders} print order(s) failed to reach Printful: retry them in admin`);
+  if (stuckOrders) todo.push(`${stuckOrders} paid print order(s) older than a day still not sent to Printful`);
+  if (openAlerts) todo.push(`${openAlerts} unresolved site alert(s)`);
+  if (reviewQueue) todo.push(`${reviewQueue} review(s) waiting for approval`);
+  if (toPaint) todo.push(`${toPaint} commission(s) booked and waiting to be painted`);
+
+  const lines = [
+    'Last 24 hours',
+    `- Contest: ${newEntries} new entr${newEntries === 1 ? 'y' : 'ies'}, ${newVotes} vote${newVotes === 1 ? '' : 's'}`,
+    `- Print orders: ${orders.c} paid, ${money(orders.total)}`,
+    `- Commissions: ${deposits.c} deposit(s) ${money(deposits.total)}, ${balances.c} balance(s) ${money(balances.total)}`,
+    `- Taken in total: ${money(takings)} (before Stripe fees, Printful and shipping)`,
+    '',
+    round ? `Current round: ${round.label}, ${roundEntries} entr${roundEntries === 1 ? 'y' : 'ies'}, closes ${formatContestClose(round.closes_at)}` : 'No contest round is open.',
+    '',
+    todo.length ? 'Needs you' : 'Nothing needs you today.',
+    ...todo.map((t) => `- ${t}`),
+    '',
+    `Admin: ${BASE_URL}/admin.html`,
+  ];
+  const subject = `Whiskr daily: ${money(takings)} in, ${newEntries} entr${newEntries === 1 ? 'y' : 'ies'}${todo.length ? `, ${todo.length} to do` : ''}`;
+  await mailer.sendMail({
+    to: process.env.ADMIN_EMAIL,
+    subject,
+    text: lines.join('\n'),
+    html: `<p>${seo.escapeHtml(lines.join('\n')).replace(/\n/g, '<br>')}</p>`,
+  });
+}
+
 // Submits a paid custom order to Printful for printing + shipping. Only
 // ever called from the webhook below, after Stripe confirms payment — never
 // at checkout time, and never more than once (custom_orders.status guards
@@ -1867,6 +1937,12 @@ app.post('/api/submissions', upload.single('photo'), async (req, res) => {
     if (photoRights !== 'on' && photoRights !== 'true') {
       return res.status(400).json({ error: 'You must confirm you own the rights to this photo.' });
     }
+    // The contest is open to legal U.S. residents 18+ (public/rules.html,
+    // Eligibility). The prize only ships to a U.S. address, and the claim
+    // form enforces that too; this is the entrant's own confirmation.
+    if (req.body.eligible !== 'on' && req.body.eligible !== 'true') {
+      return res.status(400).json({ error: 'The contest is open to legal U.S. residents 18 and older. Please confirm you are one.' });
+    }
     const ipHash = hashIp(req.ip);
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const ipCount = await db.get(`SELECT COUNT(*) AS c FROM submissions WHERE ip_hash = ? AND created_at >= ?`, [
@@ -2108,7 +2184,8 @@ app.post('/api/claim', async (req, res) => {
       city: clean(req.body.city, 80),
       state: clean(req.body.state, 60),
       zip: clean(req.body.zip, 20),
-      country: clean(req.body.country, 60) || 'United States',
+      // The prize ships to U.S. addresses only (rules.html, Eligibility).
+      country: 'United States',
     };
     if (!name || !address.line1 || !address.city || !address.state || !address.zip) {
       return res.status(400).json({ error: 'Please fill in your name, street address, city, state and ZIP code.' });
@@ -2306,7 +2383,17 @@ async function verifyTurnstile(token, remoteIp) {
       body: params,
     });
     const data = await resp.json();
-    return Boolean(data.success);
+    if (!data.success) return false;
+    // The widget also accepts tokens solved on localhost (Cloudflare adds it
+    // for local development), so a passing token alone doesn't prove it was
+    // solved on this site. Only accept the host we actually serve.
+    const ourHost = new URL(BASE_URL).hostname;
+    const tokenHost = String(data.hostname || '');
+    if (tokenHost !== ourHost && tokenHost !== `www.${ourHost}`) {
+      console.warn(`[turnstile] rejected token solved on ${tokenHost || 'unknown host'}`);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error('[turnstile] verification request failed:', err.message);
     return false;
@@ -4173,6 +4260,13 @@ app.get('/api/cron/daily', async (req, res) => {
       console.error('[cron] Meta ad spend sync failed:', err.message);
     }
     await checkRoasAlerts();
+    // Last, so it reports on everything the steps above just did. A failed
+    // digest is logged, never allowed to fail the cron run.
+    try {
+      await sendDailyDigest();
+    } catch (err) {
+      console.error('[cron] daily digest failed:', err.message);
+    }
     res.json({ ok: true });
   } catch (err) {
     console.error('[cron] daily run failed:', err);
