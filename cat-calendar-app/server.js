@@ -2383,7 +2383,17 @@ async function verifyTurnstile(token, remoteIp) {
       body: params,
     });
     const data = await resp.json();
-    return Boolean(data.success);
+    if (!data.success) return false;
+    // The widget also accepts tokens solved on localhost (Cloudflare adds it
+    // for local development), so a passing token alone doesn't prove it was
+    // solved on this site. Only accept the host we actually serve.
+    const ourHost = new URL(BASE_URL).hostname;
+    const tokenHost = String(data.hostname || '');
+    if (tokenHost !== ourHost && tokenHost !== `www.${ourHost}`) {
+      console.warn(`[turnstile] rejected token solved on ${tokenHost || 'unknown host'}`);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error('[turnstile] verification request failed:', err.message);
     return false;
