@@ -52,13 +52,13 @@ Status key:
   - `payment_intent.payment_failed` doesn't apply to Checkout.
   - Manual capture: *Declined* for now. The new checkout gate covers the real risk.
 - **Data model** (timestamps, cents, foreign keys). *Declined for now.* A migration on a live database for no customer-visible gain. Revisit if reporting needs it.
-- **Observability.** *(Next: daily admin digest)* Failure alerts already exist (failed Printful submissions, refunds, disputes, stalled parcels, prize passes) in admin and by email. The next PR adds a short daily summary email.
+- **Observability.** *(Done)* Failure alerts exist (failed Printful submissions, refunds, disputes, stalled parcels, prize passes) in admin and by email. The daily cron also emails `ADMIN_EMAIL` a short digest: the last 24 hours' entries, votes and money taken, plus anything waiting on the owner.
 
 ## Wording and trust
 
-- **Contest terms.** *(Done; one Owner item)*
+- **Contest terms.** *(Done)*
   - The audit's "judged, not voted" is stale: the contest is real public voting, and the rules, copy and emails all say so.
-  - *Owner:* the rules say entry is open to residents of "the countries this site ships to", which is the US by default. Make that explicitly "the United States"? Recommended.
+  - Owner decided 2026-10-02: open to legal U.S. residents 18+ only. Entrants confirm it with a required checkbox, checked server-side, and the prize ships only to a U.S. address.
 - **Placeholder cat photos (cataas.com).** *(Stale)* Removed. The site uses honest empty states, a real social preview image and favicon, and Product JSON-LD built from the real catalog.
 - **Operational clarity near the buy button.** *(This PR)* A short line under the order form: printed to order by our print partner, ships in 2–5 business days plus delivery, tax and shipping shown at checkout, reprint guarantee. Each product page already says this.
 - **Phone-model field.** *(Done)* Device picker with 52 real Printful variants.
@@ -96,6 +96,5 @@ Status key:
 | Set `BUSINESS_MAILING_ADDRESS` | Vercel | Promotional emails won't send without it (CAN-SPAM). |
 | Set `CRON_SECRET`, `IP_HASH_SALT`, `ADMIN_EMAIL` | Vercel | Locks the daily job, salts stored IP hashes, and gives alerts somewhere to go. |
 | Set `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Vercel (keys from Cloudflare) | Bot check on voting before ads run. |
-| Decide: contest open to US residents only? | Reply in chat | Changes the rules page wording. |
 | Switch the tote bag off in admin | /admin.html → Shop products | Printful won't quote shipping for it. |
 | Upload product photos; submit the sitemap in Google Search Console | Admin; search.google.com/search-console | Google Shopping needs images. |
