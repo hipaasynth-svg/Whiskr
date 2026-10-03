@@ -28,6 +28,7 @@ const sweatshirtSizes = require('./sweatshirtSizes');
 const metaAds = require('./metaAds');
 const metaConversions = require('./metaConversions');
 const seo = require('./seo');
+const socialPost = require('./socialPost');
 const blog = require('./blog');
 
 const app = express();
@@ -598,11 +599,51 @@ async function alertAdmin(subject, message) {
     .catch(() => {});
 }
 
+// The "Post today" block of the digest. Never allowed to stop the digest
+// itself going out: a failure here drops the block and says so.
+async function dailySocialPostLines(round) {
+  try {
+    let entryCount = 0;
+    let daysLeft = null;
+    let spotlightEntry = null;
+    if (round) {
+      entryCount = Number((await db.get(
+        `SELECT COUNT(*) AS c FROM submissions WHERE contest_id = ? AND disqualified = 0`, [round.id]
+      )).c || 0);
+      daysLeft = Math.max(0, Math.ceil((new Date(round.closes_at) - Date.now()) / (24 * 60 * 60 * 1000)));
+      spotlightEntry = await db.get(
+        `SELECT cat_name, photo_path FROM submissions WHERE contest_id = ? AND disqualified = 0 ORDER BY RANDOM() LIMIT 1`,
+        [round.id]
+      );
+    }
+    const lastCompleted = await db.get(
+      `SELECT winner_submission_id FROM groups WHERE status = 'completed' ORDER BY id DESC LIMIT 1`
+    );
+    const lastWinner = lastCompleted
+      ? await db.get(`SELECT cat_name, photo_path FROM submissions WHERE id = ?`, [lastCompleted.winner_submission_id])
+      : null;
+    const post = socialPost.todaysPost({
+      now: new Date(),
+      baseUrl: BASE_URL,
+      daysLeft,
+      entryCount,
+      lastWinner: lastWinner || null,
+      spotlightEntry: spotlightEntry || null,
+      commissionFromUsd: Math.min(...commissionPricing.publicPricing().sizes.map((sz) => sz.priceUsd)),
+    });
+    return socialPost.formatForEmail(post);
+  } catch (err) {
+    console.error('[digest] social post suggestion failed:', err.message);
+    return ['Post today: (could not be generated today — see logs)'];
+  }
+}
+
 // One short email a day to ADMIN_EMAIL from the daily cron: what happened
 // in the last 24 hours, and what is waiting on the owner. The alerts above
 // fire one at a time as things break; this is the summary that confirms
-// the site (and the cron itself) is alive on a quiet day too. Counts and
-// money only, no customer content, so there is nothing to escape.
+// the site (and the cron itself) is alive on a quiet day too. Mostly counts
+// and money; the "Post today" block can carry an entrant's cat name, which
+// the html part escapes along with everything else.
 async function sendDailyDigest() {
   if (!process.env.ADMIN_EMAIL) return;
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -656,6 +697,8 @@ async function sendDailyDigest() {
     '',
     todo.length ? 'Needs you' : 'Nothing needs you today.',
     ...todo.map((t) => `- ${t}`),
+    '',
+    ...(await dailySocialPostLines(round)),
     '',
     `Admin: ${BASE_URL}/admin.html`,
   ];
