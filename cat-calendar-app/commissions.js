@@ -17,8 +17,8 @@
 
 const SIZES = [
   { id: '11x16', label: '11x16"', priceUsd: 425 },
-  { id: '16x20', label: '16x20"', priceUsd: 650 },
-  { id: '18x24', label: '18x24"', priceUsd: 850 },
+  { id: '16x20', label: '16x20"', priceUsd: 771 },
+  { id: '18x24', label: '18x24"', priceUsd: 1041 },
 ];
 
 const RUSH_USD = 125; // finished in under 10 days
