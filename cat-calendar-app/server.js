@@ -1401,10 +1401,18 @@ async function renderIndexHtml() {
   return html;
 }
 
+// The rendered homepage and shop pages are the same for every visitor, so
+// Vercel's edge can serve them for a minute without starting the function or
+// touching Postgres. Set only after a successful render, so a fallback to the
+// plain static file is never the thing that gets cached.
+const EDGE_CACHE = 'public, s-maxage=60, stale-while-revalidate=300';
+
 app.get(['/', '/index.html'], async (req, res, next) => {
   try {
+    const html = await renderIndexHtml();
     res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(await renderIndexHtml());
+    res.set('Cache-Control', EDGE_CACHE);
+    res.send(html);
   } catch (err) {
     console.error('[render] index prerender failed, falling back to static file:', err.message);
     next(); // let express.static below serve the plain file
@@ -1417,6 +1425,7 @@ app.get('/shop', async (req, res, next) => {
   try {
     const products = await liveProducts();
     res.set('Content-Type', 'text/html; charset=utf-8');
+    res.set('Cache-Control', EDGE_CACHE);
     res.send(seo.renderShopIndex({ products, baseUrl: BASE_URL, freeShippingUsd: orderEconomics.FREE_SHIPPING_THRESHOLD_USD }));
   } catch (err) {
     console.error('[render] /shop failed:', err.message);
@@ -1430,6 +1439,7 @@ app.get('/shop/:id', async (req, res, next) => {
     const product = products.find((p) => p.id === req.params.id);
     res.set('Content-Type', 'text/html; charset=utf-8');
     if (!product) return res.status(404).send(seo.renderShopNotFound());
+    res.set('Cache-Control', EDGE_CACHE);
     res.send(seo.renderProductPage({
       product,
       others: products.filter((p) => p.id !== product.id),
